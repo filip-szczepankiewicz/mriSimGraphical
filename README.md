@@ -1,0 +1,32 @@
+# MRI simulators for visualization
+Designed by Filip Sz (Lund University) and coded by Claude (Anthropic).
+
+Three interactive MRI physics visualisations. Each is a single
+self-contained HTML file that should run well on both PCs and phones.
+
+**These are teaching aids, not quantitative simulators.** They are meant for
+showing the basic ideas and for making figures and clips, not for predicting
+signal or reproducing measurements. The models are deliberately simplified —
+single voxel, non-selective hard pulses, one spatial axis, no diffusion or flow,
+approximate relaxation values that are not field-strength corrected. 
+
+## `mriRelaxSim_0_3_1.html` — Spin packets (v0.3.1)
+
+Where T1, T2 and T2\* come from. An isochromat ensemble driven by three separate
+mechanisms — T1 relaxation, spin–spin fluctuation with a correlation time, and a
+static ΔB₀ spread — shown as a 3D view, a transverse plane and a signal plot with
+analytic envelopes. Hard or finite-duration RF pulses, and a spin-echo demo.
+
+## `mriSeqSim_v1_4_1.html` — Sequence sim (v1.4.1)
+
+Bloch-equation spin dynamics for seven sequences (FID, saturation recovery, spin
+echo, CPMG, spoiled GRE, IR-SE, bSSFP) plus a nutation demo, with a tissue
+library including two-compartment mixtures, STIR/FLAIR nulling, and slow motion
+at RF pulses, gradients and acquisition. Records a full pass as a video.
+
+## `mriFieldSim_095.html` — Field sim (v0.9.5)
+
+3D view of the ideal gradient field and the concomitant (Maxwell) terms that come
+with it: gradients to 200 mT/m, B₀ from 0.01 to 20 T, an optional ΔB surface, and
+gradient modulation during capture. Orbit, wiggle or still recording for slides.
+The concomitant field itself is computed from the closed-form expression.
