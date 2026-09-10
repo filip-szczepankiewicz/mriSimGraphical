@@ -1,0 +1,1023 @@
+<!doctype html>
+<!--
+  Spin packets & relaxation — a teaching visualisation of T1, T2 and T2*
+  Designed by Filip Sz (Lund University) and coded by Claude (Anthropic).
+
+  Single self-contained file: no build step, no network, no dependencies.
+  Version history lives in the CHANGELOG constant in the script below and is
+  shown in the sidebar; bump VERSION whenever you change the physics or the UI.
+  VERSION is the single source of truth — this header deliberately does not repeat it.
+  Release the file as mriRelaxSim_<VERSION>.html, e.g. mriRelaxSim_0.3.1.html,
+  so the version is visible without opening it.
+-->
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Spin packets — T1, T2 and T2* relaxation</title>
+<style>
+:root{
+  --bg:#0e1219; --panel:#151b24; --panel2:#1b2230; --rule:#26303f;
+  --text:#ccd6e4; --muted:#7c8a9d; --dim:#4d5a6b;
+  --axis:#5c6b7e; --grid:#1f2836;
+  --mxy:#e2554d; --mz:#5b8cff; --env:#7c8a9d;
+  --accent:#2fb6b0;
+  --iso-lo:#4a6fe0; --iso-mid:#8e9aab; --iso-hi:#e0574a;
+  --btn:#1b2230; --btnh:#232c3c; --btna:#2a3547;
+}
+html[data-theme="light"]{
+  --bg:#f2f4f7; --panel:#ffffff; --panel2:#f7f9fb; --rule:#d7dde5;
+  --text:#1b2430; --muted:#5f6c7d; --dim:#9aa5b3;
+  --axis:#8b96a4; --grid:#e6eaf0;
+  --mxy:#9e1810; --mz:#123a9e; --env:#8b96a4;
+  --accent:#0f8f8a;
+  --iso-lo:#1a4bd6; --iso-mid:#8b93a0; --iso-hi:#c4291a;
+  --btn:#eef1f5; --btnh:#e4e9f0; --btna:#d9e0ea;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0; background:var(--bg); color:var(--text);
+  font:12.5px/1.45 ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
+  -webkit-font-smoothing:antialiased;
+  display:grid; grid-template-columns:300px 1fr; height:100vh; overflow:hidden;
+}
+/* ------------------------------------------------------------- rail */
+#rail{background:var(--panel); border-right:1px solid var(--rule); overflow-y:auto; padding:0 0 24px}
+#rail::-webkit-scrollbar{width:9px}
+#rail::-webkit-scrollbar-thumb{background:var(--rule)}
+#head{padding:12px 14px 10px; border-bottom:1px solid var(--rule); display:flex; align-items:flex-start; gap:8px}
+#head h1{font-size:12.5px; font-weight:600; margin:0; letter-spacing:.02em}
+#head p{margin:3px 0 0; color:var(--muted); font-size:11px; line-height:1.35}
+#theme{margin-left:auto; flex:none}
+section{border-bottom:1px solid var(--rule); padding:11px 14px 13px}
+h2{
+  font-size:10px; font-weight:600; letter-spacing:.14em; text-transform:uppercase;
+  color:var(--dim); margin:0 0 9px;
+}
+.row{display:flex; gap:6px; flex-wrap:wrap}
+button{
+  font:inherit; font-size:11.5px; color:var(--text); background:var(--btn);
+  border:1px solid var(--rule); border-radius:3px; padding:5px 9px; cursor:pointer;
+}
+button:hover{background:var(--btnh)}
+button:active{background:var(--btna)}
+button[aria-pressed="true"]{border-color:var(--accent); color:var(--accent)}
+button:focus-visible,input:focus-visible{outline:2px solid var(--accent); outline-offset:2px}
+.ctl{margin:0 0 11px}
+.ctl:last-child{margin-bottom:0}
+.lab{display:flex; justify-content:space-between; align-items:baseline; gap:8px; margin-bottom:3px}
+.lab span:first-child{color:var(--text)}
+.val{color:var(--muted); font-size:11px; font-variant-numeric:tabular-nums}
+.sub{color:var(--dim); font-size:10.5px; line-height:1.35; margin:2px 0 0}
+input[type=range]{
+  -webkit-appearance:none; appearance:none; width:100%; height:16px; background:transparent; margin:0; cursor:pointer;
+}
+input[type=range]::-webkit-slider-runnable-track{height:2px; background:var(--rule)}
+input[type=range]::-moz-range-track{height:2px; background:var(--rule)}
+input[type=range]::-webkit-slider-thumb{
+  -webkit-appearance:none; width:11px; height:11px; border-radius:50%;
+  background:var(--accent); margin-top:-4.5px; border:none;
+}
+input[type=range]::-moz-range-thumb{width:11px; height:11px; border-radius:50%; background:var(--accent); border:none}
+label.chk{display:flex; align-items:center; gap:7px; padding:2.5px 0; cursor:pointer; font-size:11.5px}
+input[type=checkbox]{accent-color:var(--accent); margin:0; cursor:pointer}
+select{
+  font:inherit; font-size:11.5px; color:var(--text); background:var(--btn);
+  border:1px solid var(--rule); border-radius:3px; padding:4px 6px; width:100%; cursor:pointer;
+}
+select:focus-visible{outline:2px solid var(--accent); outline-offset:2px}
+.step{display:flex; align-items:center; gap:7px}
+.step input[type=range]{flex:1}
+.step button{padding:2px 8px; line-height:1.3; font-size:13px}
+#vN{min-width:26px; text-align:right; color:var(--text)}
+table.read{width:100%; border-collapse:collapse; font-size:11.5px; font-variant-numeric:tabular-nums}
+table.read td{padding:2px 0}
+table.read td:last-child{text-align:right; color:var(--muted)}
+table.read tr.hi td:last-child{color:var(--text)}
+.k{display:inline-block; width:9px; height:9px; border-radius:2px; vertical-align:baseline; margin-right:5px}
+#note{color:var(--muted); font-size:11px; line-height:1.5}
+#note b{color:var(--text); font-weight:600}
+.sub em{color:var(--muted); font-style:italic}
+#about .sub b{color:var(--text); font-weight:600}
+#about #authors{color:var(--text)}
+#about details{margin-top:9px}
+#about summary{
+  cursor:pointer; color:var(--muted); font-size:11px; list-style:none;
+  padding:3px 0; border-top:1px solid var(--rule);
+}
+#about summary::-webkit-details-marker{display:none}
+#about summary::before{content:"▸ "; color:var(--dim)}
+#about details[open] summary::before{content:"▾ "}
+#about summary:hover{color:var(--text)}
+#about #vTag{color:var(--accent)}
+#about ol{margin:6px 0 0; padding-left:0; list-style:none}
+#about li{color:var(--dim); font-size:10.5px; line-height:1.45; margin-bottom:6px}
+#about li b{color:var(--muted); font-weight:600; font-variant-numeric:tabular-nums}
+/* ------------------------------------------------------------- views */
+main{display:grid; grid-template-rows:minmax(0,1fr) 232px; min-width:0; overflow:hidden}
+#top{display:grid; grid-template-columns:1fr 1fr; min-height:0; border-bottom:1px solid var(--rule)}
+.pane{position:relative; min-width:0; min-height:0}
+.pane+.pane{border-left:1px solid var(--rule)}
+.pane canvas{position:absolute; inset:0; width:100%; height:100%; display:block}
+.tag{
+  position:absolute; top:9px; left:12px; z-index:2; pointer-events:none;
+  font-size:10px; letter-spacing:.13em; text-transform:uppercase; color:var(--dim);
+}
+.hint{position:absolute; bottom:8px; right:12px; z-index:2; pointer-events:none; font-size:10px; color:var(--dim)}
+#cv3d{cursor:grab}
+#cv3d.drag{cursor:grabbing}
+@media (max-width:960px){
+  body{grid-template-columns:1fr; grid-template-rows:auto 1fr; overflow:auto}
+  #rail{border-right:none; border-bottom:1px solid var(--rule)}
+  main{height:78vh}
+  #top{grid-template-columns:1fr; grid-template-rows:1fr 1fr}
+  .pane+.pane{border-left:none; border-top:1px solid var(--rule)}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+
+<div id="rail">
+  <div id="head">
+    <div>
+      <h1>Spin packets &amp; relaxation</h1>
+      <p>A qualitative picture of where T1, T2 and T2* come from.</p>
+    </div>
+    <button id="theme" title="Switch colour scheme">Dark</button>
+  </div>
+
+  <section>
+    <h2>Transport</h2>
+    <div class="row">
+      <button id="play">Pause</button>
+      <button id="reset">Reset</button>
+      <button id="p30">30°<sub>x</sub></button>
+      <button id="p90">90°<sub>x</sub></button>
+      <button id="p180">180°<sub>x</sub></button>
+      <button id="echo">Spin echo</button>
+    </div>
+    <div class="ctl" style="margin-top:11px">
+      <div class="lab"><span>Playback speed</span><span class="val" id="vSpeed"></span></div>
+      <input type="range" id="sSpeed" min="0" max="100" value="42">
+    </div>
+    <div class="ctl">
+      <div class="lab"><span>RF pulse duration</span><span class="val" id="vDur"></span></div>
+      <input type="range" id="sDur" min="0" max="100" value="40">
+      <p class="sub" id="subDur"></p>
+    </div>
+    <p class="sub">Space plays/pauses · R resets · 3, 9 and 8 fire the pulses.</p>
+  </section>
+
+  <section>
+    <h2>Ensemble</h2>
+    <div class="ctl">
+      <div class="lab"><span>Number of spin packets</span><span class="val" id="vN"></span></div>
+      <div class="step">
+        <button id="nDn" title="Fewer packets">−</button>
+        <input type="range" id="sN" min="1" max="240" value="48">
+        <button id="nUp" title="More packets">+</button>
+      </div>
+      <p class="sub">Few packets: you can follow individual arrows, but the net vector is noisy. Many: a smooth signal that matches the analytic envelope.</p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Mechanisms</h2>
+
+    <div class="ctl">
+      <div class="lab"><span>T1 · spin–lattice</span><span class="val" id="vT1"></span></div>
+      <input type="range" id="s1" min="0" max="100" value="18">
+      <p class="sub">Energy exchange with the lattice. Pushes M<sub>z</sub> back to M<sub>0</sub>, and shortens the packets as they stand up.</p>
+    </div>
+
+    <div class="ctl">
+      <div class="lab"><span>T2 · spin–spin</span><span class="val" id="vT2p"></span></div>
+      <input type="range" id="s2" min="0" max="100" value="30">
+      <p class="sub">Randomly fluctuating local fields from neighbouring spins. Each packet wanders in phase — irreversible. This is the spin–spin contribution <em>alone</em>: T1 always adds R1/2 on top, so the T2 in the readout can never exceed 2·T1 however far left you drag this.</p>
+    </div>
+
+    <div class="ctl">
+      <div class="lab"><span>&nbsp;&nbsp;↳ fluctuation memory τ<sub>c</sub></span><span class="val" id="vTc"></span></div>
+      <input type="range" id="sTc" min="0" max="100" value="46">
+      <p class="sub">How long a local field keeps its value. At τ<sub>c</sub> = 0 the kicks are white noise and the arrows shiver; longer τ<sub>c</sub> gives the same long-time T2 with a much calmer picture. Keep it well below the echo time: a field that is still remembered at the 180° is partly refocused too, which is real (it is why CPMG works) but muddies the story.</p>
+    </div>
+
+    <div class="ctl">
+      <div class="lab"><span>T2* · ΔB<sub>0</sub> spread</span><span class="val" id="vT2s"></span></div>
+      <input type="range" id="s3" min="0" max="100" value="45">
+      <p class="sub">Static field inhomogeneity. Each packet keeps a fixed offset frequency and fans out predictably — a 180° pulse brings it back.</p>
+    </div>
+
+    <div class="ctl">
+      <div class="lab"><span>&nbsp;&nbsp;↳ ΔB<sub>0</sub> distribution</span></div>
+      <select id="dist">
+        <option value="uniform">Uniform — clearest fan</option>
+        <option value="gauss" selected>Gaussian — realistic shim</option>
+        <option value="lorentz">Lorentzian — gives exp(−t/T2*)</option>
+      </select>
+    </div>
+  </section>
+
+  <section>
+    <h2>Display</h2>
+    <div class="ctl">
+      <div class="lab"><span>Plot window</span><span class="val" id="vW"></span></div>
+      <input type="range" id="sW" min="0" max="100" value="45">
+    </div>
+    <label class="chk"><input type="checkbox" id="cPack" checked> Individual packets</label>
+    <label class="chk"><input type="checkbox" id="cNet" checked> Net magnetisation</label>
+    <label class="chk"><input type="checkbox" id="cTrail" checked> Trail of the net vector</label>
+    <label class="chk"><input type="checkbox" id="cEnv" checked> Analytic envelopes</label>
+    <label class="chk"><input type="checkbox" id="cRot" checked> Rotating frame</label>
+  </section>
+
+  <section>
+    <h2>Readout</h2>
+    <table class="read">
+      <tr><td>t</td><td id="rT"></td></tr>
+      <tr><td>T1</td><td id="rT1"></td></tr>
+      <tr><td>T2</td><td id="rT2"></td></tr>
+      <tr><td>T2*</td><td id="rT2s"></td></tr>
+      <tr class="hi"><td><i class="k" style="background:var(--mxy)"></i>|M<sub>xy</sub>|</td><td id="rMxy"></td></tr>
+      <tr class="hi"><td><i class="k" style="background:var(--mz)"></i>M<sub>z</sub></td><td id="rMz"></td></tr>
+    </table>
+  </section>
+
+  <section>
+    <h2>What to look for</h2>
+    <p id="note"></p>
+  </section>
+
+  <section id="about" style="border-bottom:none">
+    <h2>About</h2>
+    <p class="sub" style="margin-top:0">
+      <span id="authors"></span>.
+      Qualitative teaching tool — the mechanisms are modelled, not measured.
+    </p>
+    <details>
+      <summary><span id="vTag"></span> · version history</summary>
+      <ol id="log"></ol>
+    </details>
+  </section>
+</div>
+
+<main>
+  <div id="top">
+    <div class="pane">
+      <div class="tag">Spin packets — 3D</div>
+      <canvas id="cv3d"></canvas>
+      <div class="hint">drag to orbit</div>
+    </div>
+    <div class="pane">
+      <div class="tag">Transverse plane — view down z</div>
+      <canvas id="cvxy"></canvas>
+      <div class="hint" id="hintCol">colour = local ΔB₀</div>
+    </div>
+  </div>
+  <div class="pane">
+    <div class="tag">Signal</div>
+    <canvas id="cvsig"></canvas>
+  </div>
+</main>
+
+<script>
+/* ==================== PHYSICS CORE (pure, no DOM) ==================== */
+/*  Units: time in ms, angular frequency in rad/ms, M normalised to M0 = 1.
+ *
+ *  Each spin packet (isochromat) is a magnetisation vector (mx,my,mz).
+ *  Three things act on it, and each maps onto one slider:
+ *
+ *    R1   spin-lattice.  mz relaxes to 1; the transverse part decays at R1/2,
+ *                        which is why T2 can never exceed 2*T1.
+ *    R2s  spin-spin.     each packet sits in a randomly fluctuating local field
+ *                        w(t): an Ornstein-Uhlenbeck process with correlation
+ *                        time tc and variance R2s/tc. For t >> tc the coherence
+ *                        decays as exp(-R2s*t), independent of tc, so tc changes
+ *                        only how the arrows *look* (shivering vs wandering).
+ *                        tc = 0 is the white-noise limit: a kick of variance
+ *                        2*R2s*dt each step. Random => not refocusable.
+ *    R2p  dB0 spread.    a fixed offset per packet, drawn as quantiles of the
+ *                        chosen distribution and scaled so the ensemble falls
+ *                        to 1/e at t = 1/R2p. Deterministic => a 180 undoes it.
+ *
+ *  Hence 1/T2 = R1/2 + R2s, and the transverse envelope is
+ *  exp(-R2*t) * dephase(dist, R2p, t).
+ */
+
+const TAN_CLAMP = 40;                      // truncate the Lorentzian tails
+const SINC_1E   = 2.199123;                // x where sin(x)/x = 1/e
+
+function makeSpins(N){
+  const sp = [];
+  for(let i=0;i<N;i++){
+    const u = (i+0.5)/N;                        // deterministic quantiles:
+    sp.push({u, dw:0, w:gaussStd(), mx:0, my:0, mz:1});  // w: unit-variance OU state
+  }
+  return sp;
+}
+
+// inverse standard normal CDF (Acklam), used for Gaussian quantiles
+function invNorm(p){
+  const a=[-3.969683028665376e+1,2.209460984245205e+2,-2.759285104469687e+2,
+            1.383577518672690e+2,-3.066479806614716e+1,2.506628277459239e+0];
+  const b=[-5.447609879822406e+1,1.615858368580409e+2,-1.556989798598866e+2,
+            6.680131188771972e+1,-1.328068155288572e+1];
+  const c=[-7.784894002430293e-3,-3.223964580411365e-1,-2.400758277161838e+0,
+           -2.549732539343734e+0,4.374664141464968e+0,2.938163982698783e+0];
+  const d=[7.784695709041462e-3,3.224671290700398e-1,2.445134137142996e+0,
+           3.754408661907416e+0];
+  const lo = 0.02425;
+  let q;
+  if(p < lo || p > 1-lo){
+    const tail = p < lo;
+    q = Math.sqrt(-2*Math.log(tail ? p : 1-p));
+    const v = (((((c[0]*q+c[1])*q+c[2])*q+c[3])*q+c[4])*q+c[5]) /
+              ((((d[0]*q+d[1])*q+d[2])*q+d[3])*q+1);
+    return tail ? v : -v;
+  }
+  q = p-0.5;
+  const r = q*q;
+  return (((((a[0]*r+a[1])*r+a[2])*r+a[3])*r+a[4])*r+a[5])*q /
+         (((((b[0]*r+b[1])*r+b[2])*r+b[3])*r+b[4])*r+1);
+}
+
+// fixed off-resonance of each packet [rad/ms]; all three shapes reach 1/e at 1/R2p
+function setOffsets(sp, R2p, dist){
+  for(const s of sp){
+    if(dist === "gauss")        s.dw = R2p*Math.SQRT2*invNorm(s.u);
+    else if(dist === "uniform") s.dw = R2p*SINC_1E*(2*s.u-1);
+    else {
+      const t = Math.tan(Math.PI*(s.u-0.5));
+      s.dw = R2p*Math.max(-TAN_CLAMP, Math.min(TAN_CLAMP, t));
+    }
+  }
+}
+
+// ensemble dephasing factor from the static spread alone (N -> infinity limit)
+function dephase(dist, R2p, t){
+  if(R2p <= 0 || t <= 0) return 1;
+  if(dist === "gauss")   return Math.exp(-(R2p*t)*(R2p*t));
+  if(dist === "uniform"){ const x = SINC_1E*R2p*t; return Math.abs(Math.sin(x)/x); }
+  return Math.exp(-R2p*t);
+}
+
+function maxOffset(sp){
+  let m = 0;
+  for(const s of sp) m = Math.max(m, Math.abs(s.dw));
+  return m;
+}
+
+/*  One time step of dt ms. P = {R1, R2s, tc, wg, w1}:
+ *    tc  correlation time of the local field (0 = white noise)
+ *    wg  common rotation, for the lab-frame view
+ *    w1  RF amplitude along +x [rad/ms], nonzero only while a pulse is on
+ *
+ *  Each packet rotates about its own effective field (w1, 0, dz), where dz is
+ *  its total off-resonance. With w1 = 0 that is plain precession about z; with
+ *  w1 >> dz it is a clean pulse about x; in between the axis tilts, which is
+ *  exactly what makes a long pulse behave differently across the spectrum.
+ */
+function stepAll(sp, dt, P, gauss){
+  const R1 = P.R1||0, R2s = P.R2s||0, tc = P.tc||0, wg = P.wg||0, w1 = P.w1||0;
+  const e1 = Math.exp(-R1*dt), et = Math.exp(-R1*dt/2);
+  const white = tc <= 0;
+  const sig  = R2s > 0 ? (white ? Math.sqrt(2*R2s*dt) : Math.sqrt(R2s/tc)) : 0;
+  const a    = white ? 0 : Math.exp(-dt/tc);
+  const kick = Math.sqrt(1-a*a);
+  for(const s of sp){
+    let dz = s.dw + wg;
+    if(sig && !white){
+      const w0 = s.w;                         // unit variance, stationary
+      s.w = w0*a + kick*gauss();
+      dz += sig*0.5*(w0+s.w);                 // trapezoid over the step
+    }
+    const om = Math.hypot(w1, dz);            // Rodrigues about the effective field
+    if(om > 1e-12){
+      const ang = om*dt, c = Math.cos(ang), n = Math.sin(ang);
+      const nx = w1/om, nz = dz/om;
+      const d  = (nx*s.mx + nz*s.mz)*(1-c);
+      const mx = s.mx*c - nz*s.my*n + nx*d;
+      const my = s.my*c + (nz*s.mx - nx*s.mz)*n;
+      const mz = s.mz*c + nx*s.my*n + nz*d;
+      s.mx = mx; s.my = my; s.mz = mz;
+    }
+    if(sig && white){                         // white-noise kick, always about z
+      const dp = sig*gauss(), c = Math.cos(dp), n = Math.sin(dp);
+      const mx = s.mx*c - s.my*n;
+      s.my = s.mx*n + s.my*c; s.mx = mx;
+    }
+    s.mx *= et; s.my *= et;
+    s.mz = 1 - (1 - s.mz)*e1;
+  }
+}
+
+// instantaneous (hard) pulse of angle th [rad] about +x; the finite-duration
+// case is just stepAll with w1 = th/duration
+function pulseX(sp, th){
+  const c = Math.cos(th), n = Math.sin(th);
+  for(const s of sp){
+    const my = s.my*c - s.mz*n, mz = s.my*n + s.mz*c;
+    s.my = my; s.mz = mz;
+  }
+}
+
+function net(sp){
+  let x=0, y=0, z=0;
+  for(const s of sp){ x+=s.mx; y+=s.my; z+=s.mz; }
+  const n = sp.length;
+  return {mx:x/n, my:y/n, mz:z/n, mxy:Math.hypot(x,y)/n};
+}
+
+// time at which the transverse envelope has fallen to 1/e (numerically)
+function t1e(R2, R2p, dist){
+  const f = t => Math.exp(-R2*t)*dephase(dist,R2p,t) - Math.exp(-1);
+  const scale = R2 + R2p;
+  if(scale <= 1e-9) return Infinity;
+  const span = 12/scale, K = 400;           // coarse scan for the FIRST crossing
+  let lo = 0, hi = -1;
+  for(let i=1;i<=K;i++){
+    const t = span*i/K;
+    if(f(t) <= 0){ hi = t; lo = span*(i-1)/K; break; }
+  }
+  if(hi < 0) return Infinity;
+  for(let i=0;i<60;i++){
+    const m = 0.5*(lo+hi);
+    if(f(m) > 0) lo = m; else hi = m;
+  }
+  return 0.5*(lo+hi);
+}
+
+function gaussStd(){                        // Box-Muller
+  let u=0, v=0;
+  while(u===0) u = Math.random();
+  while(v===0) v = Math.random();
+  return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v);
+}
+/* ================== END PHYSICS CORE ================== */
+
+
+/* ---------------------------------------------------------- version */
+const VERSION = "0.3.1";
+const AUTHORS = "Designed by Filip Sz (Lund University), coded by Claude (Anthropic)";
+const CHANGELOG = [
+  ["0.3.1", "2026-08-17", "Attribution updated to name the roles: designed by " +
+   "Filip Sz (Lund University), coded by Claude (Anthropic)."],
+  ["0.3.0", "2026-08-17",
+   "RF pulses have a finite duration, set by a new control (hard, or 0.1–60 ms). " +
+   "During a pulse each packet rotates about its own effective field (B₁ along x, " +
+   "off-resonance along z), so long pulses show tilted-axis behaviour, flip-angle " +
+   "error across the spectrum and dephasing during the RF. B₁ is drawn in the 3-D " +
+   "view while it is on and pulses appear as shaded bands on the signal plot. " +
+   "Added a 30° pulse button."],
+  ["0.2.3", "2026-08-17",
+   "Guidance text no longer claims spin–spin dominance when both dephasing " +
+   "sliders are at zero; that case now explains the R1/2 term and the T2 ≤ 2·T1 " +
+   "ceiling. The three transverse routes are weighed against each other rather " +
+   "than two, and the readout flags a T1-limited T2."],
+  ["0.2.2", "2026-08-17",
+   "Removed the console banner on load. The credit line in the sidebar is now " +
+   "rendered from the AUTHORS constant, so names and version live in one place."],
+  ["0.2.1", "2026-08-17",
+   "Signal history is now kept by elapsed time rather than by sample count, so " +
+   "the widest plot window is always fully filled at any playback speed. Traces " +
+   "are decimated at draw time to stay cheap."],
+  ["0.2.0", "2026-08-14",
+   "Packet count promoted to its own control (1–240). Spin–spin noise given a " +
+   "correlation time τc, so the arrows wander instead of shivering. Choice of " +
+   "ΔB₀ distribution (uniform / Gaussian / Lorentzian) with the matching " +
+   "analytic envelope. RF pulses marked on the signal plot; slower defaults and " +
+   "an auto-paced spin-echo demo."],
+  ["0.1.0", "2026-08-14",
+   "First version. Three mechanisms (T1, spin–spin, static ΔB₀) driving an " +
+   "isochromat ensemble, 3-D and transverse views, signal plot with analytic " +
+   "envelopes, hard 90°/180° pulses, light and dark schemes."]
+];
+
+/* ------------------------------------------------------------ state */
+const $ = id => document.getElementById(id);
+
+const S = {
+  N:48, s1:18, s2:30, s3:45, tc:4, speed:0.05, W:400, dist:"gauss", dur:3, rf:null,
+  playing:true, rotFrame:true,
+  packets:true, netv:true, trail:true, env:true,
+  t:0, spins:makeSpins(48), pending:null,
+  lastPulse:{t:0, mxy:0, mz:1},
+  hist:[], trailPts:[], marks:[]
+};
+
+// slider -> physical rates. 100 % is deliberately fast so the effect is obvious.
+const R1of  = s => s/100 / 150;    // 100 % -> T1 = 150 ms
+const R2sof = s => s/100 / 60;     // 100 % -> T2' = 60 ms
+const R2pof = s => s/100 / 12;     // 100 % -> T2' from ΔB0 = 12 ms
+const speedOf = s => 0.005*Math.pow(600, s/100);  // 0.005 … 3 sim-ms per real-ms
+const speedInv = v => 100*Math.log(v/0.005)/Math.log(600);
+const winOf   = s => 40*Math.pow(75, s/100);      // 40 … 3000 ms
+const W_MAX    = winOf(100);                      // widest window the slider allows
+const HIST_SPAN = 1.05*W_MAX;                     // keep at least that much history
+const HIST_MAX  = 24000;                          // …but bound the memory
+const tcOf    = s => s === 0 ? 0 : 0.3*Math.pow(60, s/100);   // 0, then 0.3 … 18 ms
+const durOf   = s => s === 0 ? 0 : 0.1*Math.pow(600, s/100);  // hard, then 0.1 … 60 ms
+const durInv  = v => v <= 0 ? 0 : 100*Math.log(v/0.1)/Math.log(600);
+
+const rates = () => {
+  const R1 = R1of(S.s1), R2s = R2sof(S.s2), R2p = R2pof(S.s3);
+  const R2 = R1/2 + R2s;
+  return {R1, R2s, R2p, R2, T2s:t1e(R2, R2p, S.dist)};
+};
+const fmtT = r => r <= 0 ? "∞" : (1/r >= 1000 ? (1/r/1000).toFixed(1)+" s" : Math.round(1/r)+" ms");
+
+/* ---------------------------------------------------------- colours */
+const C = {};
+function readTheme(){
+  const cs = getComputedStyle(document.documentElement);
+  for(const k of ["bg","panel","rule","text","muted","dim","axis","grid",
+                  "mxy","mz","env","accent","iso-lo","iso-mid","iso-hi"])
+    C[k] = cs.getPropertyValue("--"+k).trim();
+  C.ramp = [hex(C["iso-lo"]), hex(C["iso-mid"]), hex(C["iso-hi"])];
+}
+const hex = h => {
+  const v = parseInt(h.slice(1),16);
+  return [(v>>16)&255,(v>>8)&255,v&255];
+};
+function isoCol(u){                       // u in [0,1] -> blue … grey … red
+  const [a,b,c] = C.ramp;
+  const k = u < 0.5 ? u*2 : (u-0.5)*2;
+  const p = u < 0.5 ? a : b, q = u < 0.5 ? b : c;
+  return `rgb(${Math.round(p[0]+(q[0]-p[0])*k)},${Math.round(p[1]+(q[1]-p[1])*k)},${Math.round(p[2]+(q[2]-p[2])*k)})`;
+}
+
+/* ------------------------------------------------------------ canvas */
+function fit(cv){
+  const r = cv.getBoundingClientRect(), d = window.devicePixelRatio || 1;
+  const w = Math.max(1, Math.round(r.width*d)), h = Math.max(1, Math.round(r.height*d));
+  if(cv.width !== w || cv.height !== h){ cv.width = w; cv.height = h; }
+  const ctx = cv.getContext("2d");
+  ctx.setTransform(d,0,0,d,0,0);
+  ctx.clearRect(0,0,r.width,r.height);
+  return {ctx, w:r.width, h:r.height};
+}
+function arrow(ctx,x0,y0,x1,y1,lw,col,head){
+  const dx = x1-x0, dy = y1-y0, L = Math.hypot(dx,dy);
+  ctx.strokeStyle = col; ctx.lineWidth = lw; ctx.lineCap = "round";
+  if(L < 0.8){ ctx.beginPath(); ctx.arc(x0,y0,lw*0.8,0,7); ctx.fillStyle = col; ctx.fill(); return; }
+  const h = Math.min(head, L*0.6), a = Math.atan2(dy,dx);
+  ctx.beginPath(); ctx.moveTo(x0,y0); ctx.lineTo(x1-h*0.75*Math.cos(a), y1-h*0.75*Math.sin(a)); ctx.stroke();
+  ctx.fillStyle = col; ctx.beginPath(); ctx.moveTo(x1,y1);
+  ctx.lineTo(x1-h*Math.cos(a-0.38), y1-h*Math.sin(a-0.38));
+  ctx.lineTo(x1-h*Math.cos(a+0.38), y1-h*Math.sin(a+0.38));
+  ctx.closePath(); ctx.fill();
+}
+
+/* ------------------------------------------------------- 3-D view */
+let az = -0.62, el = 0.42;
+function draw3d(){
+  const cv = $("cv3d"), {ctx,w,h} = fit(cv);
+  const cx = w/2, cy = h/2 + h*0.04, R = Math.min(w,h)*0.34;
+  const ca = Math.cos(az), sa = Math.sin(az), ce = Math.cos(el), se = Math.sin(el);
+  const P = (x,y,z) => {
+    const x1 =  x*ca + y*sa, y1 = -x*sa + y*ca;
+    return [cx + R*x1, cy - R*(z*ce - y1*se), y1*ce + z*se];
+  };
+
+  // axes
+  ctx.font = "10px ui-monospace,monospace";
+  const ax = [[1.25,0,0,"x"],[0,1.25,0,"y"],[0,0,1.25,"z"]];
+  const o = P(0,0,0);
+  for(const [x,y,z,nm] of ax){
+    const p = P(x,y,z);
+    ctx.strokeStyle = C.axis; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(o[0],o[1]); ctx.lineTo(p[0],p[1]); ctx.stroke();
+    ctx.fillStyle = C.dim; ctx.fillText(nm, p[0]+4, p[1]+3);
+  }
+  // equator
+  ctx.strokeStyle = C.grid; ctx.setLineDash([3,4]); ctx.beginPath();
+  for(let i=0;i<=64;i++){
+    const a = i/64*2*Math.PI, p = P(Math.cos(a), Math.sin(a), 0);
+    i ? ctx.lineTo(p[0],p[1]) : ctx.moveTo(p[0],p[1]);
+  }
+  ctx.stroke(); ctx.setLineDash([]);
+
+  if(S.packets){
+    const order = S.spins.map((s,i)=>i).sort((i,j)=>
+      P(S.spins[i].mx,S.spins[i].my,S.spins[i].mz)[2] - P(S.spins[j].mx,S.spins[j].my,S.spins[j].mz)[2]);
+    for(const i of order){
+      const s = S.spins[i], p = P(s.mx,s.my,s.mz);
+      arrow(ctx, o[0],o[1], p[0],p[1], 1.4, isoCol(s.u), 7);
+    }
+  }
+  if(S.netv){
+    const n = net(S.spins), p = P(n.mx,n.my,n.mz);
+    arrow(ctx, o[0],o[1], p[0],p[1], 3, C.text, 12);
+  }
+  if(S.rf){                                   // B1 lies along +x while the RF is on
+    const sgn = S.rf.w1 >= 0 ? 1 : -1, p = P(0.95*sgn,0,0);
+    arrow(ctx, o[0],o[1], p[0],p[1], 2, C.accent, 10);
+    ctx.fillStyle = C.accent; ctx.font = "10px ui-monospace,monospace";
+    ctx.fillText("B₁", p[0]+5, p[1]-4);
+  }
+}
+
+/* -------------------------------------------------- transverse view */
+function drawXY(){
+  const cv = $("cvxy"), {ctx,w,h} = fit(cv);
+  const cx = w/2, cy = h/2 + h*0.02, R = Math.min(w,h)*0.36;
+
+  ctx.strokeStyle = C.grid; ctx.lineWidth = 1;
+  ctx.setLineDash([3,4]);
+  ctx.beginPath(); ctx.arc(cx,cy,R,0,7); ctx.stroke();
+  ctx.beginPath(); ctx.arc(cx,cy,R*0.5,0,7); ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.strokeStyle = C.axis;
+  ctx.beginPath(); ctx.moveTo(cx-R*1.14,cy); ctx.lineTo(cx+R*1.14,cy);
+  ctx.moveTo(cx,cy-R*1.14); ctx.lineTo(cx,cy+R*1.14); ctx.stroke();
+  ctx.fillStyle = C.dim; ctx.font = "10px ui-monospace,monospace";
+  ctx.fillText("x", cx+R*1.14+3, cy+3);
+  ctx.fillText("y", cx-3, cy-R*1.14-4);
+
+  if(S.trail && S.trailPts.length > 1){
+    ctx.strokeStyle = C.env; ctx.globalAlpha = 0.45; ctx.lineWidth = 1;
+    ctx.beginPath();
+    S.trailPts.forEach((p,i)=>{
+      const X = cx+p[0]*R, Y = cy-p[1]*R;
+      i ? ctx.lineTo(X,Y) : ctx.moveTo(X,Y);
+    });
+    ctx.stroke(); ctx.globalAlpha = 1;
+  }
+  if(S.packets)
+    for(const s of S.spins)
+      arrow(ctx, cx,cy, cx+s.mx*R, cy-s.my*R, 1.4, isoCol(s.u), 7);
+  if(S.netv){
+    const n = net(S.spins);
+    arrow(ctx, cx,cy, cx+n.mx*R, cy-n.my*R, 3, C.text, 12);
+  }
+}
+
+/* --------------------------------------------------------- signal */
+function drawSig(){
+  const cv = $("cvsig"), {ctx,w,h} = fit(cv);
+  const L = 54, Rm = 14, T = 26, B = 26;
+  const x0 = L, x1 = w-Rm, y0 = T, y1 = h-B;
+  if(x1 <= x0 || y1 <= y0) return;
+
+  const tEnd = Math.max(S.t, S.W), tStart = tEnd - S.W;
+  const X = t => x0 + (t-tStart)/S.W*(x1-x0);
+  const Y = v => (y0+y1)/2 - v*(y1-y0)/2/1.08;
+
+  ctx.font = "10px ui-monospace,monospace"; ctx.textBaseline = "middle";
+  for(const v of [1,0.5,0,-0.5,-1]){
+    ctx.strokeStyle = v === 0 ? C.axis : C.grid; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(x0,Y(v)); ctx.lineTo(x1,Y(v)); ctx.stroke();
+    ctx.fillStyle = C.dim; ctx.textAlign = "right";
+    ctx.fillText(v.toFixed(1), x0-7, Y(v));
+  }
+  ctx.textAlign = "center"; ctx.textBaseline = "top";
+  const step = Math.pow(10, Math.floor(Math.log10(S.W/4)));
+  const dt = [1,2,5,10].map(m=>m*step).find(m=>S.W/m <= 8) || step*10;
+  for(let t = Math.ceil(tStart/dt)*dt; t <= tEnd; t += dt){
+    ctx.strokeStyle = C.grid;
+    ctx.beginPath(); ctx.moveTo(X(t),y0); ctx.lineTo(X(t),y1); ctx.stroke();
+    ctx.fillStyle = C.dim; ctx.fillText(Math.round(t), X(t), y1+6);
+  }
+  ctx.fillStyle = C.dim; ctx.textAlign = "right"; ctx.fillText("ms", x1, y1+6);
+
+  // analytic envelopes from the last pulse
+  const {R1,R2,R2p} = rates();
+  if(S.env){
+    const lp = S.lastPulse;
+    const curve = (f,col,dash) => {
+      ctx.strokeStyle = col; ctx.lineWidth = 1; ctx.setLineDash(dash);
+      ctx.beginPath();
+      const a = Math.max(lp.t, tStart), b = tEnd;
+      for(let i=0;i<=120;i++){
+        const t = a + (b-a)*i/120, p = [X(t), Y(f(t-lp.t))];
+        i ? ctx.lineTo(p[0],p[1]) : ctx.moveTo(p[0],p[1]);
+      }
+      ctx.stroke(); ctx.setLineDash([]);
+    };
+    if(lp.mxy > 0.02){
+      curve(d => lp.mxy*Math.exp(-R2*d), C.env, [5,4]);
+      curve(d => lp.mxy*Math.exp(-R2*d)*dephase(S.dist,R2p,d), C.env, [1,3]);
+    }
+    curve(d => 1-(1-lp.mz)*Math.exp(-R1*d), C.env, [5,4]);
+  }
+
+  // RF markers, plus the scheduled 180 if one is queued
+  ctx.textAlign = "center"; ctx.textBaseline = "top"; ctx.font = "10px ui-monospace,monospace";
+  const mark = (t0,t1,label,dash) => {
+    const b = (t1 === null ? S.t : t1);
+    if(b < tStart || t0 > tEnd) return;
+    const xa = X(Math.max(t0,tStart)), xb = X(Math.min(b,tEnd));
+    if(xb - xa > 1){                                  // finite pulse: shaded band
+      ctx.fillStyle = C.accent; ctx.globalAlpha = 0.16;
+      ctx.fillRect(xa, y0, xb-xa, y1-y0); ctx.globalAlpha = 1;
+    } else {                                          // hard pulse: a line
+      ctx.strokeStyle = C.axis; ctx.lineWidth = 1; ctx.setLineDash(dash);
+      ctx.beginPath(); ctx.moveTo(xa,y0); ctx.lineTo(xa,y1); ctx.stroke();
+      ctx.setLineDash([]);
+    }
+    ctx.fillStyle = C.muted; ctx.fillText(label, (xa+xb)/2, y0+2);
+  };
+  for(const m of S.marks) mark(m.t0, m.t1, m.label, [2,3]);
+  if(S.pending !== null) mark(S.pending, S.pending, "180°", [1,4]);
+
+  // first visible sample (the buffer is time ordered)
+  let i0 = 0, i1 = S.hist.length-1;
+  while(i0 <= i1){
+    const m = (i0+i1) >> 1;
+    if(S.hist[m].t < tStart) i0 = m+1; else i1 = m-1;
+  }
+  // at most a couple of samples per pixel — the buffer can hold far more
+  const stride = Math.max(1, Math.ceil((S.hist.length-i0)/(2*(x1-x0))));
+
+  const trace = (key,col) => {
+    ctx.strokeStyle = col; ctx.lineWidth = 1.6; ctx.beginPath();
+    let started = false;
+    for(let i = i0; i < S.hist.length; i += stride){
+      const p = S.hist[i], x = X(p.t), y = Y(p[key]);
+      started ? ctx.lineTo(x,y) : (ctx.moveTo(x,y), started = true);
+    }
+    const p = S.hist[S.hist.length-1];                 // always land on "now"
+    if(started && p) ctx.lineTo(X(p.t), Y(p[key]));
+    ctx.stroke();
+  };
+  trace("mz", C.mz);
+  trace("mxy", C.mxy);
+
+  // legend, right aligned so it clears the panel tag
+  ctx.textAlign = "left"; ctx.textBaseline = "middle"; ctx.font = "10px ui-monospace,monospace";
+  const items = [["|Mxy|",C.mxy], ["Mz",C.mz],
+                 ["dashed  exp(−t/T2), Mz(t)",C.dim], ["dotted  exp(−t/T2*)",C.dim]];
+  const wid = items.map(it => ctx.measureText(it[0]).width);
+  const total = wid.reduce((a,b)=>a+b, 0) + 14*(items.length-1);
+  if(total < x1-90){
+    let x = x1-total;
+    items.forEach((it,i)=>{ ctx.fillStyle = it[1]; ctx.fillText(it[0], x, y0-13); x += wid[i]+14; });
+  }
+}
+
+/* ------------------------------------------------------------ loop */
+let last = performance.now();
+function frame(now){
+  const dtWall = Math.min(80, now-last); last = now;
+  if(S.playing) advance(dtWall*S.speed);
+  render();
+  requestAnimationFrame(frame);
+}
+
+function advance(dtSim){
+  const {R1,R2s} = rates();
+  const wg = S.rotFrame ? 0 : 2*Math.PI/70;              // ~70 ms per turn
+  const wmax = maxOffset(S.spins) + Math.abs(wg) + 1e-9;
+  let dtMax = Math.min(1.0, 0.12/wmax);
+  if(S.tc > 0) dtMax = Math.min(dtMax, S.tc/4);          // resolve the OU field
+  let left = dtSim, guard = 0;
+  while(left > 1e-9 && guard++ < 4000){
+    let dt = Math.min(dtMax, left);
+    if(S.rf){                                            // resolve the nutation
+      dt = Math.min(dt, S.rf.left, S.dur/24, 0.1/Math.abs(S.rf.w1));
+      dt = Math.max(dt, 1e-9);
+    }
+    if(S.pending !== null && S.t + dt >= S.pending) dt = Math.max(1e-6, S.pending - S.t);
+    stepAll(S.spins, dt, {R1, R2s, tc:S.tc, wg, w1:S.rf ? S.rf.w1 : 0}, gaussStd);
+    S.t += dt; left -= dt;
+    if(S.rf){ S.rf.left -= dt; if(S.rf.left <= 1e-9) endPulse(); }
+    if(S.pending !== null && S.t >= S.pending - 1e-9 && !S.rf){ S.pending = null; pulse(Math.PI); }
+  }
+  const n = net(S.spins);
+  // one sample per frame, but only once the clock has actually moved
+  if(!S.hist.length || S.t > S.hist[S.hist.length-1].t + 1e-9)
+    S.hist.push({t:S.t, mxy:n.mxy, mz:n.mz});
+  // drop by age so the widest window is always fully covered, whatever the
+  // playback speed; if that runs to too many samples, thin them by half
+  const tMin = S.t - HIST_SPAN;
+  let drop = 0;
+  while(drop < S.hist.length && S.hist[drop].t < tMin) drop++;
+  if(drop) S.hist.splice(0, drop);
+  if(S.hist.length > HIST_MAX) S.hist = S.hist.filter((_,i) => i%2 === 0 || i === S.hist.length-1);
+  S.trailPts.push([n.mx, n.my]);
+  while(S.trailPts.length > 260) S.trailPts.shift();
+}
+
+const angleLabel = th => Math.round(th*180/Math.PI) + "°";
+
+// start a pulse: instantaneous if the duration is zero, otherwise B1 is switched
+// on for S.dur ms and the packets are turned by whatever the physics gives them
+function pulse(th){
+  if(S.rf) return;                                  // ignore while one is running
+  S.trailPts.length = 0;
+  if(S.dur <= 0){
+    pulseX(S.spins, th);
+    S.marks.push({t0:S.t, t1:S.t, label:angleLabel(th)});
+    endPulse();
+  } else {
+    S.rf = {w1:th/S.dur, left:S.dur};
+    S.marks.push({t0:S.t, t1:null, label:angleLabel(th)});
+  }
+  while(S.marks.length > 40) S.marks.shift();
+}
+
+function endPulse(){
+  const n = net(S.spins);
+  S.lastPulse = {t:S.t, mxy:n.mxy, mz:n.mz};
+  const m = S.marks[S.marks.length-1];
+  if(m && m.t1 === null) m.t1 = S.t;
+  S.rf = null;
+  S.trailPts.length = 0;
+}
+
+function reset(){
+  S.spins = makeSpins(S.N);
+  setOffsets(S.spins, R2pof(S.s3), S.dist);
+  S.t = 0; S.hist.length = 0; S.trailPts.length = 0; S.marks.length = 0;
+  S.pending = null; S.rf = null;
+  S.lastPulse = {t:0, mxy:0, mz:1};
+}
+
+function render(){
+  draw3d(); drawXY(); drawSig();
+  const n = net(S.spins), r = rates();
+  $("rT").textContent    = S.t.toFixed(0)+" ms";
+  $("rT1").textContent   = fmtT(r.R1);
+  $("rT2").textContent   = fmtT(r.R2) +
+    (r.R1 > 0 && r.R2s <= 1e-9 ? "  = 2·T1" : (r.R1/2 > 0.5*r.R2 ? "  (T1-limited)" : ""));
+  $("rT2s").textContent  = r.T2s === Infinity ? "∞" : Math.round(r.T2s)+" ms";
+  $("rMxy").textContent  = n.mxy.toFixed(3);
+  $("rMz").textContent   = n.mz.toFixed(3);
+}
+
+/* --------------------------------------------------------- controls */
+function syncLabels(){
+  const r = rates();
+  $("vSpeed").textContent = (S.speed < 0.1 ? S.speed.toFixed(3) : S.speed.toFixed(2)) + "× real time";
+  $("vT1").textContent  = "T1 = " + fmtT(r.R1);
+  $("vT2p").textContent = "T2(ss) = " + fmtT(r.R2s);
+  $("vT2s").textContent = "T2′ = " + fmtT(r.R2p);
+  $("vTc").textContent  = S.tc === 0 ? "white noise" : "τc = " + S.tc.toFixed(1) + " ms";
+  $("vDur").textContent = S.dur === 0 ? "hard (instant)" : S.dur.toFixed(2) + " ms";
+  // with time in ms, rad/ms reads directly as kHz once divided by 2π
+  const b1 = S.dur > 0 ? (Math.PI/2)/S.dur/(2*Math.PI) : Infinity;
+  const dwMax = maxOffset(S.spins);
+  $("subDur").innerHTML = S.dur === 0
+    ? "Instantaneous rotation — the classic hard-pulse approximation. Give it a duration to watch the vectors nutate."
+    : `B<sub>1</sub> is on for this long; a 90° needs γB₁/2π = <b>${(b1*1000).toFixed(0)} Hz</b>, against a
+       ΔB₀ spread of ±${(dwMax/(2*Math.PI)*1000).toFixed(0)} Hz. While the ratio is large the pulse is
+       "hard" and every packet turns the same way; when it approaches 1 the off-resonant packets rotate
+       about a tilted effective field and miss the flip angle.`;
+  $("vN").textContent   = S.N;
+  $("vW").textContent   = Math.round(S.W)+" ms";
+  // three independent routes out of the transverse plane, compared on equal terms
+  const lat = r.R1/2, ss = r.R2s, inh = r.R2p, tot = lat + ss + inh;
+  const noDeph = ss <= 1e-9 && inh <= 1e-9;      // both dephasing sliders at zero
+  let msg;
+  if(tot <= 1e-9)
+    msg = "Nothing is acting on the packets — <b>|Mxy| just sits there</b>. Raise a slider.";
+  else if(noDeph)
+    msg = `<b>T1 alone — and |Mxy| still decays.</b> Nothing is dephasing the packets, so they
+           stay locked together: no fan, no scatter. But every spin that gives energy back to the
+           lattice loses its transverse component too, so the arrows shrink in step while they
+           stand back up. That is the R1/2 term, and it puts a hard ceiling on T2: with both
+           dephasing sliders at zero, T2 sits at its maximum of <b>2·T1 = ${fmtT(r.R2)}</b>.
+           "T2 = ∞" is not something you can dial in.`;
+  else if(inh > 0.6*tot)
+    msg = "<b>ΔB₀ dominates.</b> The fan opens smoothly and in order, blue one way, red the other. Hit 180° partway through and watch the packets re-converge into an echo — the recovered height is the true T2 envelope.";
+  else if(ss > 0.6*tot)
+    msg = "<b>Spin–spin dominates.</b> The packets scatter rather than fan, and no colour order survives. A 180° pulse gives almost no echo: random phase cannot be unwound.";
+  else if(lat > 0.6*tot)
+    msg = "<b>T1 dominates the transverse decay too.</b> The dephasing sliders are set so weakly that most of what shortens the arrows is spin–lattice relaxation, via the R1/2 term. T2 is close to its ceiling of 2·T1 here.";
+  else
+    msg = "Several routes are active at once. The 180° echo recovers the ΔB₀ part only — the gap between the dotted and dashed envelopes is exactly what refocusing buys you.";
+  if(!noDeph && lat > 0.3*tot && tot > 1e-9)
+    msg += " Note that T1 is fast enough here to be a visible part of T2 itself (the R1/2 term), which is why T2 can never exceed 2·T1.";
+  if(S.N < 40 && r.R2p > 1e-6)
+    msg += ` With only ${S.N} packets the red trace sits above the dotted envelope and can partly revive — that is finite sampling, not physics. A voxel holds ~10¹⁵ spins; slide the packet count up to see the trace settle onto the envelope.`;
+  // dw_max / w1 for a 90°: below ~0.25 the pulse is hard, above ~1 it is hopeless
+  const soft = S.dur > 0 ? maxOffset(S.spins)*S.dur/(Math.PI/2) : 0;
+  if(soft > 0.4)
+    msg += ` The pulse is long compared with the ΔB₀ spread, so it is no longer a hard pulse:
+             the outer packets rotate about a tilted effective field, end up at the wrong flip
+             angle, and start dephasing before the RF is even off. Watch the 3-D view during
+             the pulse — the fan opens while the vectors are still tipping.`;
+  if(S.tc === 0 && r.R2s > 1e-6)
+    msg += " τ<sub>c</sub> is at zero, so the local fields are white noise and the arrows shiver on every frame. Nudge τ<sub>c</sub> up for the same T2 with a calmer picture.";
+  $("note").innerHTML = msg;
+}
+
+function bindSlider(id, key, map, after){
+  const el = $(id);
+  const upd = () => {
+    S[key] = map ? map(+el.value) : +el.value;
+    if(after) after();
+    syncLabels();
+  };
+  el.addEventListener("input", upd);
+  upd();
+}
+
+$("sSpeed").value = Math.round(speedInv(S.speed));
+$("sTc").value = Math.round(100*Math.log(S.tc/0.3)/Math.log(60));
+$("sDur").value = Math.round(durInv(S.dur));
+$("sN").value = S.N;
+$("dist").value = S.dist;
+bindSlider("sSpeed","speed",speedOf);
+bindSlider("sW","W",winOf);
+bindSlider("s1","s1",null);
+bindSlider("s2","s2",null);
+bindSlider("sTc","tc",tcOf);
+bindSlider("sDur","dur",durOf);
+bindSlider("s3","s3",null, ()=> setOffsets(S.spins, R2pof(S.s3), S.dist));
+bindSlider("sN","N",null, ()=>{
+  const old = S.spins;
+  S.spins = makeSpins(S.N);
+  setOffsets(S.spins, R2pof(S.s3), S.dist);
+  // keep the current state roughly: copy the net orientation onto the new set
+  const n = net(old), ph = Math.atan2(n.my,n.mx), a = n.mxy;
+  for(const s of S.spins){ s.mx = a*Math.cos(ph); s.my = a*Math.sin(ph); s.mz = n.mz; }
+});
+
+$("dist").addEventListener("change", e => {
+  S.dist = e.target.value;
+  setOffsets(S.spins, R2pof(S.s3), S.dist);
+  syncLabels();
+});
+for(const stepN of [["nDn",-1],["nUp",1]])
+  $(stepN[0]).addEventListener("click", () => {
+    const el = $("sN");
+    el.value = Math.max(+el.min, Math.min(+el.max, +el.value + stepN[1]));
+    el.dispatchEvent(new Event("input"));
+  });
+
+for(const [id,key] of [["cPack","packets"],["cNet","netv"],["cTrail","trail"],["cEnv","env"],["cRot","rotFrame"]])
+  $(id).addEventListener("change", e => { S[key] = e.target.checked; });
+
+$("play").addEventListener("click", () => {
+  S.playing = !S.playing; $("play").textContent = S.playing ? "Pause" : "Play";
+});
+$("reset").addEventListener("click", reset);
+$("p30").addEventListener("click", () => pulse(Math.PI/6));
+$("p90").addEventListener("click", () => pulse(Math.PI/2));
+$("p180").addEventListener("click", () => pulse(Math.PI));
+$("echo").addEventListener("click", () => {
+  const r = rates();
+  const tau = Math.min(400, Math.max(8, 2.2*S.dur, 1.25*(isFinite(r.T2s) ? r.T2s : 100)));
+  reset(); pulse(Math.PI/2);
+  // centre the 180 on tau so the echo still lands at 2·tau, but never before the 90 is over
+  S.pending = Math.max(tau - S.dur/2, 1.02*S.dur);
+  // frame the whole echo in the plot and pace it to about 8 s of wall clock
+  const w = Math.max(2.6*tau, 40);
+  $("sW").value = Math.round(100*Math.log(w/40)/Math.log(75));
+  S.W = winOf(+$("sW").value);
+  const sp = Math.max(0.005, Math.min(3, 2.3*tau/8000));
+  $("sSpeed").value = Math.round(Math.max(0, Math.min(100, speedInv(sp))));
+  S.speed = speedOf(+$("sSpeed").value);
+  S.playing = true; $("play").textContent = "Pause"; syncLabels();
+});
+
+$("theme").addEventListener("click", () => {
+  const dark = document.documentElement.dataset.theme === "dark";
+  document.documentElement.dataset.theme = dark ? "light" : "dark";
+  $("theme").textContent = dark ? "Light" : "Dark";
+  readTheme();
+});
+
+// orbit
+const cv3 = $("cv3d");
+let drag = null;
+cv3.addEventListener("pointerdown", e => {
+  drag = {x:e.clientX, y:e.clientY, az, el};
+  cv3.setPointerCapture(e.pointerId); cv3.classList.add("drag");
+});
+cv3.addEventListener("pointermove", e => {
+  if(!drag) return;
+  az = drag.az + (e.clientX-drag.x)*0.01;
+  el = Math.max(-1.45, Math.min(1.45, drag.el + (e.clientY-drag.y)*0.01));
+});
+const stopDrag = () => { drag = null; cv3.classList.remove("drag"); };
+cv3.addEventListener("pointerup", stopDrag);
+cv3.addEventListener("pointercancel", stopDrag);
+
+document.addEventListener("keydown", e => {
+  if(e.target.matches("input,select,button")) return;
+  if(e.code === "Space"){ e.preventDefault(); $("play").click(); }
+  else if(e.key.toLowerCase() === "r") reset();
+  else if(e.key === "3") pulse(Math.PI/6);
+  else if(e.key === "9") pulse(Math.PI/2);
+  else if(e.key === "8") pulse(Math.PI);
+});
+
+/* ------------------------------------------------------------- go */
+$("vTag").textContent = "v" + VERSION;
+$("log").innerHTML = CHANGELOG
+  .map(([v,d,t]) => `<li><b>v${v}</b> &middot; ${d}<br>${t}</li>`).join("");
+document.title = `Spin packets — T1, T2 and T2* relaxation (v${VERSION})`;
+$("authors").textContent = AUTHORS;
+
+readTheme();
+reset();
+pulse(Math.PI/2);
+syncLabels();
+requestAnimationFrame(t => { last = t; frame(t); });
+</script>
+</body>
+</html>

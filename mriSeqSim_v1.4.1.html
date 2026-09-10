@@ -1,0 +1,2198 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<!--
+  Sequence sim — MRI spin-dynamics teaching simulator
+  Designed by Filip Sz (Lund University) and coded by Claude (Anthropic)
+  Self-contained: no build step, no network, no dependencies.
+-->
+<meta name="author" content="Filip Sz (Lund University); Claude (Anthropic)">
+<meta name="description" content="Interactive Bloch-equation simulator for teaching MRI pulse sequences.">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sequence sim — MRI spin-dynamics teaching simulator</title>
+<style>
+:root{
+  --bg:#0e1219; --panel:#151b24; --panel2:#1b2230; --rule:#26303f;
+  --text:#ccd6e4; --muted:#7c8a9d; --dim:#4d5a6b;
+  --rf:#eef3f9; --grad:#78879a; --mxy:#e2554d; --mz:#5b8cff;
+  --adc:#e0a441; --cursor:#2fb6b0; --focus:#2fb6b0;
+  --iso-lo:#4a6fe0; --iso-mid:#8e9aab; --iso-hi:#e0574a;
+  --c1:#a382e8; --c2:#e8994a; --c3:#5fc493;
+  --net:#ffffff;
+}
+html[data-theme="light"]{
+  --bg:#f2f4f7; --panel:#ffffff; --panel2:#f7f9fb; --rule:#d7dde5;
+  --text:#1b2430; --muted:#5f6c7d; --dim:#9aa5b3;
+  --rf:#0a0d12; --grad:#6d7987; --mxy:#9e1810; --mz:#123a9e;
+  --adc:#b57a12; --cursor:#0f8f8a; --focus:#0f8f8a;
+  --iso-lo:#1a4bd6; --iso-mid:#8b93a0; --iso-hi:#c4291a;
+  --c1:#6b3fc0; --c2:#a45c0d; --c3:#22795a;
+  --net:#000000;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0; background:var(--bg); color:var(--text);
+  font:13px/1.45 ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
+  -webkit-font-smoothing:antialiased;
+  display:grid; grid-template-columns:318px 1fr; height:100vh; overflow:hidden;
+}
+/* ---------------------------------------------------------- console rail */
+#rail{
+  background:var(--panel); border-right:1px solid var(--rule);
+  overflow-y:auto; overflow-x:hidden; padding:0 0 20px;
+}
+#rail::-webkit-scrollbar{width:9px}
+#rail::-webkit-scrollbar-thumb{background:var(--rule); border-radius:0}
+.brand{
+  position:sticky; top:0; z-index:3; background:var(--panel);
+  border-bottom:1px solid var(--rule); padding:13px 14px 11px;
+  display:flex; align-items:baseline; gap:8px;
+}
+.brand h1{
+  margin:0; font-size:12px; font-weight:600; letter-spacing:.16em; text-transform:uppercase;
+}
+.brand .themebtn + .themebtn{margin-left:5px}
+.themebtn{
+  appearance:none; background:transparent; border:1px solid var(--rule); color:var(--muted);
+  font:inherit; font-size:10px; letter-spacing:.1em; text-transform:uppercase;
+  padding:3px 7px; cursor:pointer; border-radius:2px;
+}
+.themebtn:hover{color:var(--text); border-color:var(--muted)}
+fieldset{border:0; margin:0; padding:14px 14px 4px}
+fieldset + fieldset{border-top:1px solid var(--rule)}
+legend{
+  padding:0; font-size:10px; letter-spacing:.18em; text-transform:uppercase;
+  color:var(--dim); margin-bottom:9px;
+}
+.f{display:grid; grid-template-columns:1fr 96px; align-items:center; gap:6px; margin-bottom:7px}
+.f label{color:var(--muted); font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.f.disabled label{color:var(--dim)}
+input[type=number],select{
+  width:100%; background:var(--panel2); color:var(--text); border:1px solid var(--rule);
+  border-radius:2px; padding:4px 6px; font:inherit; font-size:12px; text-align:right;
+}
+select{text-align:left; text-align-last:left}
+input[type=number]:disabled{color:var(--dim); background:transparent}
+input:focus-visible,select:focus-visible,button:focus-visible{
+  outline:2px solid var(--focus); outline-offset:1px;
+}
+.chk{display:flex; align-items:center; gap:8px; margin-bottom:7px; color:var(--muted); cursor:pointer}
+.chk input{accent-color:var(--cursor); width:14px; height:14px; cursor:pointer}
+.chk:hover{color:var(--text)}
+.slab{display:flex; justify-content:space-between; color:var(--muted); font-size:11px; margin:10px 0 3px}
+.slab b{color:var(--text); font-weight:600}
+input[type=range]{
+  -webkit-appearance:none; appearance:none; width:100%; height:18px; background:transparent; cursor:pointer;
+}
+input[type=range]::-webkit-slider-runnable-track{height:2px; background:var(--rule)}
+input[type=range]::-moz-range-track{height:2px; background:var(--rule)}
+input[type=range]::-webkit-slider-thumb{
+  -webkit-appearance:none; width:12px; height:12px; margin-top:-5px; border-radius:50%;
+  background:var(--cursor);
+}
+input[type=range]::-moz-range-thumb{width:12px;height:12px;border:0;border-radius:50%;background:var(--cursor)}
+.transport{display:grid; grid-template-columns:1fr 1fr; gap:7px; margin:12px 0 4px}
+.transport button{
+  background:var(--panel2); border:1px solid var(--rule); color:var(--text);
+  font:inherit; font-size:12px; padding:7px 0; border-radius:2px; cursor:pointer;
+  letter-spacing:.06em;
+}
+.transport button:hover{border-color:var(--cursor); color:var(--cursor)}
+#play{color:var(--cursor); border-color:var(--cursor)}
+/* editable component parameter table: one column per compartment */
+.ptable{margin-bottom:9px}
+.ptable .hd,.ptable .rw{display:grid; gap:5px; align-items:center; margin-bottom:5px}
+.ptable .hd input{
+  width:100%; background:transparent; border:0; border-bottom:1px solid var(--rule);
+  border-radius:0; padding:2px 1px; font:inherit; font-size:10.5px; text-align:left;
+  letter-spacing:.04em;
+}
+.ptable .hd input:hover{border-bottom-color:var(--muted)}
+.tctl{display:flex; justify-content:flex-end; margin-top:2px}
+.tctl button{
+  background:transparent; border:0; color:var(--muted); font:inherit; font-size:10.5px;
+  padding:2px 0; cursor:pointer; letter-spacing:.04em;
+}
+.tctl button:hover{color:var(--cursor)}
+.ptable .rw > label{color:var(--muted); font-size:12px}
+.ptable input{width:100%}
+#nullers{display:flex; flex-wrap:wrap; gap:5px; margin:0 0 9px}
+#nullers:empty{display:none}
+#rec .dot{
+  display:inline-block; width:8px; height:8px; border-radius:50%; background:var(--mxy);
+  margin-right:7px; vertical-align:middle;
+}
+#rec.on{color:var(--mxy); border-color:var(--mxy)}
+#rec.on .dot{animation:blink 1s steps(2,start) infinite}
+@keyframes blink{50%{opacity:0}}
+#recStatus{
+  margin:8px 0 0; font-size:10.5px; line-height:1.55; color:var(--muted); min-height:1em;
+}
+#recStatus.bad{color:var(--mxy)}
+#recStatus.good{color:var(--cursor)}
+.credit{
+  margin:12px 14px 0; font-size:10px; line-height:1.6; color:var(--dim); letter-spacing:.02em;
+}
+#nullers button{
+  background:transparent; border:1px solid currentColor; font:inherit; font-size:10.5px;
+  padding:3px 7px; border-radius:2px; cursor:pointer; letter-spacing:.03em;
+}
+#nullers button:hover{background:color-mix(in srgb, currentColor 14%, transparent)}
+.comps{margin-top:7px; padding-top:7px; border-top:1px solid var(--rule)}
+.comps .c{display:flex; gap:6px; align-items:baseline}
+.comps .c .nm{flex:0 0 68px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+#readout{
+  margin:12px 14px 0; padding:10px 11px; background:var(--panel2);
+  border:1px solid var(--rule); border-radius:2px; font-size:11.5px; color:var(--muted);
+  white-space:pre-wrap; line-height:1.6;
+}
+#readout b{color:var(--text); font-weight:600}
+#readout .warn{color:var(--adc)}
+/* ------------------------------------------------------------ workbench */
+#about[hidden]{display:none}
+#about{
+  position:fixed; inset:0; z-index:40; display:grid; place-items:center;
+  background:rgba(0,0,0,.5); padding:20px;
+}
+#about .sheet{
+  background:var(--panel); border:1px solid var(--rule); border-radius:4px;
+  padding:20px 22px; max-width:520px; width:100%; max-height:82vh; overflow-y:auto;
+}
+#about h3{margin:0 0 3px; font-size:13px; letter-spacing:.16em; text-transform:uppercase}
+#about .by{margin:0 0 12px; color:var(--cursor); font-size:12px}
+#about .note{margin:0 0 16px; color:var(--muted); font-size:11.5px; line-height:1.6}
+#about .rel{border-top:1px solid var(--rule); padding-top:9px; margin-top:9px}
+#about .rel h5{
+  margin:0 0 5px; font-size:11px; letter-spacing:.1em; color:var(--text); font-weight:600;
+}
+#about .rel h5 em{color:var(--dim); font-style:normal; font-weight:400; letter-spacing:0}
+#about .rel ul{margin:0; padding-left:16px; color:var(--muted); font-size:11.5px; line-height:1.6}
+#about #aboutClose{margin-top:18px}
+#tip{
+  position:fixed; z-index:30; max-width:340px; display:none; pointer-events:none;
+  background:var(--panel2); border:1px solid var(--rule); border-radius:3px;
+  padding:10px 12px; font-size:11.5px; line-height:1.55; color:var(--text);
+  box-shadow:0 8px 28px rgba(0,0,0,.38);
+}
+#tip h4{margin:0 0 6px; font-size:10.5px; letter-spacing:.12em; text-transform:uppercase; color:var(--cursor)}
+#tip .kv{color:var(--muted); margin-bottom:7px}
+#tip .kv b{color:var(--text); font-weight:600}
+#tip p{margin:0; color:var(--muted)}
+main{display:grid; grid-template-rows:minmax(190px,0.82fr) 1.4fr; gap:9px; padding:9px; min-width:0; min-height:0}
+.views{display:grid; grid-template-columns:1.15fr 1fr; gap:9px; min-height:0}
+.card{
+  background:var(--panel); border:1px solid var(--rule); border-radius:3px;
+  position:relative; min-width:0; min-height:0; overflow:hidden;
+}
+.card canvas{position:absolute; inset:0; display:block; width:100%; height:100%}
+.tag{
+  position:absolute; top:8px; left:10px; z-index:2; pointer-events:none;
+  font-size:10px; letter-spacing:.16em; text-transform:uppercase; color:var(--dim);
+}
+.hint{
+  position:absolute; bottom:7px; right:10px; z-index:2; pointer-events:none;
+  font-size:10px; color:var(--dim);
+}
+#cv3d{cursor:grab}
+#cv3d.drag{cursor:grabbing}
+@media (max-width:1000px){
+  body{grid-template-columns:1fr; grid-template-rows:auto 1fr; height:auto; overflow:auto}
+  #rail{border-right:0; border-bottom:1px solid var(--rule); max-height:52vh}
+  /* explicit heights: no fr units to resolve against an auto-height parent */
+  main{display:flex; flex-direction:column; height:auto; gap:14px; padding:12px}
+  .views{display:flex; flex-direction:column; gap:14px}
+  .card{flex:none}
+  main > .card{height:38vh; min-height:230px; max-height:340px}
+  .views > .card:first-child{height:52vh; min-height:300px; max-height:420px}
+  .views > .card:last-child{height:42vh; min-height:250px; max-height:340px}
+}
+@media (max-width:1000px) and (orientation:landscape){
+  #rail{max-height:none}
+  main > .card{height:62vh; min-height:200px}
+  .views > .card{height:78vh; min-height:230px; max-height:none}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+
+<aside id="rail">
+  <div class="brand">
+    <h1>Sequence sim</h1>
+    <button class="themebtn" id="ver" type="button" title="Version and credits" style="margin-left:auto"></button>
+    <button class="themebtn" id="theme" type="button">Light</button>
+  </div>
+
+  <fieldset>
+    <legend>Experiment</legend>
+    <div class="f"><label for="seq">Sequence</label><select id="seq"></select></div>
+    <div class="f"><label for="pool">Tissue</label><select id="pool"></select></div>
+    <div class="ptable" id="ptable"></div>
+    <div id="nullers"></div>
+  </fieldset>
+
+  <fieldset>
+    <legend>Timing</legend>
+    <div class="f" id="f_alpha"><label for="alpha">Flip angle (°)</label><input id="alpha" type="number" min="1" max="180" step="5"></div>
+    <div class="f" id="f_TE"><label for="TE">TE (ms)</label><input id="TE" type="number" min="0.1" step="1"></div>
+    <div class="f" id="f_TR"><label for="TR">TR (ms)</label><input id="TR" type="number" min="1" step="10"></div>
+    <div class="f" id="f_TI"><label for="TI">TI (ms)</label><input id="TI" type="number" min="1" step="5"></div>
+    <div class="f" id="f_nEcho"><label for="nEcho">Echoes</label><input id="nEcho" type="number" min="1" max="32" step="1"></div>
+    <div class="f" id="f_nTR"><label for="nTR">Shots (TRs)</label><input id="nTR" type="number" min="1" max="200" step="1"></div>
+  </fieldset>
+
+  <fieldset>
+    <legend>Spin ensemble</legend>
+    <div class="f"><label for="nSpins">Isochromats</label><input id="nSpins" type="number" min="1" max="128" step="1" value="24"></div>
+    <div class="slab"><span>Off-resonance Δf₀</span><b id="df0Val">0 Hz</b></div>
+    <input type="range" id="df0" min="-300" max="300" step="1" value="0">
+    <div class="f" id="f_grad"><label for="gradHz">Gradient (Hz)</label><input id="gradHz" type="number" min="0" max="5000" step="50" value="500"></div>
+    <label class="chk"><input type="checkbox" id="cbGrads" checked>Play imaging gradients</label>
+    <div class="f"><label for="dist">Field spread</label>
+      <select id="dist">
+        <option value="uniform">Uniform (linear)</option>
+        <option value="lorentzian">Lorentzian (exp. T2*)</option>
+      </select></div>
+    <label class="chk"><input type="checkbox" id="cbT2s" checked>Include T2′ dephasing</label>
+    <label class="chk" title="Off (the hard-pulse approximation) gives every isochromat its nominal flip angle. On lets off-resonance and gradients act through the pulse, which is real but degrades inversion of shifted pools such as fat."><input type="checkbox" id="cbRfDeph">Dephase during RF pulses</label>
+    <label class="chk"><input type="checkbox" id="cbTrim" checked>Trim trailing dead time</label>
+    <label class="chk"><input type="checkbox" id="cbSpins" checked>Show individual isochromats</label>
+  </fieldset>
+
+  <fieldset>
+    <legend>View</legend>
+    <div class="f"><label for="frame">Frame</label>
+      <select id="frame"><option value="rot">Rotating</option><option value="lab">Lab</option></select></div>
+    <div class="f" id="f_f0"><label for="f0">Display f₀ (Hz)</label><input id="f0" type="number" min="1" max="1000" step="10" value="50"></div>
+    <label class="chk"><input type="checkbox" id="cbTrail">Trace the tip of M</label>
+    <div class="f" id="f_trailMs"><label for="trailMs">Trace length (ms)</label>
+      <input id="trailMs" type="number" min="0.5" max="5000" step="5" value="25"></div>
+  </fieldset>
+
+  <fieldset>
+    <legend>Playback</legend>
+    <label class="chk"><input type="checkbox" id="cbSlowRF" checked>Slow during RF pulses (10×)</label>
+    <label class="chk"><input type="checkbox" id="cbSlowGr" checked>Slow during gradients (4×)</label>
+    <label class="chk"><input type="checkbox" id="cbSlowAq" checked>Slow during acquisition (4×)</label>
+    <div class="slab"><span>Speed</span><b id="speedVal">3 ms/s</b></div>
+    <input type="range" id="speed" min="-1.3" max="2" step="0.01">
+    <div class="slab"><span>Time</span><b id="timeVal">0.00 ms</b></div>
+    <input type="range" id="time" min="0" max="100" step="0.01" value="0">
+    <div class="transport">
+      <button id="play" type="button">▶ Play</button>
+      <button id="reset" type="button">Reset</button>
+    </div>
+  </fieldset>
+
+  <fieldset>
+    <legend>Recording</legend>
+    <div class="f"><label for="recFmt">Format</label>
+      <select id="recFmt">
+        <option value="mp4">MP4 · H.264</option>
+        <option value="webm">WebM · VP9</option>
+      </select></div>
+    <div class="f"><label for="recFps">Frame rate</label>
+      <select id="recFps"><option>30</option><option>60</option></select></div>
+    <div class="f"><label for="recSize">Resolution</label>
+      <select id="recSize">
+        <option value="1280">1280 × 720</option>
+        <option value="1600" selected>1600 × 900</option>
+        <option value="1920">1920 × 1080</option>
+      </select></div>
+    <div class="transport" style="grid-template-columns:1fr">
+      <button id="rec" type="button"><span class="dot"></span>Record one pass</button>
+    </div>
+    <p id="recStatus"></p>
+  </fieldset>
+
+  <div id="readout"></div>
+  <p class="credit" id="credit"></p>
+</aside>
+
+<main>
+  <div class="card">
+    <span class="tag">Pulse sequence</span>
+    <canvas id="cvSeq"></canvas>
+  </div>
+  <div class="views">
+    <div class="card">
+      <span class="tag" id="tag3d">Rotating frame</span>
+      <span class="hint">drag to orbit</span>
+      <canvas id="cv3d"></canvas>
+    </div>
+    <div class="card">
+      <span class="tag">Transverse plane · view from +z</span>
+      <canvas id="cv2d"></canvas>
+    </div>
+  </div>
+</main>
+
+<div id="tip" role="tooltip"></div>
+
+<div id="about" hidden>
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="aboutTitle">
+    <h3 id="aboutTitle">Sequence sim</h3>
+    <p class="by"></p>
+    <p class="note">
+      A teaching aid, not a quantitative simulator. Single voxel, non-selective
+      hard pulses, one spatial axis, no diffusion or flow. Relaxation values are
+      typical rounded numbers and are not field-strength corrected.
+    </p>
+    <div id="changelog"></div>
+    <button class="themebtn" id="aboutClose" type="button">Close</button>
+  </div>
+</div>
+
+<script>
+"use strict";
+/* ====================================================================
+   MRI spin-dynamics teaching simulator.
+   Port of the MATLAB version: same isochromat Bloch solver, same sequence
+   event lists, same simplifications.  Times in ms, frequencies in kHz.
+   ==================================================================== */
+
+/* ------------------------------------------------------------- build info */
+const BUILD = {
+  version: "1.4.1",
+  date:    "2026-08-14",
+  authors: "Designed by Filip Sz (Lund University) and coded by Claude (Anthropic)"
+};
+
+/* Newest first.  Versions below 0.7.0 describe the MATLAB implementation this
+   app was ported from; that version is still in the same folder. */
+const CHANGELOG = [
+  {v:"1.4.1", tag:"current", items:[
+    "Renamed to Sequence sim, and the credit updated to name the design and the coding separately."]},
+  {v:"1.4.0", items:[
+    "Off-resonance is a live slider now: drag it and the simulation re-runs, once per frame.",
+    "The nutation demo turns dephasing during RF on, so the slider actually affects the excitation, and shows the effective field tilting out of plane as the offset approaches B\u2081. It also switches the slow-motion tiers off and runs at a low steady speed, since the whole sequence is one long pulse. All of it is restored when you leave the demo."]},
+  {v:"1.3.1", items:[
+    "Playback speed is now capped so the fastest isochromat never turns more than about 20° between frames. Spoilers used to run at 60° per frame, which aliases — the fan appeared to jump at random rather than fan out.",
+    "New Field spread option. Uniform (the new default) spreads the isochromats linearly across the voxel, so they fan out evenly. Lorentzian keeps the heavy-tailed spread that reproduces exponential T2* decay, at the cost of a couple of spins racing while the rest barely move."]},
+  {v:"1.3.0", items:[
+    "The tip trace now shows only the last few milliseconds, set by a Trace length field, and fades out towards its tail instead of accumulating over the whole run.",
+    "Fixed: the TE and TI labels above the sequence diagram were drawn one pixel above the top of the plot and were clipped."]},
+  {v:"1.2.4", items:[
+    "Isochromats are drawn as plain lines; the dots on their tips are gone.",
+    "The net magnetisation vector and its trace now draw last, so the fan can no longer hide them. Kept wide and translucent so the isochromats read straight through."]},
+  {v:"1.2.3", items:[
+    "Fixed: FID and saturation recovery marked their peak at the centre of the excitation pulse — before any transverse magnetisation exists, and well outside the acquisition window. The marker now sits where the receiver opens, which is where the FID really is largest, and is labelled as an FID peak rather than an echo."]},
+  {v:"1.2.2", items:[
+    "The nutation demo now selects a long-relaxation tissue (T1 4000, T2 3000 ms) so the spiral keeps its radius instead of shrinking during a 24 ms pulse. Your previous tissue is restored when you leave the demo, as the view settings already were."]},
+  {v:"1.2.1", items:[
+    "Crusher pairs removed again. They only matter for spurious echoes from imperfect refocusing, which this model does not simulate, so they were clutter around the 180 rather than physics."]},
+  {v:"1.2.0", items:[
+    "New option: dephasing during RF pulses. Off (the default) is the hard-pulse approximation — every isochromat gets its nominal flip angle. On lets off-resonance and gradients run through the pulse, which is what really happens, at the cost of imperfect inversion for chemically shifted pools.",
+    "Crusher pairs added around every refocusing pulse. Previously the only gradient overlapping a 180° was slice-select, which this model draws but does not simulate, so nothing on the read axis acted there at all. The crushers are balanced, so the echo amplitude is unchanged."]},
+  {v:"1.1.3", items:[
+    "Fixed: with a tissue mixture the net magnetisation vector, and the |Mxy| and Mz figures in the readout, showed the average of the compartments rather than their sum — so a two-pool mixture drew the vector at half its true length. The traces and tooltips were already correct, so the vector disagreed with its own curve."]},
+  {v:"1.1.2", items:[
+    "Fixed: the smooth-scrolling rewrite dropped the declaration of the diagram cache key, so the app threw on load."]},
+  {v:"1.1.1", items:[
+    "Long sequences now scroll smoothly. The diagram is rendered once into a wide offscreen strip and each frame blits the visible slice, so the window can move continuously instead of jumping in 2% steps to avoid redrawing."]},
+  {v:"1.1.0", items:[
+    "Recording: one button captures a full pass of all three panels as a single composited video. MP4/H.264 via WebCodecs with a built-in muxer, WebM/VP9 as a fallback.",
+    "Frames are rendered offline into fixed-size offscreen panels, so the file does not depend on the window size, the display refresh rate, or the machine keeping up. Every frame carries the same declared duration."]},
+  {v:"1.0.7", items:[
+    "Fixed: the \"Trace the tip of M\" checkbox was missing from the markup, so the app threw on load. Added a startup check that names any missing control instead of failing with a null reference."]},
+  {v:"1.0.6", items:[
+    "New demo sequence: excitation nutation. A long weak B\u2081 (24 ms by default) so the magnetisation visibly spirals into the transverse plane instead of snapping there. Selecting it switches to the lab frame at 250 Hz and turns the tip trace on; leaving it puts your view settings back.",
+    "New option to trace the tip of the net magnetisation, available for any sequence."]},
+  {v:"1.0.5", items:[
+    "Slow motion split into three independent checkboxes — RF pulses, gradients and acquisition — each with its own factor. The strongest active one wins, and the readout shows it.",
+    "Acquisition now means the ADC window rather than a guess at the echo neighbourhood, so it still marks echo formation when gradients are switched off.",
+    "Default speeds retuned so that a full pass with all three tiers on runs about 15–30 s for every sequence."]},
+  {v:"1.0.4", items:[
+    "CPMG no longer labels the first interval \"TE\": it is now TE\u2081, with ESP marking the echo spacing, because the effective TE of a train is set by whichever echo fills the centre of k-space. The control and the readout use the same wording, and the echo tooltip explains it."]},
+  {v:"1.0.3", items:[
+    "The echo, the acquisition window and the magnetisation traces now share one tooltip across the whole bottom row, so the echo is no longer a small target. Phase is reported at any hovered time, not only at echoes.",
+    "The net magnetisation vector is drawn beneath the isochromats — wider and fainter, so it reads as a broad marker without covering the fan."]},
+  {v:"1.0.2", items:[
+    "The net magnetisation vector is now white (black in light mode) and translucent, so it reads clearly against the isochromat fan without hiding it.",
+    "Released files are named mriSeqSim_v<version>.html so each build is kept."]},
+  {v:"1.0.1", items:[
+    "Fixed the phone layout: the spin views could climb into the sequence diagram. Canvases are now taken out of flow so they can no longer grow the card that sizes them, and the stacked layout uses explicit heights with more separation.",
+    "A tap shows a diagram tooltip on touch screens; a tap elsewhere dismisses it."]},
+  {v:"1.0.0", items:[
+    "Echo tooltips report peak |Mxy| and phase for each compartment, and say what the phase difference means (in-phase / opposed-phase).",
+    "Custom pools start as one editable tissue and can be grown to two; compartment names are editable.",
+    "Tissue and mixture lists merged into one grouped dropdown with a live parameter table."]},
+  {v:"0.9.0", items:[
+    "Hover explanations on every object in the pulse sequence diagram: pulses, gradient lobes, acquisition windows, echoes and traces."]},
+  {v:"0.8.0", items:[
+    "Two-compartment tissue mixtures, each with its own relaxation times, proton density and chemical shift.",
+    "One-click nulling by inversion recovery: STIR and FLAIR.",
+    "RF pulses freeze off-resonance for their duration (hard-pulse approximation), so nulling works for shifted pools."]},
+  {v:"0.7.0", items:[
+    "Browser port: one self-contained HTML file, canvas rendering, dark and light themes.",
+    "Physics verified against analytic results (spin echo within 0.001 of exp(-TE/T2))."]},
+  {v:"0.6.0", items:[
+    "Magnetisation traces folded into the sequence diagram; the two spin views take the whole lower half.",
+    "RF black, gradients grey, |Mxy| dark red, Mz dark blue."]},
+  {v:"0.5.0", items:[
+    "Logarithmic speed control weighted towards slow playback.",
+    "Slow motion at RF pulses, gradients and echoes.",
+    "Longer tail after the final event."]},
+  {v:"0.4.0", items:[
+    "Toggle for imaging gradients, so a spin echo is not mixed with the gradient echo from the readout."]},
+  {v:"0.3.0", items:[
+    "Compact single-shot defaults with trailing dead time trimmed away.",
+    "Demo tissue with short relaxation times for teaching timescales."]},
+  {v:"0.2.0", items:[
+    "60 fps render path: one patch for all isochromats, throttled interface updates, wall-clock stepping."]},
+  {v:"0.1.0", items:[
+    "First framework (MATLAB): isochromat Bloch solver, sequence builder, GUI, rotating and lab frames."]}
+];
+
+/* ---------------------------------------------------- tissues & mixtures */
+/* One list. A pool is just an array of compartments, so a "single tissue" is
+   a mixture of one.  Each compartment has its own relaxation times, relative
+   proton density and chemical shift (Hz, relative to the RF carrier; fat sits
+   about -220 Hz at 1.5 T, -440 Hz at 3 T).  Values are rounded, typical
+   numbers for teaching, not for quantitative work — edit freely. */
+const POOLS = [
+  {group:"Single tissue", name:"Demo — fast (teaching)",
+   comps:[{name:"Tissue", T1:200, T2:100, T2s:20, M0:1.00, df:0}]},
+  {group:"Single tissue", name:"Demo — nutation (long T1/T2)",
+   comps:[{name:"Tissue", T1:4000, T2:3000, T2s:3000, M0:1.00, df:0}]},
+  {group:"Single tissue", name:"White matter",
+   comps:[{name:"White matter", T1:600, T2:80, T2s:60, M0:0.75, df:0}]},
+  {group:"Single tissue", name:"Grey matter",
+   comps:[{name:"Grey matter", T1:1000, T2:100, T2s:70, M0:0.85, df:0}]},
+  {group:"Single tissue", name:"CSF",
+   comps:[{name:"CSF", T1:4000, T2:2000, T2s:400, M0:1.00, df:0}]},
+  {group:"Single tissue", name:"Fat",
+   comps:[{name:"Fat", T1:260, T2:80, T2s:50, M0:1.00, df:-220}]},
+  {group:"Single tissue", name:"Skeletal muscle",
+   comps:[{name:"Muscle", T1:900, T2:50, T2s:30, M0:0.80, df:0}]},
+
+  {group:"Mixture", name:"Demo — fat + water (fast)",
+   comps:[{name:"Water", T1:300, T2:100, T2s:25, M0:0.65, df:0},
+          {name:"Fat",   T1:90,  T2:100, T2s:25, M0:0.35, df:-220}]},
+  {group:"Mixture", name:"Fat + water (1.5 T)",
+   comps:[{name:"Water", T1:900, T2:80, T2s:60, M0:0.65, df:0},
+          {name:"Fat",   T1:260, T2:80, T2s:50, M0:0.35, df:-220}]},
+  {group:"Mixture", name:"CSF + white matter",
+   comps:[{name:"CSF", T1:4000, T2:2000, T2s:400, M0:0.45, df:0},
+          {name:"WM",  T1:600,  T2:80,   T2s:60,  M0:0.55, df:0}]},
+  {group:"Mixture", name:"Grey + white matter",
+   comps:[{name:"Grey",  T1:1000, T2:100, T2s:70, M0:0.52, df:0},
+          {name:"White", T1:600,  T2:80,  T2s:60, M0:0.48, df:0}]}
+];
+
+const SEQS = [
+  {key:"NUT",   name:"Excitation nutation (demo)"},
+  {key:"FID",   name:"FID (single pulse)"},
+  {key:"SR",    name:"Saturation recovery"},
+  {key:"SE",    name:"Spin echo (SE)"},
+  {key:"CPMG",  name:"Multi-echo SE (CPMG)"},
+  {key:"GRE",   name:"Spoiled gradient echo (GRE)"},
+  {key:"IRSE",  name:"Inversion recovery SE (IR)"},
+  {key:"BSSFP", name:"Balanced SSFP (bSSFP)"}
+];
+
+// alpha, TE, TR, TI, nEcho, nTR, speed(ms per wall-clock second)
+const DEFAULTS = {
+  FID:  {alpha:90, TE:10, TR:60,  TI:40, nEcho:4, nTR:1,  speed:10},
+  SR:   {alpha:90, TE:10, TR:60,  TI:40, nEcho:4, nTR:4,  speed:20},
+  SE:   {alpha:90, TE:30, TR:200, TI:40, nEcho:4, nTR:1,  speed:3},
+  CPMG: {alpha:90, TE:20, TR:400, TI:40, nEcho:5, nTR:1,  speed:10},
+  GRE:  {alpha:30, TE:10, TR:25,  TI:40, nEcho:4, nTR:4,  speed:8},
+  IRSE: {alpha:90, TE:20, TR:400, TI:40, nEcho:4, nTR:1,  speed:8},
+  BSSFP:{alpha:45, TE:3,  TR:6,   TI:40, nEcho:4, nTR:40, speed:30},
+  // TE is repurposed as the RF duration here: a long, weak pulse is the only
+  // way to see the magnetisation spiral down instead of snapping to the plane
+  NUT:  {alpha:90, TE:24, TR:60,  TI:40, nEcho:4, nTR:1,  speed:2}
+};
+const USES = {
+  alpha:{FID:1,SR:1,GRE:1,BSSFP:1,NUT:1},
+  TE:{SE:1,CPMG:1,GRE:1,IRSE:1,NUT:1},
+  TI:{IRSE:1},
+  nEcho:{CPMG:1}
+};
+
+/* ==================================================================== */
+/*  Sequence builder — one TR block, then replicated                    */
+/* ==================================================================== */
+function buildSequence(key, p){
+  const warn = [];
+  p.nTR   = Math.max(1, Math.round(p.nTR));
+  p.nEcho = Math.max(1, Math.round(p.nEcho));
+
+  let rfDur = Math.min(1.2, Math.max(0.20, 0.20*p.TR));
+  let roDur = Math.min(4, 0.35*p.TR, Math.max(1, 0.60*p.TE));
+  const gap = 0.30;
+
+  const mkRF = (t0,dur,flip,phase,label)=>({t0,dur,flip,phase,label});
+  const mkG  = (t0,dur,amp,ch,kind)=>({t0,dur,amp,ch,kind});      // ch 1=slice 2=phase 3=read
+  const clamp = (v,vmin,nm)=>{
+    if(v < vmin){ warn.push(`${nm} raised to ${vmin.toFixed(1)} ms (minimum for this timing).`); return vmin; }
+    return v;
+  };
+
+  let name="", rf=[], g=[], adc=[], echo=[], ann=[], blockEnd=0, needSpoil=false;
+  let peak = "echo";      // what the markers denote: a real echo, or an FID peak
+
+  switch(key){
+
+  case "FID": {
+    name = "FID (single pulse)";
+    rf = [mkRF(0, rfDur, p.alpha, 0, `${p.alpha}°`)];
+    g  = [mkG(0, rfDur, 1, 1), mkG(rfDur, rfDur/2, -1, 1)];
+    const t0 = rfDur + rfDur/2 + gap, d = Math.max(10, Math.min(0.75*p.TR, 80));
+    adc = [{t0, dur:d}]; echo = [t0]; peak = "fid"; blockEnd = t0 + d + 1;
+    break; }
+
+  case "SR": {
+    name = "Saturation recovery";
+    rf = [mkRF(0, rfDur, p.alpha, 0, `${p.alpha}°`)];
+    g  = [mkG(0, rfDur, 1, 1), mkG(rfDur, rfDur/2, -1, 1)];
+    const t0 = rfDur + rfDur/2 + gap, d = Math.max(8, Math.min(0.35*p.TR, 40));
+    adc = [{t0, dur:d}]; echo = [t0]; peak = "fid"; blockEnd = t0 + d + 1; needSpoil = true;
+    break; }
+
+  case "SE": {
+    name = "Spin echo (SE)";
+    p.TE = clamp(p.TE, 2*(rfDur + gap + roDur/2 + gap), "TE");
+    const tc = rfDur/2, t180 = tc + p.TE/2 - rfDur/2, tRO = tc + p.TE - roDur/2;
+    rf = [mkRF(0, rfDur, 90, 0, "90°x"), mkRF(t180, rfDur, 180, 90, "180°y")];
+    g  = [mkG(0, rfDur, 1, 1), mkG(rfDur, rfDur/2, -1, 1), mkG(t180, rfDur, 1, 1),
+          mkG(rfDur*1.5 + gap, roDur/2, 1, 3), mkG(rfDur*1.5 + gap, roDur/2, 1, 2),
+          mkG(tRO, roDur, 1, 3)];
+    adc = [{t0:tRO, dur:roDur}]; echo = [tc + p.TE];
+    ann = [{t1:tc, t2:echo[0], label:"TE"}];
+    blockEnd = tRO + roDur + 1; needSpoil = true;
+    break; }
+
+  case "CPMG": {
+    name = "Multi-echo spin echo (CPMG)";
+    p.TE = clamp(p.TE, 2*(rfDur + gap + roDur/2 + gap), "TE");
+    const tc = rfDur/2;
+    rf = [mkRF(0, rfDur, 90, 0, "90°x")];
+    g  = [mkG(0, rfDur, 1, 1), mkG(rfDur, rfDur/2, -1, 1),
+          mkG(rfDur*1.5 + gap, roDur/2, 1, 3), mkG(rfDur*1.5 + gap, roDur/2, 1, 2)];
+    for(let e=1; e<=p.nEcho; e++){
+      const t180 = tc + (2*e-1)*p.TE/2 - rfDur/2, tRO = tc + e*p.TE - roDur/2;
+      rf.push(mkRF(t180, rfDur, 180, 90, "180°y"));
+      g.push(mkG(t180, rfDur, 1, 1), mkG(tRO, roDur, 1, 3));
+      adc.push({t0:tRO, dur:roDur});
+      echo.push(tc + e*p.TE);
+    }
+    // Not "TE": in a train the contrast is set by whichever echo fills the
+    // centre of k-space, so the first interval is TE1 and the rest is spacing.
+    ann = [{t1:tc, t2:echo[0], label:"TE\u2081"}];
+    if(p.nEcho > 1) ann.push({t1:echo[0], t2:echo[1], label:"ESP"});
+    blockEnd = echo[echo.length-1] + roDur/2 + 1; needSpoil = true;
+    break; }
+
+  case "GRE": {
+    name = "Spoiled gradient echo (GRE)";
+    p.TE = clamp(p.TE, rfDur + gap + roDur + gap, "TE");
+    const tc = rfDur/2, tRO = tc + p.TE - roDur/2;
+    rf = [mkRF(0, rfDur, p.alpha, 0, `${p.alpha}°`)];
+    g  = [mkG(0, rfDur, 1, 1), mkG(rfDur, rfDur/2, -1, 1), mkG(rfDur, rfDur/2, 1, 2),
+          mkG(tRO - roDur/2 - gap, roDur/2, -1, 3), mkG(tRO, roDur, 1, 3)];
+    adc = [{t0:tRO, dur:roDur}]; echo = [tc + p.TE];
+    ann = [{t1:tc, t2:echo[0], label:"TE"}];
+    blockEnd = tRO + roDur + 1; needSpoil = true;
+    break; }
+
+  case "IRSE": {
+    name = "Inversion recovery SE (IR)";
+    p.TE = clamp(p.TE, 2*(rfDur + gap + roDur/2 + gap), "TE");
+    p.TI = clamp(p.TI, rfDur + 2, "TI");
+    const tInv = rfDur/2, t90 = p.TI, tc = t90 + rfDur/2;
+    const t180 = tc + p.TE/2 - rfDur/2, tRO = tc + p.TE - roDur/2;
+    rf = [mkRF(0, rfDur, 180, 0, "180° inv"), mkRF(t90, rfDur, 90, 0, "90°x"),
+          mkRF(t180, rfDur, 180, 90, "180°y")];
+    g  = [mkG(0, rfDur, 1, 1), mkG(t90, rfDur, 1, 1), mkG(t90+rfDur, rfDur/2, -1, 1),
+          mkG(t180, rfDur, 1, 1), mkG(t90 + rfDur*1.5 + gap, roDur/2, 1, 3),
+          mkG(t90 + rfDur*1.5 + gap, roDur/2, 1, 2),
+          mkG(tRO, roDur, 1, 3)];
+    adc = [{t0:tRO, dur:roDur}]; echo = [tc + p.TE];
+    ann = [{t1:tInv, t2:tc, label:"TI"}, {t1:tc, t2:echo[0], label:"TE"}];
+    blockEnd = tRO + roDur + 1; needSpoil = true;
+    break; }
+
+  case "NUT": {
+    name = "Excitation nutation — watch the tip spiral (lab frame)";
+    // A deliberately long, weak B1: everywhere else the pulse is ~1 ms and the
+    // nutation is over before you see it.  No gradients — this is about B1 alone.
+    rfDur = Math.min(Math.max(p.TE, 2), 0.8*p.TR);
+    p.TE  = rfDur;
+    roDur = Math.min(4, 0.3*p.TR);
+    rf = [mkRF(0, rfDur, p.alpha, 0, `${p.alpha}° over ${rfDur.toFixed(0)} ms`)];
+    g  = [];
+    const t0 = rfDur + 0.5, d = Math.max(6, Math.min(0.35*p.TR, 20));
+    adc  = [{t0, dur:d}];
+    echo = []; peak = "";            // nothing here is an echo
+    ann  = [{t1:0, t2:rfDur, label:"B\u2081 on"}];
+    blockEnd = t0 + d + 1;
+    break; }
+
+  case "BSSFP": {
+    name = "Balanced SSFP (bSSFP)";
+    for(let it=0; it<8; it++){
+      rfDur = Math.min(0.8, Math.max(0.15, 0.15*p.TR));
+      roDur = Math.min(2.0, 0.25*p.TR);
+      const need = rfDur + 2*roDur + 1.8;
+      if(p.TR >= need) break;
+      if(!warn.length) warn.push(`TR raised to ${need.toFixed(1)} ms (balanced block does not fit).`);
+      p.TR = need;
+    }
+    p.TE = p.TR/2;
+    const tc = rfDur/2, tRO = tc + p.TE - roDur/2;
+    rf = [mkRF(0, rfDur, p.alpha, 0, `${p.alpha}°`)];
+    g  = [mkG(0, rfDur, 1, 1), mkG(rfDur, rfDur/2, -1, 1),
+          mkG(tRO - roDur/2 - 0.05, roDur/2, -1, 3), mkG(tRO, roDur, 1, 3),
+          mkG(tRO + roDur + 0.05, roDur/2, -1, 3),
+          mkG(rfDur*1.5, roDur/2, 1, 2), mkG(tRO + roDur + 0.05, roDur/2, -1, 2)];
+    adc = [{t0:tRO, dur:roDur}]; echo = [tc + p.TE];
+    ann = [{t1:tc, t2:echo[0], label:"TE"}];
+    blockEnd = tRO + roDur + roDur/2 + 0.4;
+    break; }
+  }
+
+  // -------- clamp TR, replicate the block
+  p.TR = clamp(p.TR, blockEnd + 0.5 + (needSpoil?3:0), "TR");
+  if(key === "BSSFP") p.TE = p.TR/2;
+
+  const RF=[], G=[], ADC=[], ECHO=[]; let ANN=[];
+  const shift = (a,off)=>a.map(o=>Object.assign({},o,{t0:o.t0+off}));
+  for(let n=1; n<=p.nTR; n++){
+    const off = (n-1)*p.TR;
+    let rfn = shift(rf, off);
+    if(key === "BSSFP"){
+      if(n === 1){ rfn[0].flip = p.alpha/2; rfn[0].label = `${p.alpha/2}°`; }
+      const ph = 180*((n-1)%2);
+      rfn.forEach(o=>o.phase += ph);
+    }
+    RF.push(...rfn);
+    G.push(...shift(g, off));
+    ADC.push(...shift(adc, off));
+    ECHO.push(...echo.map(e=>e+off));
+    // no spoiler after the last TR: it would only add dead time
+    if(needSpoil && n < p.nTR) G.push(mkG(off + p.TR - 3.0, 2.0, 4, 3, "spoil"));
+    if(n === 1) ANN = ann.map(a=>({t1:a.t1+off, t2:a.t2+off, label:a.label}));
+  }
+
+  let grad = G;
+  if(!p.grads){
+    grad = [];
+    if(key === "GRE" || key === "BSSFP")
+      warn.push("Imaging gradients are off, so there is no gradient echo and no gradient spoiling — what you see is the FID.");
+  }
+
+  let lastEnd = 0;
+  RF.forEach(o=>lastEnd = Math.max(lastEnd, o.t0+o.dur));
+  grad.forEach(o=>lastEnd = Math.max(lastEnd, o.t0+o.dur));
+  ADC.forEach(o=>lastEnd = Math.max(lastEnd, o.t0+o.dur));
+  if(ECHO.length) lastEnd = Math.max(lastEnd, Math.max(...ECHO));
+
+  let duration = p.nTR*p.TR;
+  if(p.trim) duration = Math.min(duration, lastEnd + Math.max(4, 0.20*lastEnd));
+
+  return {key, name, rf:RF, grad, adc:ADC, echo:ECHO, ann:ANN,
+          TE:p.TE, TR:p.TR, TI:p.TI, alpha:p.alpha, nTR:p.nTR, nEcho:p.nEcho,
+          rfDur, roDur, duration, tLast:lastEnd, grads:p.grads, peak, warn};
+}
+
+/* ==================================================================== */
+/*  Isochromat Bloch solver (rotating frame)                            */
+/* ==================================================================== */
+function blochSim(seq, comps, opt){
+  const nC = comps.length;
+  const Np = Math.max(1, Math.round(opt.Nspins));   // isochromats per component
+  const N  = nC*Np;
+  const T  = seq.duration;
+
+  let dt = Math.min(0.25, Math.max(0.01, T/8000));
+  dt = Math.min(dt, seq.rfDur/12);
+  const Nt = Math.floor(T/dt) + 1;
+  const t = new Float32Array(Nt);
+  for(let k=0;k<Nt;k++) t[k] = k*dt;
+
+  // ---- per-isochromat properties
+  const df = new Float64Array(N), x = new Float64Array(N), m0 = new Float64Array(N);
+  const e1 = new Float64Array(N), e2 = new Float64Array(N);
+  const comp = new Uint8Array(N);
+  for(let c=0;c<nC;c++){
+    const C = comps[c];
+    const T2  = Math.max(C.T2, 1e-3);
+    const T2s = Math.max(Math.min(C.T2s, T2), 1e-4);
+    // Two ways to spread the isochromats over the voxel:
+    //   lorentzian - Cauchy quantiles, which reproduce exponential T2' decay but
+    //                have heavy tails: a couple of spins race while the bulk
+    //                barely moves, and with few spins the sum stops decaying.
+    //   uniform    - a linear field variation across the voxel, which is what a
+    //                susceptibility gradient actually looks like.  The fan opens
+    //                evenly; the decay is a sinc, calibrated so its first null
+    //                falls at T2'.
+    const R2p = (opt.useT2star && T2s < T2 && Np > 1) ? (1/T2s - 1/T2) : 0;
+    const gam = R2p/(2*Math.PI);
+    const halfW = R2p/2;
+    const uniform = opt.dist === "uniform";
+    const E1 = Math.exp(-dt/Math.max(C.T1,1e-3)), E2 = Math.exp(-dt/T2);
+    for(let i=0;i<Np;i++){
+      const j = c*Np + i, u = (i+0.5)/Np;
+      const d = !R2p ? 0
+              : uniform ? halfW*(2*u - 1)
+              : Math.max(-8*gam, Math.min(8*gam, gam*Math.tan(Math.PI*(u-0.5))));
+      df[j] = d + opt.df0 + (C.df||0)/1000;    // component chemical shift, Hz -> kHz
+      m0[j] = C.M0; e1[j] = E1; e2[j] = E2; comp[j] = c;
+    }
+    // positions along the read axis, decorrelated from the off-resonance order
+    const order = Array.from({length:Np}, (_,i)=>i)
+      .sort((a,b)=>((a+1)*0.6180339887498949 % 1) - ((b+1)*0.6180339887498949 % 1));
+    for(let i=0;i<Np;i++) x[c*Np + order[i]] = Np===1 ? 0 : -1 + 2*i/(Np-1);
+  }
+
+  // ---- waveforms
+  const gw = new Float32Array(Nt);
+  for(const G of seq.grad){
+    if(G.ch !== 3) continue;
+    const k0 = Math.max(0, Math.ceil(G.t0/dt)), k1 = Math.min(Nt-1, Math.floor((G.t0+G.dur)/dt));
+    for(let k=k0;k<=k1;k++) if(t[k] >= G.t0 && t[k] < G.t0+G.dur) gw[k] += G.amp;
+  }
+  const dAlpha = new Float32Array(Nt), rfPh = new Float32Array(Nt);
+  const rfOn = new Uint8Array(Nt);
+  for(const R of seq.rf){
+    let idx = [];
+    for(let k=0;k<Nt;k++) if(t[k] >= R.t0 && t[k] < R.t0+R.dur) idx.push(k);
+    if(!idx.length) idx = [Math.min(Nt-1, Math.round((R.t0+R.dur/2)/dt))];
+    const inc = (R.flip*Math.PI/180)/idx.length;
+    for(const k of idx){ dAlpha[k] += inc; rfPh[k] = R.phase*Math.PI/180; rfOn[k] = 1; }
+  }
+
+  // ---- integrate
+  const M = new Float32Array(3*N*Nt);              // frame-major: [k][component][spin]
+  const Sig = new Float32Array(Nt), MzN = new Float32Array(Nt);
+  const SigC = [], MzC = [], SigCr = [], SigCi = [];
+  for(let c=0;c<nC;c++){ SigC.push(new Float32Array(Nt)); MzC.push(new Float32Array(Nt));
+                         SigCr.push(new Float32Array(Nt)); SigCi.push(new Float32Array(Nt)); }
+  const Mx = new Float64Array(N), My = new Float64Array(N), Mz = new Float64Array(N);
+  for(let i=0;i<N;i++) Mz[i] = m0[i];
+
+  for(let k=0;k<Nt;k++){
+    if(dAlpha[k] !== 0){                           // Rodrigues about (cosφ, sinφ, 0)
+      const a = dAlpha[k], nx = Math.cos(rfPh[k]), ny = Math.sin(rfPh[k]);
+      const ca = Math.cos(a), sa = Math.sin(a);
+      for(let i=0;i<N;i++){
+        const mx=Mx[i], my=My[i], mz=Mz[i];
+        const nd = nx*mx + ny*my;
+        Mx[i] = mx*ca + ( ny*mz)*sa + nx*nd*(1-ca);
+        My[i] = my*ca + (-nx*mz)*sa + ny*nd*(1-ca);
+        Mz[i] = mz*ca + (nx*my - ny*mx)*sa;
+      }
+    }
+    const base = 3*N*k;
+    let tr=0, ti=0, tz=0;
+    for(let c=0;c<nC;c++){
+      let sr=0, si=0, sz=0;
+      for(let i=c*Np;i<(c+1)*Np;i++){
+        M[base+i] = Mx[i]; M[base+N+i] = My[i]; M[base+2*N+i] = Mz[i];
+        sr += Mx[i]; si += My[i]; sz += Mz[i];
+      }
+      sr/=Np; si/=Np; sz/=Np;
+      SigCr[c][k]=sr; SigCi[c][k]=si;
+      SigC[c][k] = Math.hypot(sr, si); MzC[c][k] = sz;
+      tr += sr; ti += si; tz += sz;
+    }
+    Sig[k] = Math.hypot(tr, ti); MzN[k] = tz;
+
+    if(k < Nt-1){
+      const gk = gw[k];
+      // Hard-pulse approximation (the default): while B1 is on, off-resonance
+      // and gradients are frozen, so every isochromat gets the nominal flip
+      // angle whatever its chemical shift.  Without it a 1.2 ms "180" only
+      // partly inverts fat at -220 Hz and STIR looks broken for a reason the
+      // tool is not trying to teach.  opt.rfDephase turns the freeze off and
+      // lets precession run through the pulse, which is what really happens.
+      const frozen = !opt.rfDephase && rfOn[k] === 1;
+      for(let i=0;i<N;i++){
+        if(!frozen){
+          const ph = 2*Math.PI*(df[i] + opt.gradHz*gk*x[i])*dt;
+          const c1 = Math.cos(ph), s1 = Math.sin(ph);
+          const mx = Mx[i]*c1 - My[i]*s1, my = Mx[i]*s1 + My[i]*c1;
+          Mx[i] = mx; My[i] = my;
+        }
+        Mx[i] *= e2[i]; My[i] *= e2[i];
+        Mz[i] = m0[i] + (Mz[i]-m0[i])*e1[i];
+      }
+    }
+  }
+
+  // Fastest precession present at each sample, so the interface can hold the
+  // per-frame rotation below the point where the fan starts to alias.
+  const fmax = new Float32Array(Nt);
+  for(let k=0;k<Nt;k++){
+    let m = 0;
+    for(let i=0;i<N;i++) m = Math.max(m, Math.abs(df[i] + opt.gradHz*gw[k]*x[i]));
+    fmax[k] = m;
+  }
+
+  // ---- masks the interface uses to slow playback over the interesting parts.
+  // Kept separate rather than collapsed into one factor so each can be toggled.
+  const gradOn = new Uint8Array(Nt), acqOn = new Uint8Array(Nt);
+  for(let k=0;k<Nt;k++) if(gw[k] !== 0) gradOn[k] = 1;
+  for(const a of seq.adc){
+    const k0 = Math.max(0, Math.ceil(a.t0/dt)), k1 = Math.min(Nt-1, Math.floor((a.t0+a.dur)/dt));
+    for(let k=k0;k<=k1;k++) acqOn[k] = 1;
+  }
+
+  return {t, dt, Nt, N, Np, nC, comps, M, Sig, Mz:MzN, SigC, MzC, SigCr, SigCi,
+          df, x, comp, rfOn, rfPh, gradOn, acqOn, fmax};
+}
+
+/* ==================================================================== */
+/*  Theme + canvas plumbing                                             */
+/* ==================================================================== */
+const $ = id => document.getElementById(id);
+let TH = {};
+function readTheme(){
+  const cs = getComputedStyle(document.documentElement);
+  const v = n => cs.getPropertyValue(n).trim();
+  TH = {bg:v("--panel"), rule:v("--rule"), text:v("--text"), muted:v("--muted"), dim:v("--dim"),
+        rf:v("--rf"), grad:v("--grad"), mxy:v("--mxy"), mz:v("--mz"), adc:v("--adc"),
+        cursor:v("--cursor"), isoLo:v("--iso-lo"), isoMid:v("--iso-mid"), isoHi:v("--iso-hi"),
+        comp:[v("--c1"), v("--c2"), v("--c3")], net:v("--net")};
+}
+function hex2rgb(h){
+  h = h.replace("#","");
+  if(h.length===3) h = h.split("").map(c=>c+c).join("");
+  return [parseInt(h.slice(0,2),16), parseInt(h.slice(2,4),16), parseInt(h.slice(4,6),16)];
+}
+function mix(a,b,f){
+  const A=hex2rgb(a), B=hex2rgb(b);
+  return `rgb(${Math.round(A[0]+(B[0]-A[0])*f)},${Math.round(A[1]+(B[1]-A[1])*f)},${Math.round(A[2]+(B[2]-A[2])*f)})`;
+}
+function shade(hex, f){                       // f in [-1,1]: darken .. lighten
+  const c = hex2rgb(hex), t = f > 0 ? 255 : 0, a = Math.abs(f)*0.55;
+  return `rgb(${c.map(v=>Math.round(v+(t-v)*a)).join(",")})`;
+}
+function isoColor(f){ return f<0.5 ? mix(TH.isoLo,TH.isoMid,f/0.5) : mix(TH.isoMid,TH.isoHi,(f-0.5)/0.5); }
+function rgba(h,a){ const c=hex2rgb(h); return `rgba(${c[0]},${c[1]},${c[2]},${a})`; }
+
+function fitCanvas(cv){
+  if(cv._fixed){                       // offscreen recording panel: fixed size
+    const f = cv._fixed, c = cv.getContext("2d");
+    c.setTransform(f.scale, 0, 0, f.scale, 0, 0);
+    return {ctx:c, w:f.w, h:f.h};
+  }
+  const dpr = Math.min(window.devicePixelRatio||1, 2);
+  const r = cv.getBoundingClientRect();
+  // clamp: a stale or degenerate measurement must never grow the backing store
+  const cw = Math.min(Math.max(r.width, 1), 4000), ch = Math.min(Math.max(r.height, 1), 4000);
+  const w = Math.round(cw*dpr), h = Math.round(ch*dpr);
+  if(cv.width !== w || cv.height !== h){ cv.width = w; cv.height = h; }
+  const ctx = cv.getContext("2d");
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  return {ctx, w:cw, h:ch};
+}
+
+/* ==================================================================== */
+/*  Pulse sequence diagram                                              */
+/* ==================================================================== */
+/* The diagram is costly to draw, so it is rendered once into a wide offscreen
+   "strip" holding more time than fits on screen; each frame then blits the
+   slice for the current window.  Scrolling is a copy rather than a redraw,
+   which is what lets it move smoothly instead of in visible steps.          */
+const seqStrip = document.createElement("canvas");
+let stripLo = 0, stripSpan = 0, stripKey = "";
+let cacheKey = "";              // changes whenever the simulation content changes
+const TOP = 26;   // band above the rails for the TE / TI marks; must clear
+                  // the label, which is drawn 8 px above the annotation line
+
+const ROWS = [
+  {y:0.14, h:0.075, label:"RF"},
+  {y:0.31, h:0.060, label:"G slice"},
+  {y:0.45, h:0.060, label:"G phase"},
+  {y:0.59, h:0.060, label:"G read"},
+  {y:0.83, h:0.150, label:"M"}
+];
+
+function drawStrip(pw, ph, mb, seq, res, t0, tspan){
+  const dpr = Math.min(window.devicePixelRatio||1, 2);
+  seqStrip.width  = Math.max(1, Math.round(pw*dpr));
+  seqStrip.height = Math.max(1, Math.round((TOP+ph+mb)*dpr));
+  const c = seqStrip.getContext("2d");
+  c.setTransform(dpr,0,0,dpr,0,0);
+  c.clearRect(0, 0, pw, TOP+ph+mb);
+
+  const X = t => (t-t0)/tspan*pw;
+  const Y = (row,v) => TOP + (ROWS[row].y - v*ROWS[row].h)*ph;
+  c.font = "10px ui-monospace, Menlo, monospace";
+  c.textBaseline = "middle";
+
+  // channel rails
+  ROWS.forEach((R,i)=>{
+    c.strokeStyle = TH.rule; c.lineWidth = 1;
+    c.beginPath(); c.moveTo(0, Y(i,0)+0.5); c.lineTo(pw, Y(i,0)+0.5); c.stroke();
+  });
+
+  // time ticks
+  const nice = [0.5,1,2,5,10,20,50,100,200,500,1000];
+  const step = nice.find(s => tspan/s <= 9) || 1000;
+  c.textAlign = "center"; c.fillStyle = TH.dim;
+  for(let tt = Math.ceil(t0/step)*step; tt <= t0+tspan; tt += step){
+    const px = X(tt);
+    c.strokeStyle = rgba(TH.rule, 0.55);
+    c.beginPath(); c.moveTo(px+0.5, TOP); c.lineTo(px+0.5, TOP+ph); c.stroke();
+    c.fillText(tt.toFixed(step<1?1:0), px, TOP+ph+mb/2+1);
+  }
+
+  // ADC windows
+  c.fillStyle = rgba(TH.adc, 0.14);
+  for(const A of seq.adc) c.fillRect(X(A.t0), Y(4,1), X(A.t0+A.dur)-X(A.t0), Y(4,-1)-Y(4,1));
+
+  // gradients
+  for(let ch=1; ch<=3; ch++){
+    const list = seq.grad.filter(o=>o.ch===ch);
+    if(!list.length) continue;
+    const amax = Math.max(...list.map(o=>Math.abs(o.amp))) || 1;
+    const row = ch;                       // slice->1, phase->2, read->3
+    for(const G of list){
+      const a = G.amp/amax, r = 0.15*G.dur;
+      const pts = [[G.t0,0],[G.t0+r,a],[G.t0+G.dur-r,a],[G.t0+G.dur,0]];
+      c.beginPath();
+      pts.forEach((p,i)=> i ? c.lineTo(X(p[0]),Y(row,p[1])) : c.moveTo(X(p[0]),Y(row,p[1])));
+      c.closePath();
+      c.fillStyle = rgba(TH.grad, 0.30); c.fill();
+      c.strokeStyle = TH.grad; c.lineWidth = 1; c.stroke();
+      if(ch===2) for(const f of [-0.75,-0.35,0.35,0.75]){
+        c.beginPath();
+        pts.forEach((p,i)=>{ const yy = Y(row, p[1]*f);
+          i ? c.lineTo(X(p[0]),yy) : c.moveTo(X(p[0]),yy); });
+        c.strokeStyle = rgba(TH.grad, 0.45); c.stroke();
+      }
+    }
+  }
+
+  // RF
+  const sinc3 = u => { const z=3*u; const s = z===0 ? 1 : Math.sin(Math.PI*z)/(Math.PI*z);
+                       return s*(0.54+0.46*Math.cos(Math.PI*u)); };
+  c.strokeStyle = TH.rf; c.lineWidth = 1.4;
+  for(const R of seq.rf){
+    const amp = Math.min(1, Math.abs(R.flip)/180 + 0.25);
+    c.beginPath();
+    for(let i=0;i<=80;i++){
+      const u = -1 + 2*i/80, px = X(R.t0 + (u+1)/2*R.dur), py = Y(0, amp*sinc3(u));
+      i ? c.lineTo(px,py) : c.moveTo(px,py);
+    }
+    c.stroke();
+    if(R.t0 < 3*seq.TR){
+      c.fillStyle = TH.rf; c.textAlign = "center";
+      c.fillText(R.label, X(R.t0+R.dur/2), Y(0, amp) - 8);
+    }
+  }
+
+  // magnetisation traces (absolute scale: Mz tops out at M0)
+  if(res){
+    const stride = Math.max(1, Math.floor(res.Nt/1600));
+    const trace = (arr, col, lw, dash) => {
+      c.setLineDash(dash || []);
+      c.beginPath();
+      for(let k=0;k<res.Nt;k+=stride){
+        const px = X(res.t[k]), py = Y(4, arr[k]);
+        k ? c.lineTo(px,py) : c.moveTo(px,py);
+      }
+      c.strokeStyle = col; c.lineWidth = lw; c.stroke();
+      c.setLineDash([]);
+    };
+    if(res.nC > 1){
+      res.comps.forEach((C,ci)=>{
+        const col = TH.comp[ci % TH.comp.length];
+        trace(res.MzC[ci],  col, 1.2, [4,3]);   // dashed: Mz of this component
+        trace(res.SigC[ci], col, 1.3);          // solid:  |Mxy| of this component
+      });
+      trace(res.Sig, TH.mxy, 1.9);
+    } else {
+      trace(res.Mz, TH.mz, 1.4);
+      trace(res.Sig, TH.mxy, 1.7);
+    }
+    c.fillStyle = TH.adc;
+    for(const e of seq.echo){
+      if(e > res.t[res.Nt-1]) continue;
+      const k = Math.min(res.Nt-1, Math.round(e/res.dt));
+      c.beginPath(); c.arc(X(e), Y(4, res.Sig[k]), 3.2, 0, 7); c.fill();
+    }
+  }
+
+  // echo guides
+  c.setLineDash([2,3]); c.strokeStyle = rgba(TH.muted, 0.5); c.lineWidth = 1;
+  for(const e of seq.echo){
+    c.beginPath(); c.moveTo(X(e)+0.5, Y(0,1.2)); c.lineTo(X(e)+0.5, Y(4,-1)); c.stroke();
+  }
+  c.setLineDash([]);
+
+  // TE / TI annotations
+  c.strokeStyle = TH.muted; c.fillStyle = TH.muted; c.textAlign = "center";
+  for(const A of seq.ann){
+    const ya = TOP - 11;
+    c.beginPath(); c.moveTo(X(A.t1), ya); c.lineTo(X(A.t2), ya);
+    c.moveTo(X(A.t1), ya-3); c.lineTo(X(A.t1), ya+3);
+    c.moveTo(X(A.t2), ya-3); c.lineTo(X(A.t2), ya+3);
+    c.stroke();
+    c.fillText(A.label, (X(A.t1)+X(A.t2))/2, ya-8);
+  }
+}
+
+/* Gutter labels and the title do not scroll, so they are drawn live. */
+function drawChrome(c, w, ml, mr, mt, ph, seq, res){
+  c.font = "10px ui-monospace, Menlo, monospace";
+  c.textBaseline = "middle";
+  c.textAlign = "right";
+  ROWS.forEach((R,i)=>{
+    const y = mt + R.y*ph;
+    if(i === 4 && res && res.nC > 1){
+      c.fillStyle = TH.mxy; c.fillText("total |Mxy|", ml-9, y-14);
+      res.comps.forEach((C,ci)=>{
+        c.fillStyle = TH.comp[ci % TH.comp.length];
+        c.fillText(C.name.slice(0, ml < 70 ? 8 : 11), ml-9, y + ci*14);
+      });
+    } else if(i === 4){
+      c.fillStyle = TH.mxy; c.fillText("|Mxy|", ml-9, y-8);
+      c.fillStyle = TH.mz;  c.fillText("Mz",    ml-9, y+8);
+    } else {
+      c.fillStyle = TH.dim; c.fillText(R.label, ml-9, y);
+    }
+  });
+  c.fillStyle = TH.dim;
+  c.fillText(seq.name + (seq.grads ? "" : "  \u00b7  imaging gradients off")
+             + (res && res.nC > 1 ? "  \u00b7  solid |Mxy|, dashed Mz" : ""), w-mr, 13);
+}
+
+function drawSeq(cv, seq, res, win, tCur){
+  const {ctx, w, h} = fitCanvas(cv);
+  const dpr = Math.min(window.devicePixelRatio||1, 2);
+  const ml = w < 520 ? 60 : 80, mr = 14, mt = 44, mb = 24;
+  const pw = w-ml-mr, ph = h-mt-mb;
+  drawSeq._geo = {ml, mr, mt, mb, pw, ph};
+
+  // Hold as much time in the strip as the pixel budget allows, so short
+  // sequences are cached whole and never re-rendered during playback.
+  const budget = 16000;
+  const f = Math.max(1.5, Math.min(8, budget/Math.max(1, pw*dpr)));
+  const wantSpan = Math.min(seq.duration, win.span*f);
+  const wantLo = Math.max(0, Math.min(win.lo - (wantSpan-win.span)/2,
+                                      seq.duration - wantSpan));
+  const key = [pw.toFixed(1), ph.toFixed(1), cacheKey, win.span.toFixed(3)].join("|");
+  const edge = win.span*0.15;
+  const whole = stripSpan >= seq.duration - 1e-6;
+  if(key !== stripKey || stripSpan <= 0 ||
+     (!whole && (win.lo < stripLo + edge ||
+                 win.lo + win.span > stripLo + stripSpan - edge))){
+    stripLo = wantLo; stripSpan = wantSpan; stripKey = key;
+    drawStrip(pw*(stripSpan/win.span), ph, mb, seq, res, stripLo, stripSpan);
+  }
+
+  ctx.clearRect(0, 0, w, h);
+  drawChrome(ctx, w, ml, mr, mt, ph, seq, res);
+
+  // Blit the visible slice.  Source x is rounded to a whole device pixel so the
+  // copy stays crisp; that still leaves sub-CSS-pixel scrolling steps.
+  const sx = (win.lo - stripLo)/stripSpan * seqStrip.width;
+  const sw = win.span/stripSpan * seqStrip.width;
+  ctx.drawImage(seqStrip, Math.round(sx), 0, sw, seqStrip.height,
+                ml, mt-TOP, pw, TOP+ph+mb);
+
+  const px = ml + (tCur-win.lo)/win.span*pw;
+  ctx.strokeStyle = TH.cursor; ctx.lineWidth = 1.4;
+  ctx.beginPath(); ctx.moveTo(px, mt-4); ctx.lineTo(px, mt+ph+4); ctx.stroke();
+  ctx.fillStyle = TH.cursor;
+  ctx.beginPath(); ctx.moveTo(px-4, mt-6); ctx.lineTo(px+4, mt-6); ctx.lineTo(px, mt-1); ctx.fill();
+}
+
+/*  Spin views                                                          */
+/* ==================================================================== */
+let az = 0.62, el = 0.38;                    // orbit angles (rad)
+function basis(){
+  const ca=Math.cos(az), sa=Math.sin(az), ce=Math.cos(el), se=Math.sin(el);
+  return {r:[-sa, ca, 0], u:[-ca*se, -sa*se, ce]};
+}
+function draw3D(cv, st){
+  const {ctx, w, h} = fitCanvas(cv);
+  ctx.clearRect(0,0,w,h);
+  const cx = w/2, cy = h/2 + 6, R = Math.min(w,h)*0.36;
+  const {r,u} = basis();
+  const P = (x,y,z)=>[cx + R*(r[0]*x+r[1]*y+r[2]*z), cy - R*(u[0]*x+u[1]*y+u[2]*z)];
+
+  // reference sphere: three great circles
+  const circle = (f)=>{
+    ctx.beginPath();
+    for(let i=0;i<=96;i++){ const a=i/96*2*Math.PI, p=P(...f(a)); i?ctx.lineTo(p[0],p[1]):ctx.moveTo(p[0],p[1]); }
+    ctx.stroke();
+  };
+  ctx.lineWidth = 1;
+  ctx.strokeStyle = rgba(TH.muted, 0.34); circle(a=>[Math.cos(a),Math.sin(a),0]);
+  ctx.strokeStyle = rgba(TH.muted, 0.16);
+  circle(a=>[Math.cos(a),0,Math.sin(a)]); circle(a=>[0,Math.cos(a),Math.sin(a)]);
+
+  // axes
+  ctx.strokeStyle = rgba(TH.muted, 0.5); ctx.lineWidth = 1;
+  const axis = (v,lab)=>{
+    const a=P(-v[0]*1.14,-v[1]*1.14,-v[2]*1.14), b=P(v[0]*1.14,v[1]*1.14,v[2]*1.14);
+    ctx.beginPath(); ctx.moveTo(a[0],a[1]); ctx.lineTo(b[0],b[1]); ctx.stroke();
+    const q=P(v[0]*1.30,v[1]*1.30,v[2]*1.30);
+    ctx.fillStyle = TH.muted; ctx.textAlign="center"; ctx.textBaseline="middle";
+    ctx.font = "11px ui-monospace, Menlo, monospace";
+    ctx.fillText(lab, q[0], q[1]);
+  };
+  const pr = st.lab ? "" : "′";
+  axis([1,0,0], "x"+pr); axis([0,1,0], "y"+pr); axis([0,0,1], "z");
+
+  // isochromats
+  if(st.showSpins){
+    ctx.lineWidth = 1.4;
+    for(let i=0;i<st.N;i++){
+      const p = P(st.Mx[i], st.My[i], st.Mz[i]);
+      ctx.strokeStyle = st.cols[i];
+      ctx.beginPath(); ctx.moveTo(cx,cy); ctx.lineTo(p[0],p[1]); ctx.stroke();
+    }
+  }
+
+  // B1 while a pulse plays
+  if(st.b1){
+    const p = P(0.62*Math.cos(st.b1ph), 0.62*Math.sin(st.b1ph), 0);
+    ctx.strokeStyle = TH.adc; ctx.lineWidth = 2.6;
+    ctx.beginPath(); ctx.moveTo(cx,cy); ctx.lineTo(p[0],p[1]); ctx.stroke();
+    ctx.fillStyle = TH.adc; ctx.font="10px ui-monospace,Menlo,monospace";
+    ctx.fillText("B₁", p[0], p[1]-9);
+  }
+
+  // Net magnetisation last, so it is never hidden by the fan.  It is wide and
+  // translucent, so the isochromats still read straight through it.
+  netTrail(ctx, st, v => P(v[0], v[1], v[2]));
+  const n = P(st.nx, st.ny, st.nz);
+  netArrow(ctx, cx, cy, n[0], n[1], 9, 7);
+
+}
+
+/* Trace of the tip over the last st.trailMs of simulated time, drawn as a few
+   chunks of increasing opacity so the tail fades out rather than ending flat. */
+function netTrail(ctx, st, project){
+  if(!st.trail || st.k < 2) return;
+  const res = A.res;
+  const q0 = Math.max(0, Math.round((res.t[st.k] - st.trailMs)/res.dt));
+  if(st.k - q0 < 2) return;
+  const SEG = 6, step = Math.max(1, Math.floor((st.k-q0)/500));
+  ctx.lineWidth = 1.4;
+  for(let sIdx=0; sIdx<SEG; sIdx++){
+    const a = q0 + Math.floor((st.k-q0)*sIdx/SEG);
+    const b = q0 + Math.ceil((st.k-q0)*(sIdx+1)/SEG);
+    if(b - a < 1) continue;
+    ctx.strokeStyle = rgba(TH.net, 0.10 + 0.52*((sIdx+1)/SEG));
+    ctx.beginPath();
+    for(let q=a; q<=b; q+=step){
+      const p = project(st.tipAt(Math.min(q, st.k)));
+      q === a ? ctx.moveTo(p[0], p[1]) : ctx.lineTo(p[0], p[1]);
+    }
+    const pEnd = project(st.tipAt(Math.min(b, st.k)));
+    ctx.lineTo(pEnd[0], pEnd[1]);
+    ctx.stroke();
+  }
+}
+
+/* The net magnetisation: white on dark, black on light, and translucent so the
+   isochromats stay visible underneath it rather than being covered. */
+function netArrow(ctx, x0, y0, x1, y1, lw, r){
+  ctx.save();
+  ctx.lineCap = "round";
+  ctx.strokeStyle = rgba(TH.net, 0.30);
+  ctx.lineWidth = lw;
+  ctx.beginPath(); ctx.moveTo(x0,y0); ctx.lineTo(x1,y1); ctx.stroke();
+  ctx.fillStyle = rgba(TH.net, 0.40);
+  ctx.beginPath(); ctx.arc(x1, y1, r, 0, 7); ctx.fill();
+  ctx.restore();
+}
+
+function draw2D(cv, st){
+  const {ctx, w, h} = fitCanvas(cv);
+  ctx.clearRect(0,0,w,h);
+  const cx = w/2, cy = h/2 + 6, R = Math.min(w,h)*0.37;
+
+  ctx.strokeStyle = rgba(TH.muted, 0.34); ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.arc(cx,cy,R,0,7); ctx.stroke();
+  ctx.strokeStyle = rgba(TH.muted, 0.16);
+  ctx.beginPath(); ctx.moveTo(cx-R*1.1,cy); ctx.lineTo(cx+R*1.1,cy);
+  ctx.moveTo(cx,cy-R*1.1); ctx.lineTo(cx,cy+R*1.1); ctx.stroke();
+  ctx.fillStyle = TH.muted; ctx.font = "11px ui-monospace, Menlo, monospace";
+  ctx.textAlign="center"; ctx.textBaseline="middle";
+  const pr = st.lab ? "" : "′";
+  ctx.fillText("x"+pr, cx+R*1.22, cy); ctx.fillText("y"+pr, cx, cy-R*1.22);
+
+  if(st.showSpins){
+    ctx.lineWidth = 1.4;
+    for(let i=0;i<st.N;i++){
+      const px = cx + R*st.Mx[i], py = cy - R*st.My[i];
+      ctx.strokeStyle = st.cols[i];
+      ctx.beginPath(); ctx.moveTo(cx,cy); ctx.lineTo(px,py); ctx.stroke();
+    }
+  }
+
+  netTrail(ctx, st, v => [cx + R*v[0], cy - R*v[1]]);
+  netArrow(ctx, cx, cy, cx + R*st.nx, cy - R*st.ny, 8.5, 6.5);
+}
+
+/* ==================================================================== */
+/*  Hover explanations on the sequence diagram                          */
+/* ==================================================================== */
+function rfKind(R, seq){
+  if(/inv/i.test(R.label)) return "inversion";
+  if(Math.abs(R.flip) > 135) return "refocus";
+  return "excite";
+}
+const RF_TEXT = {
+  excite:
+    "Tips longitudinal magnetisation into the transverse plane, where it precesses and " +
+    "induces the signal. A 90° pulse converts all of Mz; a smaller flip leaves some Mz " +
+    "behind, which is what lets gradient echo run at short TR without saturating.",
+  refocus:
+    "Flips the fan of isochromats about the y axis. Spins that had run ahead now lag by " +
+    "the same amount, so at TE they come back into phase and rebuild the echo. This " +
+    "recovers signal lost to static field inhomogeneity (T2′) but never signal lost to " +
+    "true T2 — that decay is irreversible.",
+  inversion:
+    "Drives Mz to −M0. It produces no signal itself; the point is what happens during TI " +
+    "while Mz relaxes back up through zero. Excite at TI = T1·ln2 and that tissue " +
+    "contributes nothing — the basis of STIR (null fat) and FLAIR (null CSF)."
+};
+function gradInfo(G, seq){
+  if(G.ch === 1) return {name:"Slice-select gradient", text:
+    "Played during the RF pulse so that only one slice is on resonance and gets excited. " +
+    "The negative lobe afterwards rewinds the phase the gradient itself spread across the " +
+    "slice. Shown for completeness but not simulated: the pulses here are non-selective " +
+    "and the model carries only one spatial axis, the read direction."};
+  if(G.ch === 2) return {name:"Phase-encode gradient", text:
+    "Winds a different amount of phase across y on every shot; the ladder shows the steps " +
+    "it takes through k-space. Not simulated, and it could not be: phase encoding only " +
+    "means something across an object, and this is a single voxel."};
+  if(G.amp >= 3) return {name:"Spoiler gradient", text:
+    "A large-area gradient that fans the isochromats so far apart that no usable transverse " +
+    "signal survives into the next TR. Without it, leftover Mxy would accumulate into a " +
+    "coherent steady state and this would no longer be a spoiled sequence."};
+  if(G.amp < 0) return {name:"Read prephaser", text:
+    "Deliberately dephases the spins along x so the readout gradient can rephase them. " +
+    "The echo appears where the two areas cancel — that is the whole trick of a gradient " +
+    "echo, and it is why a gradient echo cannot recover T2′ losses the way a 180° can."};
+  return {name:"Readout gradient", text:
+    "Spreads precession frequency by position along x, so the acquired signal is frequency " +
+    "encoded. The echo forms at the instant the accumulated gradient area returns to zero, " +
+    "which is the centre of the acquisition window."};
+}
+
+function hitTest(px, py){
+  const G = drawSeq._geo, seq = A.seq, res = A.res, win = A.win;
+  if(!G || !seq) return null;
+  if(px < G.ml || px > G.ml+G.pw || py < G.mt-8 || py > G.mt+G.ph+4) return null;
+  const t = win.lo + (px - G.ml)/G.pw*win.span;
+  const perPx = win.span/G.pw;
+
+  // nearest channel row
+  let row = -1, best = 1e9;
+  ROWS.forEach((R,i)=>{
+    const d = Math.abs(py - (G.mt + R.y*G.ph)), tol = R.h*G.ph + 9;
+    if(d < tol && d < best){ best = d; row = i; }
+  });
+  if(row < 0) return null;
+  const f3 = v => (Math.round(v*1000)/1000).toString();
+
+  if(row === 0){
+    for(const R of seq.rf){
+      if(t < R.t0 - 2*perPx || t > R.t0 + R.dur + 2*perPx) continue;
+      const kind = rfKind(R, seq);
+      return {title: kind === "inversion" ? "Inversion pulse"
+                   : kind === "refocus" ? "Refocusing pulse" : "Excitation pulse",
+        kv:[["flip angle", R.flip + "°"], ["phase", R.phase + "° (about " +
+             (R.phase % 360 === 0 ? "x" : R.phase % 360 === 90 ? "y" : R.phase + "°") + ")"],
+            ["centre", f3(R.t0 + R.dur/2) + " ms"], ["duration", f3(R.dur) + " ms"]],
+        text: RF_TEXT[kind] + (seq.key === "NUT"
+          ? " Because this pulse is long and weak, you can watch it happen: in the lab " +
+            "frame the tip spirals down, precessing about B0 many times while B1 tips it " +
+            "a little further on each turn. Switch to the rotating frame and the same " +
+            "motion becomes a simple arc — that is the entire reason the rotating frame " +
+            "is used. Real pulses are ~1 ms and would spiral too fast to see. " +
+            "Drag the off-resonance slider away from zero and the excitation degrades: " +
+            "B\u2081 for this pulse is only about " +
+            (1000/(2*seq.rfDur)).toFixed(0) + " Hz, so once the offset is comparable to " +
+            "that the effective field tilts out of the transverse plane, the spins " +
+            "precess about a cone instead of tipping cleanly, and the magnetisation " +
+            "never reaches the plane."
+          : "")};
+    }
+    return null;
+  }
+
+  if(row >= 1 && row <= 3){
+    for(const g of seq.grad){
+      if(g.ch !== row) continue;
+      if(t < g.t0 - 2*perPx || t > g.t0 + g.dur + 2*perPx) continue;
+      const info = gradInfo(g, seq);
+      const kv = [["amplitude", (g.amp > 0 ? "+" : "") + g.amp + " a.u."],
+                  ["start", f3(g.t0) + " ms"], ["duration", f3(g.dur) + " ms"]];
+      if(g.ch === 3){
+        const cyc = num("gradHz")*Math.abs(g.amp)*g.dur/1000;
+        kv.push(["dephasing at voxel edge", cyc.toFixed(2) + " turns"]);
+      }
+      return {title: info.name, kv, text: info.text};
+    }
+    return null;
+  }
+
+  // bottom row: one tooltip covering the traces, the echo and the ADC window —
+  // they all answer the same question, and the echo marker alone is a small target
+  const k = Math.min(res.Nt-1, Math.max(0, Math.round(t/res.dt)));
+  const deg  = v => (v >= 0 ? "+" : "") + v.toFixed(0) + "°";
+  const sgn  = v => (v >= 0 ? "+" : "") + v.toFixed(3);
+  const phAt = (ci,kk) => Math.atan2(res.SigCi[ci][kk], res.SigCr[ci][kk])*180/Math.PI;
+
+  let ei = -1, ed = 1e9;
+  seq.echo.forEach((e,i)=>{ const d = Math.abs(t-e); if(d < ed){ ed = d; ei = i; } });
+  const nearEcho = ei >= 0 && ed <= Math.max(1.2, 0.9*seq.roDur);
+  const adc = seq.adc.find(a => t >= a.t0 && t <= a.t0 + a.dur);
+
+  let tr = 0, ti = 0;
+  for(let c=0;c<res.nC;c++){ tr += res.SigCr[c][k]; ti += res.SigCi[c][k]; }
+  const kv = [["time", f3(res.t[k]) + " ms"],
+              ["total |Mxy|", res.Sig[k].toFixed(3) + "   \u03c6 " + deg(Math.atan2(ti,tr)*180/Math.PI)],
+              ["total Mz", sgn(res.Mz[k])]];
+  if(res.nC > 1) res.comps.forEach((C,ci)=>
+    kv.push([C.name, `|Mxy| ${res.SigC[ci][k].toFixed(3)}   \u03c6 ${deg(phAt(ci,k))}   Mz ${sgn(res.MzC[ci][k])}`]));
+
+  let title = "Magnetisation", text;
+  if(nearEcho){
+    const e  = seq.echo[ei];
+    const ke = Math.min(res.Nt-1, Math.round(e/res.dt));
+    const kw = Math.max(0.6, 0.75*seq.roDur);
+    const k0 = Math.max(0, Math.round((e-kw)/res.dt));
+    const k1 = Math.min(res.Nt-1, Math.round((e+kw)/res.dt));
+    const peakOf = arr => { let m = 0; for(let q=k0;q<=k1;q++) m = Math.max(m, arr[q]); return m; };
+
+    const isFid = seq.peak === "fid";
+    title = isFid ? "Peak of the FID"
+          : seq.echo.length > 1 ? `Echo ${ei+1} of ${seq.echo.length}` : "Echo";
+    kv.push([isFid ? "receiver opens" : "echo at", f3(e) + " ms"]);
+    kv.push(["peak |Mxy|", peakOf(res.Sig).toFixed(3) + (res.nC > 1
+      ? "   (" + res.comps.map((C,ci)=>`${C.name} ${peakOf(res.SigC[ci]).toFixed(3)}`).join(", ") + ")"
+      : "")]);
+
+    const spin = seq.key === "SE" || seq.key === "CPMG" || seq.key === "IRSE";
+    text = isFid
+      ? "Not an echo — this sequence never refocuses anything. The signal is largest " +
+        "the moment the receiver opens and decays from there with T2*, so the marker " +
+        "sits at the start of the acquisition rather than in the middle of it. " +
+        "Everything after it is loss you cannot get back without a 180°."
+      : spin
+      ? "A spin echo: the 180° has undone every phase difference that was constant in " +
+        "time, so the peak sits at exp(−TE/T2) — inhomogeneity is cancelled and only " +
+        "true T2 has been lost."
+      : "A gradient echo: only the gradient's own dephasing is rewound, so the peak " +
+        "follows exp(−TE/T2*) and still carries the loss from static field variation.";
+    if(seq.key === "CPMG"){
+      text += ` This is echo ${ei+1} of the train, at ${f3(e)} ms — but that is not the ` +
+        "contrast of the image. Every echo fills a different part of k-space, and the " +
+        "effective TE is the time of whichever echo fills the centre; the rest of the " +
+        "train fills the periphery and mostly affects sharpness. The interval marked " +
+        "TE\u2081 is just the first echo, and ESP the spacing between them.";
+    }
+    if(res.nC > 1){
+      const d = Math.abs(((phAt(0,ke) - phAt(1,ke) + 540) % 360) - 180);
+      text += " Phases are measured against the RF carrier, and the compartments add as " +
+        "vectors rather than as magnitudes: " +
+        (d < 45  ? `here they are ${d.toFixed(0)}° apart, so they reinforce and the total is close to the sum.`
+       : d > 135 ? `here they are ${d.toFixed(0)}° apart — nearly opposed — so they partly cancel and the total falls well below the sum. This is the in-phase / opposed-phase effect of chemical shift.`
+                 : `here they are ${d.toFixed(0)}° apart, so the total is neither the sum nor the difference.`);
+    }
+  } else {
+    text = res.nC > 1
+      ? "Solid lines are each compartment's transverse magnetisation — what the coil " +
+        "detects. Dashed lines are longitudinal magnetisation, invisible to the coil but " +
+        "the reservoir the next pulse draws on. Where a dashed line crosses zero, that " +
+        "compartment can be excited to nothing."
+      : "Red is transverse magnetisation, the only part the coil detects. Blue is " +
+        "longitudinal magnetisation: invisible during readout, but it sets how much " +
+        "signal the next excitation can produce, which is where TR contrast comes from.";
+  }
+  if(adc){
+    kv.push(["acquisition", f3(adc.t0) + "–" + f3(adc.t0 + adc.dur) + " ms"]);
+    text += " The receiver is open across this window; its central samples carry the low " +
+            "spatial frequencies that set image contrast, the edges the fine detail.";
+  }
+  return {title, kv, text};
+}
+
+function showTip(e){
+  const cv = $("cvSeq"), r = cv.getBoundingClientRect();
+  const hit = hitTest(e.clientX - r.left, e.clientY - r.top);
+  const tip = $("tip");
+  if(!hit){ tip.style.display = "none"; cv.style.cursor = "default"; return; }
+  cv.style.cursor = "help";
+  tip.innerHTML = `<h4>${hit.title}</h4><div class="kv">` +
+    hit.kv.map(([k,v])=>`${k} <b>${v}</b>`).join("<br>") + `</div><p>${hit.text}</p>`;
+  tip.style.display = "block";
+  const w = tip.offsetWidth, h = tip.offsetHeight;
+  let x = e.clientX + 16, y = e.clientY + 16;
+  if(x + w > innerWidth - 8)  x = e.clientX - w - 16;
+  if(y + h > innerHeight - 8) y = e.clientY - h - 16;
+  tip.style.left = Math.max(8, x) + "px";
+  tip.style.top  = Math.max(8, y) + "px";
+}
+
+/* ==================================================================== */
+/*  Application state                                                   */
+/* ==================================================================== */
+const A = {seq:null, res:null, comps:[], savedView:null, recording:false,
+           tSim:0, idx:0, playing:false,
+           win:{lo:0, span:1}, cols:[], fps:0, lastT:0};
+
+function key(){ return $("seq").value; }
+function num(id){ return parseFloat($(id).value); }
+
+function syncEnabled(){
+  const k = key();
+  [["alpha","f_alpha"],["TE","f_TE"],["TI","f_TI"],["nEcho","f_nEcho"]].forEach(([id,box])=>{
+    const on = !!(USES[id] && USES[id][k]);
+    $(id).disabled = !on; $(box).classList.toggle("disabled", !on);
+  });
+  const teLab = $("f_TE").querySelector("label");
+  teLab.textContent = k === "CPMG" ? "Echo spacing (ms)"
+                    : k === "NUT"  ? "RF duration (ms)" : "TE (ms)";
+  const g = $("cbGrads").checked;
+  $("gradHz").disabled = !g; $("f_grad").classList.toggle("disabled", !g);
+  const lab = $("frame").value === "lab";
+  $("f0").disabled = !lab; $("f_f0").classList.toggle("disabled", !lab);
+  const tr = $("cbTrail").checked;
+  $("trailMs").disabled = !tr; $("f_trailMs").classList.toggle("disabled", !tr);
+  $("tag3d").textContent = lab ? "Lab frame" : "Rotating frame";
+}
+
+function loadDefaults(){
+  const k = key(), d = DEFAULTS[k];
+  ["alpha","TE","TR","TI","nEcho","nTR"].forEach(f => $(f).value = d[f]);
+  $("speed").value = Math.log10(d.speed);
+
+  // The nutation demo only reads in the lab frame, with a display Larmor
+  // frequency fast enough to wind a visible spiral, and with relaxation slow
+  // enough not to shrink the spiral while you watch it.  Everything it changes
+  // is put back when you leave the demo.
+  if(k === "NUT"){
+    if(!A.savedView) A.savedView = {
+      frame:$("frame").value, f0:$("f0").value,
+      trail:$("cbTrail").checked, trailMs:$("trailMs").value,
+      pool:$("pool").value, df0:$("df0").value,
+      rfDeph:$("cbRfDeph").checked,
+      slow:[$("cbSlowRF").checked, $("cbSlowGr").checked, $("cbSlowAq").checked],
+      comps:JSON.parse(JSON.stringify(A.comps))};
+    $("frame").value = "lab"; $("f0").value = 250;
+    $("cbTrail").checked = true; $("trailMs").value = 80;
+    // One long pulse is the whole sequence, so the slow tiers would apply
+    // everywhere and mean nothing; run at a low steady speed instead.
+    $("cbSlowRF").checked = false;
+    $("cbSlowGr").checked = false;
+    $("cbSlowAq").checked = false;
+    // Without this the pulse ignores off-resonance, and the frequency slider
+    // would have no effect on the excitation at all.
+    $("cbRfDeph").checked = true;
+    $("df0").value = 0;
+    const ni = POOLS.findIndex(P => P.name.indexOf("nutation") >= 0);
+    if(ni >= 0){
+      $("pool").value = String(ni);
+      A.comps = JSON.parse(JSON.stringify(POOLS[ni].comps));
+      renderTable(); nullers();
+    }
+  } else if(A.savedView){
+    $("frame").value = A.savedView.frame;
+    $("f0").value    = A.savedView.f0;
+    $("cbTrail").checked = A.savedView.trail;
+    $("trailMs").value = A.savedView.trailMs;
+    $("df0").value   = A.savedView.df0;
+    $("cbRfDeph").checked = A.savedView.rfDeph;
+    $("cbSlowRF").checked = A.savedView.slow[0];
+    $("cbSlowGr").checked = A.savedView.slow[1];
+    $("cbSlowAq").checked = A.savedView.slow[2];
+    $("pool").value  = A.savedView.pool;
+    A.comps = A.savedView.comps;
+    renderTable(); nullers();
+    A.savedView = null;
+  }
+}
+
+function components(){
+  return A.comps.map(c => Object.assign({}, c, {T2s:Math.min(c.T2s, c.T2)}));
+}
+
+const PARAMS = [
+  {k:"T1",  label:"T1 (ms)",     min:1,    step:10},
+  {k:"T2",  label:"T2 (ms)",     min:0.1,  step:5},
+  {k:"T2s", label:"T2* (ms)",    min:0.05, step:5},
+  {k:"M0",  label:"M0 (rel. PD)",min:0.01, step:0.05, max:1},
+  {k:"df",  label:"Chem. shift (Hz)", min:-800, step:10, max:800}
+];
+
+function renderTable(){
+  const box = $("ptable"), n = A.comps.length;
+  const cols = `72px repeat(${n}, minmax(0,1fr))`;
+  let html = `<div class="hd" style="grid-template-columns:${cols}"><span></span>`;
+  A.comps.forEach((C,ci)=>{
+    const col = n > 1 ? TH.comp[ci % TH.comp.length] : "var(--muted)";
+    html += `<input type="text" data-k="name" data-c="${ci}" value="${C.name}" ` +
+            `style="color:${col}" title="rename this compartment">`;
+  });
+  html += `</div>`;
+  for(const P of PARAMS){
+    html += `<div class="rw" style="grid-template-columns:${cols}"><label>${P.label}</label>`;
+    for(let ci=0; ci<n; ci++){
+      const a = [`type="number"`, `data-k="${P.k}"`, `data-c="${ci}"`,
+                 `value="${A.comps[ci][P.k]}"`, `min="${P.min}"`, `step="${P.step}"`];
+      if(P.max !== undefined) a.push(`max="${P.max}"`);
+      html += `<input ${a.join(" ")}>`;
+    }
+    html += `</div>`;
+  }
+  html += `<div class="tctl">` + (n < 2
+    ? `<button type="button" id="addComp">+ add a second compartment</button>`
+    : `<button type="button" id="delComp">− remove ${A.comps[1].name}</button>`) + `</div>`;
+  box.innerHTML = html;
+
+  box.querySelectorAll("input").forEach(inp=>{
+    inp.addEventListener("change", ()=>{
+      const c = +inp.dataset.c, k = inp.dataset.k;
+      if(k === "name"){
+        A.comps[c].name = inp.value.trim().slice(0,16) || `Pool ${String.fromCharCode(65+c)}`;
+      } else {
+        const v = parseFloat(inp.value);
+        if(!isFinite(v)) return;
+        A.comps[c][k] = v;
+      }
+      $("pool").value = "custom";
+      setPlaying(false);
+      if(k === "name"){ renderTable(); nullers(); }
+      rebuild();
+    });
+  });
+
+  const add = $("addComp"), del = $("delComp");
+  if(add) add.onclick = ()=>{
+    const a = A.comps[0];
+    a.M0 = Math.round(a.M0*0.65*100)/100;          // split the proton density
+    A.comps.push({name:"Pool B", T1:Math.max(1, Math.round(a.T1/3)), T2:a.T2,
+                  T2s:a.T2s, M0:Math.round(a.M0*0.54*100)/100, df:-220});
+    $("pool").value = "custom";
+    setPlaying(false); renderTable(); nullers(); rebuild();
+  };
+  if(del) del.onclick = ()=>{
+    A.comps.length = 1;
+    $("pool").value = "custom";
+    setPlaying(false); renderTable(); nullers(); rebuild();
+  };
+}
+
+function selectPool(){
+  const v = $("pool").value;
+  A.comps = v === "custom"
+    ? [{name:"Custom tissue", T1:200, T2:100, T2s:20, M0:1.00, df:0}]
+    : JSON.parse(JSON.stringify(POOLS[+v].comps));
+  renderTable(); nullers();
+}
+
+function nullers(){
+  const box = $("nullers"); box.innerHTML = "";
+  const comps = A.comps;
+  if(comps.length < 2) return;
+  comps.forEach((C,ci)=>{
+    const b = document.createElement("button");
+    b.type = "button";
+    b.textContent = "Null " + C.name;
+    b.style.color = TH.comp[ci % TH.comp.length];
+    b.title = `Inversion recovery with TI = T1 · ln2 = ${(Math.LN2*C.T1).toFixed(0)} ms`;
+    b.addEventListener("click", ()=>{
+      $("seq").value = "IRSE";
+      const d = DEFAULTS.IRSE;
+      ["alpha","TE","TR","nEcho","nTR"].forEach(f => $(f).value = d[f]);
+      $("speed").value = Math.log10(d.speed);
+      $("TI").value = Math.round(Math.LN2*C.T1);
+      setPlaying(false); rebuild();
+    });
+    box.appendChild(b);
+  });
+}
+
+function rebuild(){
+  syncEnabled();
+  const p = {TE:num("TE"), TR:num("TR"), TI:num("TI"), alpha:num("alpha"),
+             nEcho:num("nEcho"), nTR:num("nTR"),
+             trim:$("cbTrim").checked, grads:$("cbGrads").checked};
+  const seq = buildSequence(key(), p);
+  const comps = components();
+  const res = blochSim(seq, comps, {
+    Nspins:num("nSpins"), useT2star:$("cbT2s").checked,
+    df0:num("df0")/1000, gradHz:($("cbGrads").checked ? num("gradHz") : 0)/1000,
+    rfDephase:$("cbRfDeph").checked, dist:$("dist").value
+  });
+
+  // colour: by off-resonance for a single pool, by component for a mixture
+  const cols = new Array(res.N);
+  if(res.nC === 1){
+    const idx = Array.from({length:res.N},(_,i)=>i).sort((a,b)=>res.df[a]-res.df[b]);
+    idx.forEach((sp,rank)=> cols[sp] = isoColor(res.N===1 ? 0.5 : rank/(res.N-1)));
+  } else {
+    for(let c=0;c<res.nC;c++){
+      const base = TH.comp[c % TH.comp.length];
+      const idx = Array.from({length:res.Np},(_,i)=>c*res.Np+i).sort((a,b)=>res.df[a]-res.df[b]);
+      idx.forEach((sp,rank)=>
+        cols[sp] = shade(base, res.Np===1 ? 0 : -0.45 + 0.9*rank/(res.Np-1)));
+    }
+  }
+
+  A.seq = seq; A.res = res; A.cols = cols; A.tSim = 0; A.idx = 0;
+  cacheKey = JSON.stringify([seq.name, seq.duration, seq.grads, res.Nt, comps, num("nSpins"),
+                             $("cbT2s").checked, num("df0"), num("gradHz"),
+                             $("cbRfDeph").checked, $("dist").value,
+                             document.documentElement.dataset.theme]);
+  drawSeq._k = "";
+  const span = Math.min(seq.duration, Math.max(4*seq.TR, 40));
+  A.win = {lo:0, span};
+  const ts = $("time"); ts.max = seq.duration; ts.value = 0;
+  frame(true);
+}
+
+function frameState(k){
+  const res = A.res;
+  k = Math.max(0, Math.min(res.Nt-1, k));
+  const t = res.t[k];
+  const lab = $("frame").value === "lab";
+  const a = lab ? 2*Math.PI*(num("f0")/1000)*t : 0;
+  const ca = Math.cos(a), sa = Math.sin(a);
+
+  const N = res.N, Np = res.Np, base = 3*N*k;
+  if(!frameState._buf || frameState._buf[0].length !== N)
+    frameState._buf = [new Float64Array(N), new Float64Array(N), new Float64Array(N)];
+  const [Mx, My, Mz] = frameState._buf;
+  let nx = 0, ny = 0, nz = 0;
+  for(let i=0;i<N;i++){
+    const mx = res.M[base+i], my = res.M[base+N+i];
+    Mx[i] = lab ? mx*ca - my*sa : mx;
+    My[i] = lab ? mx*sa + my*ca : my;
+    Mz[i] = res.M[base+2*N+i];
+    nx += Mx[i]; ny += My[i]; nz += Mz[i];
+  }
+  // Divide by the isochromats *per compartment*, not by the total count: each
+  // compartment contributes its own mean and those means add, exactly as the
+  // solver builds Sig and Mz.  Dividing by N would give the average of the
+  // compartments instead of their sum, halving the vector for a two-pool mix.
+  nx/=Np; ny/=Np; nz/=Np;
+
+  // net tip at any earlier sample, in whichever frame is being displayed
+  const w0 = lab ? 2*Math.PI*(num("f0")/1000) : 0;
+  const tipAt = q => {
+    let xr = 0, yr = 0;
+    for(let c=0;c<res.nC;c++){ xr += res.SigCr[c][q]; yr += res.SigCi[c][q]; }
+    if(!lab) return [xr, yr, res.Mz[q]];
+    const b = w0*res.t[q], cb = Math.cos(b), sb = Math.sin(b);
+    return [xr*cb - yr*sb, xr*sb + yr*cb, res.Mz[q]];
+  };
+
+  const st = {N, Mx, My, Mz, nx, ny, nz, cols:A.cols, lab, k, tipAt,
+              trail:$("cbTrail").checked, trailMs:Math.max(0.5, num("trailMs")),
+              showSpins:$("cbSpins").checked,
+              b1:!!res.rfOn[k], b1ph:res.rfPh[k] + a};
+  return {st, t, k, nx, ny, nz};
+}
+
+function slideWindow(t){
+  if(A.win.span >= A.seq.duration){ A.win.lo = 0; return; }
+  A.win.lo = Math.min(Math.max(0, t - A.win.span/2), A.seq.duration - A.win.span);
+}
+
+/* Draw one frame into an arbitrary set of canvases — used by the recorder to
+   render into fixed-size offscreen panels instead of the live ones. */
+function renderInto(k, cvSeq, cv3d, cv2d){
+  const {st, t} = frameState(k);
+  slideWindow(t);
+  drawSeq(cvSeq, A.seq, A.res, A.win, t);
+  draw3D(cv3d, st);
+  draw2D(cv2d, st);
+}
+
+function frame(force){
+  const {st, t, k, nx, ny, nz} = frameState(A.idx);
+  slideWindow(t);
+  drawSeq($("cvSeq"), A.seq, A.res, A.win, t);
+  draw3D($("cv3d"), st);
+  draw2D($("cv2d"), st);
+
+  if(force || !frame._last || performance.now() - frame._last > 110){
+    frame._last = performance.now();
+    $("time").value = t;
+    $("timeVal").textContent = t.toFixed(2) + " ms";
+    $("speedVal").textContent = fmt(Math.pow(10, +$("speed").value)) + " ms/s";
+    $("df0Val").textContent = (+$("df0").value) + " Hz";
+    readout(k, t, Math.hypot(nx,ny), nz);
+  }
+}
+const fmt = v => v >= 10 ? v.toFixed(0) : v >= 1 ? v.toFixed(1) : v.toFixed(2);
+
+function readout(k, t, mxy, mz){
+  const s = A.seq, r = A.res, comps = A.comps;
+  const sgn = v => (v>=0?"+":"") + v.toFixed(3);
+  let echoTxt = "";
+  if(s.echo.length){
+    const ke = Math.min(r.Nt-1, Math.round(s.echo[0]/r.dt));
+    echoTxt = `${s.peak === "fid" ? "signal at readout start" : "signal at 1st echo"}` +
+              `  <b>${r.Sig[ke].toFixed(3)}</b>\n`;
+  }
+  let head =
+    `t <b>${t.toFixed(2)}</b> / ${s.duration.toFixed(1)} ms   ·   ${k+1}/${r.Nt} @ ${r.dt.toFixed(3)} ms\n` +
+    `|Mxy| <b>${mxy.toFixed(3)}</b>    Mz <b>${sgn(mz)}</b>\n` + echoTxt +
+    (s.key === "CPMG"
+      ? `TE\u2081 / spacing ${s.TE.toFixed(2)}   TR ${s.TR.toFixed(1)} ms\n`
+      : s.key === "NUT"
+      ? `RF duration ${s.TE.toFixed(1)}   flip ${s.alpha}\u00b0   TR ${s.TR.toFixed(1)} ms\n`
+      : `TE ${s.TE.toFixed(2)}   TR ${s.TR.toFixed(1)}   TI ${s.TI.toFixed(1)} ms\n`);
+
+  let body;
+  if(comps.length === 1){
+    const ernst = Math.acos(Math.exp(-s.TR/comps[0].T1))*180/Math.PI;
+    body = `null TI for this tissue  <b>${(Math.LN2*comps[0].T1).toFixed(0)} ms</b>\n` +
+           `Ernst angle at this TR  <b>${ernst.toFixed(1)}°</b>\n`;
+  } else {
+    body = `<div class="comps">` + comps.map((C,ci)=>{
+      const col = TH.comp[ci % TH.comp.length];
+      const nullTI = Math.LN2*C.T1;
+      const hit = Math.abs(s.TI - nullTI) < 0.03*nullTI && s.key === "IRSE";
+      return `<div class="c"><span class="nm" style="color:${col}">${C.name}</span>` +
+             `<span>T1 ${C.T1}</span><span>null TI <b>${nullTI.toFixed(0)}</b>${hit?" ◄":""}</span>` +
+             `<span>Mz ${sgn(r.MzC[ci][k])}</span></div>`;
+    }).join("") + `</div>`;
+  }
+  const warn = s.warn.length ? `\n<span class="warn">! ${s.warn.join(" ")}</span>` : "";
+  $("readout").innerHTML = head + body + `${A.fps.toFixed(0)} fps` + warn;
+}
+
+/* ------------------------------------------------------------ playback */
+/* ms of simulated time per second of wall clock at sample k, after the slow
+   tiers and after capping the per-frame rotation of the fastest isochromat. */
+function stepSpeed(k, dtr){
+  const v = Math.pow(10, +$("speed").value)/slowFactor(k);
+  let fm = A.res.fmax[k];
+  if($("frame").value === "lab") fm += num("f0")/1000;
+  const cap = 0.055/Math.max(fm*dtr, 1e-9);      // turns per frame
+  return Math.min(v, cap);
+}
+
+function slowFactor(k){
+  const r = A.res;
+  if(!r) return 1;
+  let f = 1;
+  if($("cbSlowRF").checked && r.rfOn[k])   f = Math.max(f, 10);
+  if($("cbSlowGr").checked && r.gradOn[k]) f = Math.max(f, 4);
+  if($("cbSlowAq").checked && r.acqOn[k])  f = Math.max(f, 4);
+  return f;
+}
+
+function tick(now){
+  if(!A.playing) return;
+  const dtr = Math.min(Math.max((now - A.lastT)/1000, 1e-4), 0.1);
+  A.lastT = now;
+  A.fps = 0.9*A.fps + 0.1/dtr;
+
+  const v = stepSpeed(Math.min(A.res.Nt-1, A.idx), dtr);
+
+  A.tSim += v*dtr;
+  if(A.tSim > A.res.t[A.res.Nt-1]) A.tSim = 0;
+  A.idx = Math.min(A.res.Nt-1, Math.floor(A.tSim/A.res.dt));
+  frame(false);
+  requestAnimationFrame(tick);
+}
+function setPlaying(on){
+  A.playing = on;
+  $("play").textContent = on ? "❚❚ Pause" : "▶ Play";
+  if(on){ A.lastT = performance.now(); requestAnimationFrame(tick); }
+}
+
+/* ==================================================================== */
+/*  Recording: composite the three panels and encode one full pass       */
+/* ==================================================================== */
+/* Minimal MP4 (ISO-BMFF) muxer for H.264 elementary samples from WebCodecs.
+   Writes a single video track with a constant frame duration declared once in
+   stts, so a player never has to infer timing from arrival times.            */
+
+function mp4Mux(opt){
+  const {width, height, fps, samples, avcC} = opt;
+  const n = samples.length;
+
+  const u8  = a => new Uint8Array(a);
+  const u16 = v => { const a = new Uint8Array(2); new DataView(a.buffer).setUint16(0, v); return a; };
+  const u32 = v => { const a = new Uint8Array(4); new DataView(a.buffer).setUint32(0, v >>> 0); return a; };
+  const str = s => u8([...s].map(c => c.charCodeAt(0)));
+  const cat = arrs => {
+    let len = 0; for(const a of arrs) len += a.length;
+    const out = new Uint8Array(len); let o = 0;
+    for(const a of arrs){ out.set(a, o); o += a.length; }
+    return out;
+  };
+  const box = (type, ...parts) => {
+    const body = cat(parts);
+    return cat([u32(body.length + 8), str(type), body]);
+  };
+  const full = (type, ver, flags, ...parts) =>
+    box(type, u8([ver, (flags >> 16) & 255, (flags >> 8) & 255, flags & 255]), ...parts);
+
+  const MATRIX = cat([u32(0x00010000), u32(0), u32(0),
+                      u32(0), u32(0x00010000), u32(0),
+                      u32(0), u32(0), u32(0x40000000)]);
+
+  // ---- sample table -------------------------------------------------------
+  const sizes = samples.map(s => s.data.length);
+  const payload = cat(samples.map(s => s.data));
+  const keys = [];
+  samples.forEach((s, i) => { if(s.key) keys.push(i + 1); });   // 1-based
+
+  const ftyp = box("ftyp", str("isom"), u32(0x200),
+                   str("isom"), str("iso2"), str("avc1"), str("mp41"));
+  const mdatOffset = ftyp.length;          // mdat follows ftyp immediately
+  const chunkOffset = mdatOffset + 8;      // payload starts after the mdat header
+  const mdat = cat([u32(payload.length + 8), str("mdat"), payload]);
+
+  const stts = full("stts", 0, 0, u32(1), u32(n), u32(1));            // n samples, 1 tick each
+  const stss = full("stss", 0, 0, u32(keys.length), ...keys.map(u32));
+  const stsc = full("stsc", 0, 0, u32(1), u32(1), u32(n), u32(1));    // one chunk holds all
+  const stsz = full("stsz", 0, 0, u32(0), u32(n), ...sizes.map(u32));
+  const stco = full("stco", 0, 0, u32(1), u32(chunkOffset));
+
+  const avcCBox = box("avcC", avcC);
+  const avc1 = box("avc1",
+    u8([0,0,0,0,0,0]), u16(1),                       // reserved, data_reference_index
+    u16(0), u16(0), u32(0), u32(0), u32(0),          // pre_defined / reserved
+    u16(width), u16(height),
+    u32(0x00480000), u32(0x00480000),                // 72 dpi
+    u32(0), u16(1),                                  // reserved, frame_count
+    u8(new Array(32).fill(0)),                       // compressorname
+    u16(0x0018), u16(0xFFFF));                       // depth, pre_defined = -1
+  // avcC must sit inside avc1
+  const avc1WithCfg = (() => {
+    const body = avc1.subarray(8);
+    return cat([u32(body.length + avcCBox.length + 8), str("avc1"), body, avcCBox]);
+  })();
+
+  const stsd = full("stsd", 0, 0, u32(1), avc1WithCfg);
+  const stbl = box("stbl", stsd, stts, stss, stsc, stsz, stco);
+  const dref = full("dref", 0, 0, u32(1), full("url ", 0, 1));
+  const dinf = box("dinf", dref);
+  const vmhd = full("vmhd", 0, 1, u16(0), u16(0), u16(0), u16(0));
+  const minf = box("minf", vmhd, dinf, stbl);
+  const hdlr = full("hdlr", 0, 0, u32(0), str("vide"), u32(0), u32(0), u32(0),
+                    str("VideoHandler"), u8([0]));
+  const mdhd = full("mdhd", 0, 0, u32(0), u32(0), u32(fps), u32(n), u16(0x55c4), u16(0));
+  const mdia = box("mdia", mdhd, hdlr, minf);
+
+  const durMovie = Math.round(n * 1000 / fps);       // movie timescale is 1000
+  const tkhd = full("tkhd", 0, 3, u32(0), u32(0), u32(1), u32(0), u32(durMovie),
+                    u32(0), u32(0), u16(0), u16(0), u16(0), u16(0), MATRIX,
+                    u32(width << 16), u32(height << 16));
+  const trak = box("trak", tkhd, mdia);
+  const mvhd = full("mvhd", 0, 0, u32(0), u32(0), u32(1000), u32(durMovie),
+                    u32(0x00010000), u16(0x0100), u16(0), u32(0), u32(0), MATRIX,
+                    u32(0), u32(0), u32(0), u32(0), u32(0), u32(0), u32(2));
+  const moov = box("moov", mvhd, trak);
+
+  return cat([ftyp, mdat, moov]);
+}
+
+/* Offscreen panels rendered at a fixed size, independent of the window. */
+function offscreen(w, h, scale){
+  const cv = document.createElement("canvas");
+  cv.width = Math.round(w*scale); cv.height = Math.round(h*scale);
+  cv._fixed = {w, h, scale};
+  return cv;
+}
+
+/* Same arrangement as on screen: diagram across the top, the two spin views
+   below it.  Returns the panel canvases plus a draw() that composites them. */
+function recLayout(W, H){
+  const scale = W/1000, pad = Math.round(14*scale), gap = Math.round(12*scale);
+  const seqH = Math.round((H - 2*pad - gap)*0.38);
+  const botH = H - 2*pad - gap - seqH;
+  const botW = W - 2*pad - gap;
+  const w3d  = Math.round(botW*0.55), w2d = botW - w3d;
+  const L = {
+    seq:{x:pad, y:pad, w:W-2*pad, h:seqH},
+    d3 :{x:pad, y:pad+seqH+gap, w:w3d, h:botH},
+    d2 :{x:pad+w3d+gap, y:pad+seqH+gap, w:w2d, h:botH}
+  };
+  const mk = r => offscreen(Math.round(r.w/scale), Math.round(r.h/scale), scale);
+  return {L, scale, cvSeq:mk(L.seq), cv3d:mk(L.d3), cv2d:mk(L.d2)};
+}
+
+async function recordPass(){
+  const btn = $("rec"), st = $("recStatus");
+  const say = (m, cls) => { st.textContent = m; st.className = cls || ""; };
+  if(A.recording) return;
+  setPlaying(false);
+
+  const W = +$("recSize").value, H = Math.round(W*9/16);
+  const fps = +$("recFps").value;
+  const res = A.res, dt = res.dt;
+
+  // Frame schedule: integrate the same speed law the live playback uses, so the
+  // recording is paced exactly like what you just watched — but computed, not
+  // sampled from wall time, so every frame is exact and none can be dropped.
+  const dtWall = 1/fps;
+  const idx = [];
+  for(let t = 0; t <= res.t[res.Nt-1] && idx.length < 4000; ){
+    const k = Math.min(res.Nt-1, Math.round(t/dt));
+    idx.push(k);
+    t += stepSpeed(k, dtWall)*dtWall;
+  }
+  if(idx.length < 2){ say("Nothing to record at this speed.", "bad"); return; }
+
+  const {L, scale, cvSeq, cv3d, cv2d} = recLayout(W, H);
+  const out = document.createElement("canvas");
+  out.width = W; out.height = H;
+  const octx = out.getContext("2d");
+
+  A.recording = true;
+  btn.classList.add("on");
+  btn.innerHTML = '<span class="dot"></span>Recording…';
+
+  const drawFrame = k => {
+    renderInto(k, cvSeq, cv3d, cv2d, scale);
+    octx.fillStyle = TH.bg; octx.fillRect(0, 0, W, H);
+    octx.drawImage(cvSeq, L.seq.x, L.seq.y, L.seq.w, L.seq.h);
+    octx.drawImage(cv3d,  L.d3.x,  L.d3.y,  L.d3.w,  L.d3.h);
+    octx.drawImage(cv2d,  L.d2.x,  L.d2.y,  L.d2.w,  L.d2.h);
+  };
+
+  try {
+    const wantMp4 = $("recFmt").value === "mp4";
+    const blob = wantMp4 && typeof VideoEncoder !== "undefined"
+      ? await encodeMP4(idx, drawFrame, out, fps, W, H, say)
+      : await encodeWebM(idx, drawFrame, out, fps, say, wantMp4);
+    const ext = blob.type.includes("mp4") ? "mp4" : "webm";
+    const name = `mriSeqSim_${A.seq.key}_${BUILD.version}.${ext}`;
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = name;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=>URL.revokeObjectURL(url), 2000);
+    say(`Saved ${name} — ${(blob.size/1048576).toFixed(2)} MB, ` +
+        `${idx.length} frames at ${fps} fps (${(idx.length/fps).toFixed(1)} s).`, "good");
+  } catch(err){
+    say("Recording failed: " + err.message, "bad");
+  } finally {
+    A.recording = false;
+    btn.classList.remove("on");
+    btn.innerHTML = '<span class="dot"></span>Record one pass';
+    frame(true);
+  }
+}
+
+async function encodeMP4(idx, drawFrame, out, fps, W, H, say){
+  const CODECS = ["avc1.640028", "avc1.4d0028", "avc1.42e01e"];
+  let cfgOk = null;
+  for(const codec of CODECS){
+    const cfg = {codec, width:W, height:H, framerate:fps,
+                 bitrate: Math.round(W*H*fps*0.12), avc:{format:"avc"}};
+    try {
+      const sup = await VideoEncoder.isConfigSupported(cfg);
+      if(sup.supported){ cfgOk = cfg; break; }
+    } catch(e){ /* try the next one */ }
+  }
+  if(!cfgOk) throw new Error("no H.264 encoder in this browser — choose WebM instead");
+
+  const samples = [];
+  let avcC = null, failed = null;
+  const enc = new VideoEncoder({
+    output: (chunk, meta) => {
+      if(meta && meta.decoderConfig && meta.decoderConfig.description && !avcC)
+        avcC = new Uint8Array(meta.decoderConfig.description);
+      const data = new Uint8Array(chunk.byteLength);
+      chunk.copyTo(data);
+      samples.push({data, key: chunk.type === "key"});
+    },
+    error: e => { failed = e; }
+  });
+  enc.configure(cfgOk);
+
+  const usPerFrame = Math.round(1e6/fps);   // integer step: provably uniform
+  for(let i=0;i<idx.length;i++){
+    if(failed) throw failed;
+    drawFrame(idx[i]);
+    const vf = new VideoFrame(out, {timestamp: i*usPerFrame, duration: usPerFrame});
+    enc.encode(vf, {keyFrame: i % 30 === 0});
+    vf.close();
+    if(i % 15 === 0){
+      say(`Encoding frame ${i+1} of ${idx.length}…`);
+      await new Promise(r => setTimeout(r, 0));       // let the interface breathe
+      if(enc.encodeQueueSize > 30)
+        await new Promise(r => { const w = () => enc.encodeQueueSize > 8
+          ? setTimeout(w, 4) : r(); w(); });
+    }
+  }
+  await enc.flush();
+  enc.close();
+  if(failed) throw failed;
+  if(!avcC) throw new Error("encoder gave no avcC configuration");
+  say("Writing the file…");
+  return new Blob([mp4Mux({width:W, height:H, fps, samples, avcC})], {type:"video/mp4"});
+}
+
+async function encodeWebM(idx, drawFrame, out, fps, say, wasFallback){
+  if(typeof MediaRecorder === "undefined" || !out.captureStream)
+    throw new Error("this browser cannot record a canvas");
+  const mimes = ["video/webm;codecs=vp9", "video/webm;codecs=vp8", "video/webm"];
+  const mime = mimes.find(m => MediaRecorder.isTypeSupported(m));
+  if(!mime) throw new Error("no WebM encoder available");
+  if(wasFallback) say("No H.264 encoder here — falling back to WebM.");
+
+  const stream = out.captureStream(0);
+  const track = stream.getVideoTracks()[0];
+  const rec = new MediaRecorder(stream, {mimeType:mime, videoBitsPerSecond: 12e6});
+  const chunks = [];
+  rec.ondataavailable = e => { if(e.data && e.data.size) chunks.push(e.data); };
+  const done = new Promise(r => { rec.onstop = r; });
+  rec.start();
+  for(let i=0;i<idx.length;i++){
+    drawFrame(idx[i]);
+    if(track.requestFrame) track.requestFrame();
+    if(i % 10 === 0) say(`Capturing frame ${i+1} of ${idx.length}…`);
+    await new Promise(r => setTimeout(r, 1000/fps));
+  }
+  rec.stop();
+  await done;
+  return new Blob(chunks, {type:"video/webm"});
+}
+
+/* ==================================================================== */
+/*  Wiring                                                              */
+/* ==================================================================== */
+(function init(){
+  // Guard against a control being renamed or dropped from the markup: without
+  // this the first $("...") on a missing id throws somewhere unhelpful.
+  const REQUIRED = ["seq","pool","ptable","nullers","alpha","TE","TR","TI","nEcho","nTR",
+    "nSpins","df0","gradHz","dist","cbGrads","cbT2s","cbTrim","cbSpins","cbTrail","cbRfDeph",
+    "cbSlowRF","cbSlowGr","cbSlowAq","frame","f0","trailMs","f_trailMs",
+    "speed","speedVal","df0Val","time","timeVal",
+    "play","reset","readout","credit","theme","ver","about","aboutClose","changelog",
+    "cvSeq","cv3d","cv2d","tip","tag3d","f_TE","f_TI","f_alpha","f_nEcho","f_grad","f_f0",
+    "rec","recStatus","recFmt","recFps","recSize"];
+  const missing = REQUIRED.filter(id => !document.getElementById(id));
+  if(missing.length){
+    document.body.innerHTML =
+      `<p style="padding:24px;font:14px monospace;color:#e2554d">` +
+      `Build error: missing element${missing.length>1?"s":""} — ${missing.join(", ")}</p>`;
+    throw new Error("missing elements: " + missing.join(", "));
+  }
+
+  readTheme();
+
+  SEQS.forEach(s=>$("seq").add(new Option(s.name, s.key)));
+  $("seq").value = "SE";
+  let grp = null;
+  POOLS.forEach((P,i)=>{
+    if(P.group !== grp){ grp = P.group;
+      const og = document.createElement("optgroup"); og.label = grp; og.dataset.g = grp;
+      $("pool").appendChild(og);
+    }
+    $("pool").lastElementChild.appendChild(new Option(P.name, String(i)));
+  });
+  $("pool").add(new Option("Custom", "custom"));
+  $("pool").value = "0";
+  A.comps = JSON.parse(JSON.stringify(POOLS[0].comps));
+  loadDefaults();
+
+  $("pool").addEventListener("change", ()=>{ setPlaying(false); selectPool(); rebuild(); });
+  $("seq").addEventListener("change", ()=>{ loadDefaults(); setPlaying(false); rebuild(); });
+  ["alpha","TE","TR","TI","nEcho","nTR","nSpins","gradHz"].forEach(id=>
+    $(id).addEventListener("change", ()=>{ setPlaying(false); rebuild(); }));
+  ["cbGrads","cbT2s","cbTrim","cbRfDeph","dist"].forEach(id=>
+    $(id).addEventListener("change", ()=>{ setPlaying(false); rebuild(); }));
+  $("cbSpins").addEventListener("change", ()=>frame(true));
+  $("cbTrail").addEventListener("change", ()=>{ syncEnabled(); frame(true); });
+  $("trailMs").addEventListener("change", ()=>frame(true));
+  $("frame").addEventListener("change", ()=>{ syncEnabled(); frame(true); });
+  $("f0").addEventListener("change", ()=>frame(true));
+  $("speed").addEventListener("input", ()=>{
+    $("speedVal").textContent = fmt(Math.pow(10, +$("speed").value)) + " ms/s";
+    $("df0Val").textContent = (+$("df0").value) + " Hz";
+  });
+  $("time").addEventListener("input", ()=>{
+    setPlaying(false);
+    A.tSim = +$("time").value;
+    A.idx = Math.min(A.res.Nt-1, Math.round(A.tSim/A.res.dt));
+    frame(true);
+  });
+  $("play").addEventListener("click", ()=>setPlaying(!A.playing));
+  // dragging off-resonance re-simulates live, throttled to one rebuild per frame
+  let df0Pending = false;
+  $("df0").addEventListener("input", ()=>{
+    $("df0Val").textContent = (+$("df0").value) + " Hz";
+    if(df0Pending) return;
+    df0Pending = true;
+    requestAnimationFrame(()=>{ df0Pending = false; setPlaying(false); rebuild(); });
+  });
+  $("rec").addEventListener("click", recordPass);
+  $("reset").addEventListener("click", ()=>{ setPlaying(false); A.tSim=0; A.idx=0; frame(true); });
+
+  $("theme").addEventListener("click", ()=>{
+    const dark = document.documentElement.dataset.theme === "dark";
+    document.documentElement.dataset.theme = dark ? "light" : "dark";
+    $("theme").textContent = dark ? "Dark" : "Light";
+    readTheme(); renderTable(); nullers(); drawSeq._k = ""; rebuild();
+  });
+
+  // orbit the 3-D view
+  const cv = $("cv3d");
+  let drag = null;
+  cv.addEventListener("pointerdown", e=>{
+    drag = {x:e.clientX, y:e.clientY, az, el}; cv.setPointerCapture(e.pointerId);
+    cv.classList.add("drag");
+  });
+  cv.addEventListener("pointermove", e=>{
+    if(!drag) return;
+    az = drag.az + (e.clientX-drag.x)*0.01;
+    el = Math.max(-1.45, Math.min(1.45, drag.el + (e.clientY-drag.y)*0.01));
+    if(!A.playing) frame(true);
+  });
+  const stop = ()=>{ drag = null; cv.classList.remove("drag"); };
+  cv.addEventListener("pointerup", stop);
+  cv.addEventListener("pointercancel", stop);
+
+  // ---- version / credits
+  $("ver").textContent = "v" + BUILD.version;
+  document.querySelector("#about .by").textContent = BUILD.authors;
+  $("changelog").innerHTML = CHANGELOG.map(r=>
+    `<div class="rel"><h5>${r.v}` +
+    (r.tag ? ` <em>· ${r.tag}, ${BUILD.date}</em>` : "") +
+    `</h5><ul>${r.items.map(i=>`<li>${i}</li>`).join("")}</ul></div>`).join("");
+  $("credit").textContent = `Sequence sim v${BUILD.version} · ${BUILD.authors}`;
+  const about = $("about");
+  $("ver").addEventListener("click", ()=>{ about.hidden = false; $("aboutClose").focus(); });
+  $("aboutClose").addEventListener("click", ()=>{ about.hidden = true; $("ver").focus(); });
+  about.addEventListener("click", e=>{ if(e.target === about) about.hidden = true; });
+
+  const cvs = $("cvSeq");
+  cvs.addEventListener("pointermove", showTip);
+  cvs.addEventListener("pointerleave", ()=>{ $("tip").style.display = "none"; });
+  document.addEventListener("pointerdown", e=>{
+    if(e.target !== cvs) $("tip").style.display = "none";
+  }, true);
+
+  document.addEventListener("keydown", e=>{
+    if(e.target.matches("input,select")) return;
+    if(e.key === "Escape" && !$("about").hidden){ $("about").hidden = true; return; }
+    if(e.code === "Space"){ e.preventDefault(); setPlaying(!A.playing); }
+    if(e.key.toLowerCase() === "r"){ setPlaying(false); A.tSim=0; A.idx=0; frame(true); }
+  });
+
+  new ResizeObserver(()=>{ drawSeq._k = ""; if(A.res) frame(true); })
+    .observe(document.querySelector("main"));
+
+  renderTable(); nullers();
+  rebuild();
+})();
+</script>
+</body>
+</html>
