@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>mriInductSim 0.7.10 — Induction bench</title>
+<title>mriInductSim 0.7.12 — Induction bench</title>
 <!--
   mriInductSim — a precessing bar magnet and a single pickup loop
   Designed by Filip Sz (Lund University)
@@ -1442,13 +1442,20 @@ details.notes li{margin-bottom:5px}
 (function(){
 
 const BUILD = {
-  version: "0.7.10",
+  version: "0.7.12",
   date: "2026-09-15",
   authors: "Designed by Filip Sz (Lund University) · Coded by Claude (Anthropic) and ChatGPT (OpenAI)"
 };
 
 const CHANGELOG = [
-  {v:"0.7.10", tag:"current", items:[
+  {v:"0.7.12", tag:"current", items:[
+    "Reduced the Spin-1/2 probability pear size by 20% while preserving its shape and polarization mapping."
+  ]},
+  {v:"0.7.11", items:[
+    "Removed the fixed z-axis arrow from Spin-1/2 mode so it cannot be mistaken for the magnetization direction.",
+    "The probability pear itself now serves as the sole directional state cue; its red lobe points toward the direction of highest + projective-measurement probability."
+  ]},
+  {v:"0.7.10", items:[
     "Fixed the probability-pear flicker caused by transparent double-sided rendering and rotating under fixed directional lights.",
     "The pear is now opaque, front-sided and illumination-independent; its red/blue probability coloring remains unchanged."
   ]},
@@ -1501,7 +1508,7 @@ const CHANGELOG = [
 ];
 
 /* ======================================================================
-   mriInductSim 0.7.10
+   mriInductSim 0.7.12
 
    Coordinates are physics coordinates, used directly: z is up in the
    viewport, so no mapping between a physics frame and a scene frame.
@@ -1683,7 +1690,7 @@ spinGroup.visible = false;
    while P->1 becomes strongly pear-shaped and touches the origin at the
    least-probable pole. The P range is deliberately pedagogical: real
    thermal MRI polarization at room temperature is far smaller. */
-const PROB_R = 4.2;
+const PROB_R = 3.36;
 const probGeo = new THREE.SphereGeometry(PROB_R, 48, 32);
 const probPos = probGeo.getAttribute('position');
 const probDirs = new Float32Array(probPos.count*3);
@@ -1733,16 +1740,6 @@ function updateProbSurface(){
   probGeo.attributes.color.needsUpdate=true;
   probGeo.computeVertexNormals();
 }
-
-/* Static B0 axis is kept only as the rotation-field reference. It is neutral
-   so red/blue remain reserved for probability surplus/deficit on the surface. */
-const b0Arrow = new THREE.ArrowHelper(
-  Z_AXIS, new THREE.Vector3(0,0,-5.0), 10.4,
-  0x8b97a8, 1.0, 0.55
-);
-b0Arrow.line.material.transparent=true; b0Arrow.line.material.opacity=0.52;
-b0Arrow.cone.material.transparent=true; b0Arrow.cone.material.opacity=0.68;
-spinGroup.add(b0Arrow);
 
 /* ---------------- field lines -----------------------------------------
    Two point poles at the bar ends, traced by RK4 along H, then stretched
@@ -1895,7 +1892,6 @@ function applyTheme(){
   fieldMat.uniforms.uColor.value = cssHex('--ink-faint');
   coneMat.color = cssHex('--ink-faint');
   mArrow.setColor(cssHex('--ink'));
-  b0Arrow.setColor(cssHex('--ink-faint'));
   applyMagnetColour();
   updateProbSurface();
 }
@@ -2283,7 +2279,7 @@ function selfSpinRate(){ return omega()*Math.cos(S.chi); }
 window.__sim = {S:S, selfSpinRate:selfSpinRate, REF:REF, REF_FLUX_1:REF_FLUX_1, fluxPeak:fluxPeak, fluxPeakFor:fluxPeakFor,
   emfPeak:emfPeak, curPeak:curPeak, fluxAt:fluxAt, emfAt:emfAt, curAt:curAt, theta:theta,
   overScale:overScale, scene:scene, world:world, controls:controls, magnet:magnet, spinGroup:spinGroup,
-  probSurface:probSurface, probGeo:probGeo, b0Arrow:b0Arrow, coilGroup:coilGroup, disk:disk, diskMat:diskMat,
+  probSurface:probSurface, probGeo:probGeo, coilGroup:coilGroup, disk:disk, diskMat:diskMat,
   tracers:tracers, traceMats:traceMats, magnetQuat:function(){return magnet.quaternion;}, fieldLines:fieldLines, fieldMat:fieldMat,
   axisArrows:axisArrows, AXLEN:AXLEN,
   meridian:MERIDIAN, poleX:MAG_L*CM*0.42, stretch:STRETCH_X, squash:SQUASH_Y,
