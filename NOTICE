@@ -1,0 +1,39 @@
+MRI SIMULATORS — ATTRIBUTION AND AI-ASSISTED DEVELOPMENT NOTICE
+
+Copyright (c) 2026 Filip Szczepankiewicz
+
+These MRI teaching simulators were designed and directed by Filip
+Szczepankiewicz (Lund University). Generative-AI systems were used as
+development tools during implementation, debugging, revision, and
+documentation.
+
+Claude (Anthropic)
+- Generated code and revisions for the Field sim.
+- Generated code and revisions for the Sequence sim.
+- Generated code and revisions for the Spin packets / relaxation sim.
+- Generated code and revisions for several versions of the Induction bench.
+
+ChatGPT (OpenAI)
+- Generated code and revisions for the Induction bench, including teaching
+  overlays and later interface, visualization, debugging, documentation, and
+  spin-density-operator work.
+
+The individual simulator files contain more detailed development history where
+available. In particular, the Induction bench records specific contributions
+from both Claude and ChatGPT.
+
+Claude, Anthropic, ChatGPT, and OpenAI are identified here as AI-assisted
+development tools and service providers. They are not named as copyright
+holders or licensors of this project by this notice, and the attribution does
+not imply endorsement by Anthropic or OpenAI.
+
+THIRD-PARTY SOFTWARE
+
+Some self-contained simulator files bundle third-party open-source software,
+including Three.js and OrbitControls. Those components remain subject to their
+own copyright notices and license terms. Existing third-party notices must be
+retained where required.
+
+This NOTICE is informational only. It does not add restrictions or conditions
+to the MIT License covering the project material released by the copyright
+holder.
