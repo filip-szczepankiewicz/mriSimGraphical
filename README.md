@@ -1,7 +1,7 @@
 # MRI simulators for visualization
-Designed by Filip Sz (Lund University) and coded by Claude (Anthropic).
+Designed by Filip Sz (Lund University) and coded by Claude (Anthropic) and ChatGPT (OpenAI).
 
-Three interactive MRI physics visualisations. Each is a single
+Four interactive MRI physics visualisations. Each is a single
 self-contained HTML file that should run well on both PCs and phones.
 
 **These are teaching aids, not quantitative simulators.** They are meant for
@@ -30,3 +30,15 @@ at RF pulses, gradients and acquisition. Records a full pass as a video.
 with it: gradients to 200 mT/m, B₀ from 0.01 to 20 T, an optional ΔB surface, and
 gradient modulation during capture. Orbit, wiggle or still recording for slides.
 The concomitant field itself is computed from the closed-form expression.
+
+## `mriInductSim_v0.7.10.html` — Induction bench (v0.7.10)
+
+A rotating/precessing magnetic dipole beside a pickup coil, showing magnetic flux,
+Faraday induction, induced current, flip-angle dependence and distance falloff.
+The display can switch between a classical bar-magnet view and a spin-½ density-
+operator view. In spin mode the density operator is visualised as an exaggerated
+projective-measurement probability surface: an unpolarised state is spherical,
+while increasing illustrative polarisation produces a rotating pear-shaped surface,
+coloured red toward surplus probability and blue toward deficit probability. The
+live 2×2 density matrix is shown alongside the 3D view.
+
