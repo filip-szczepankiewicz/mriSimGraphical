@@ -3,8 +3,8 @@ Designed by Filip Sz (Lund University) and coded by Claude (Anthropic) and ChatG
 
 Six interactive MRI physics visualisations. Each is a single self-contained HTML
 file with no build step, no server and no network access, and should run well on
-both PCs and phones. Download a file and open it in a browser. The 3D views use
-WebGL, with Three.js bundled inside the file.
+both PCs and phones. The 3D views use WebGL, with Three.js bundled inside the
+file.
 
 **These are teaching aids, not quantitative simulators.** They are meant for
 showing the basic ideas and for making figures and clips, not for predicting
@@ -22,6 +22,28 @@ that are not corrected for field strength.
 | [`mriInductSim.html`](#mriinductsimhtml--induction-bench) | Signal induction in a receive coil |
 | [`mriSliceSim.html`](#mrislicesimhtml--slice-sim) | Slice-selective excitation and the rewinder |
 | [`mriReadoutSim.html`](#mrireadoutsimhtml--k-space-sim) | K-space trajectories in spin-echo imaging |
+
+## How to use
+
+The simulators must be downloaded and opened in a local browser. Clicking an
+`.html` file here on GitHub only shows its source code; it does not run it.
+
+1. Download one simulator, or all of them:
+   - **One file:** click the file in the list above the README, then use the
+     *Download raw file* button (↓) at the top right of the code view.
+   - **All files:** click the green **Code** button and choose **Download ZIP**,
+     then unzip. Or clone the repo:
+     `git clone https://github.com/filip-szczepankiewicz/mriSimGraphical.git`
+2. Open the downloaded `.html` file in a browser, for example by double-clicking
+   it or dragging it into a browser window.
+
+No installation, server or internet connection is needed; everything runs
+inside the file. A recent version of Chrome, Edge, Firefox or Safari is
+recommended. Video recording in the Sequence sim and Field sim relies on the
+WebCodecs API, which is best supported in Chromium-based browsers (Chrome, Edge).
+
+On a phone, save the file to the device and open it from the file manager in a
+browser. Some mobile file viewers show the source instead of running the page.
 
 ## `mriRelaxSim.html` — Spin packets
 
