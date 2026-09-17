@@ -12,11 +12,13 @@ Claude (Anthropic)
 - Generated code and revisions for the Sequence sim.
 - Generated code and revisions for the Spin packets / relaxation sim.
 - Generated code and revisions for several versions of the Induction bench.
+- Generated code and revisions for the Slice sim.
 
 ChatGPT (OpenAI)
 - Generated code and revisions for the Induction bench, including teaching
   overlays and later interface, visualization, debugging, documentation, and
   spin-density-operator work.
+- Generated code and revisions for the K-space sim.
 
 The individual simulator files contain more detailed development history where
 available. In particular, the Induction bench records specific contributions
@@ -30,7 +32,8 @@ not imply endorsement by Anthropic or OpenAI.
 THIRD-PARTY SOFTWARE
 
 Some self-contained simulator files bundle third-party open-source software,
-including Three.js and OrbitControls. Those components remain subject to their
+including Three.js and OrbitControls (bundled in the Field sim, Induction
+bench and Slice sim). Those components remain subject to their
 own copyright notices and license terms. Existing third-party notices must be
 retained where required.
 
