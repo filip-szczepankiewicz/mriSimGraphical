@@ -6,7 +6,6 @@ file with no build step, no server and no network access, and should run well on
 both PCs and phones. The 3D views use WebGL, with Three.js bundled inside the
 file.
 
-
 All six share one look: the simulator name in capitals at the top left of the
 control rail, a version chip and a light/dark chip at the right of the same line,
 a one-line description underneath, and uppercase section headings below that. The
@@ -20,38 +19,6 @@ simulator states its own simplifications under the version chip in its header,
 which also opens the credits and changelog. Typical simplifications are a single
 voxel, one spatial axis, no diffusion or flow, and approximate relaxation values
 that are not corrected for field strength.
-
-
-| Simulator | Topic |
-|---|---|
-| [`mriRelaxSim.html`](#mrirelaxsimhtml--spin-packets) | T1, T2 and T2\* relaxation |
-| [`mriSeqSim.html`](#mriseqsimhtml--sequence-sim) | Bloch simulation of common sequences |
-| [`mriFieldSim.html`](#mrifieldsimhtml--field-sim) | Gradient and concomitant (Maxwell) fields |
-| [`mriInductSim.html`](#mriinductsimhtml--induction-bench) | Signal induction in a receive coil |
-| [`mriSliceSim.html`](#mrislicesimhtml--slice-sim) | Slice-selective excitation and the rewinder |
-| [`mriReadoutSim.html`](#mrireadoutsimhtml--k-space-sim) | K-space trajectories in spin-echo imaging |
-
-## How to use
-
-The simulators must be downloaded and opened in a local browser. Clicking an
-`.html` file here on GitHub only shows its source code; it does not run it.
-
-1. Download one simulator, or all of them:
-   - **One file:** click the file in the list above the README, then use the
-     *Download raw file* button (↓) at the top right of the code view.
-   - **All files:** click the green **Code** button and choose **Download ZIP**,
-     then unzip. Or clone the repo:
-     `git clone https://github.com/filip-szczepankiewicz/mriSimGraphical.git`
-2. Open the downloaded `.html` file in a browser, for example by double-clicking
-   it or dragging it into a browser window.
-
-No installation, server or internet connection is needed; everything runs
-inside the file. A recent version of Chrome, Edge, Firefox or Safari is
-recommended. Video recording in the Sequence sim and Field sim relies on the
-WebCodecs API, which is best supported in Chromium-based browsers (Chrome, Edge).
-
-On a phone, save the file to the device and open it from the file manager in a
-browser. Some mobile file viewers show the source instead of running the page.
 
 | Simulator | Topic |
 |---|---|
@@ -88,8 +55,6 @@ browser. Some mobile file viewers show the source instead of running the page.
 
 ![Relaxation sim](docs/img/mriRelaxSim.png)
 
-![Spin packets](docs/img/mriRelaxSim.png)
-
 Where T1, T2 and T2\* come from. An isochromat ensemble driven by three separate
 mechanisms — T1 relaxation, spin–spin fluctuation with a correlation time, and a
 static ΔB₀ spread — shown as a 3D view, a transverse plane and a signal plot with
@@ -116,8 +81,6 @@ The concomitant field itself is computed from the closed-form expression.
 ## `mriInductSim.html` — Induction sim
 
 ![Induction sim](docs/img/mriInductSim.png)
-
-![Induction bench](docs/img/mriInductSim.png)
 
 A rotating/precessing magnetic dipole beside a pickup coil, showing magnetic flux,
 Faraday induction, induced current, flip-angle dependence and distance falloff.
