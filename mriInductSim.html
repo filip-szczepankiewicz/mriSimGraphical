@@ -349,6 +349,17 @@ button[aria-pressed="true"]:not(.primary){border-color:var(--ui)}
         <div class="row"><label for="sDist">Distance to loop</label><span class="val" id="vDist"></span></div>
         <input id="sDist" type="range" min="5.1" max="16" step="0.1" value="8">
       </div>
+      <div class="ctl">
+        <div class="row"><label for="sAlpha">Loop angle from z</label><span class="val" id="vAlpha"></span></div>
+        <input id="sAlpha" type="range" min="0" max="180" step="1" value="90">
+        <div class="marks"><span>0° on the axis</span><span>90° transverse</span></div>
+      </div>
+      <div class="ctl">
+        <div class="row"><label for="sGamma">Loop rotation</label><span class="val" id="vGamma"></span></div>
+        <input id="sGamma" type="range" min="0" max="180" step="1" value="0">
+        <div class="marks"><span>0° facing</span><span>90° side-on</span></div>
+        <p class="hint">The first slider moves the loop around the magnet in the x–z plane; this one turns it about the vertical axis through its own centre, from facing the magnet to presenting its side to it. A loop sitting on the precession axis is turning about its own normal, so there it makes no difference.</p>
+      </div>
     </div>
 
     <div class="group">
@@ -380,11 +391,13 @@ button[aria-pressed="true"]:not(.primary){border-color:var(--ui)}
     <details class="notes">
       <summary>Live equations</summary>
       <div class="eqbox">
-        <div class="eqline"><span class="lhs">Φ(t)</span> = −Φ₀ cos θ</div>
-        <div class="eqline"><span class="lhs">ℰ(t)</span> = −ωΦ₀ sin θ</div>
+        <div class="eqline"><span class="lhs">Φ(t)</span> = Φ<sub>dc</sub> + Φ₀ cos(θ − ψ)</div>
+        <div class="eqline"><span class="lhs">ℰ(t)</span> = ωΦ₀ sin(θ − ψ)</div>
         <div class="eqline"><span class="lhs">I(t)</span> = ℰ(t) / R</div>
         <div class="eqrule"></div>
-        <div class="eqline">Φ₀ = (μ₀/4π)·2Am·sin χ / d³</div>
+        <div class="eqline">V = 3(u·n)u − n</div>
+        <div class="eqline">Φ₀ = (μ₀/4π)·Am·sin χ·|V<sub>xy</sub>| / d³</div>
+        <div class="eqline">Φ<sub>dc</sub> = (μ₀/4π)·Am·cos χ·V<sub>z</sub> / d³</div>
         <div class="eqline">θ = <span id="eqTheta">—</span></div>
         <div class="eqline">ω = <span id="eqOmega">—</span></div>
         <div class="eqrule"></div>
@@ -392,6 +405,8 @@ button[aria-pressed="true"]:not(.primary){border-color:var(--ui)}
         <div class="eqline">ω⊥ = ω sin χ = <span id="eqWperp">—</span></div>
         <div class="eqrule"></div>
         <div class="eqline">Φ₀ = <span id="eqFlux0">—</span></div>
+        <div class="eqline">Φ<sub>dc</sub> = <span id="eqFluxDc">—</span></div>
+        <div class="eqline">|V<sub>xy</sub>| = <span id="eqVxy">—</span></div>
         <div class="eqline">ℰ₀ = <span id="eqEmf0">—</span></div>
         <div class="eqline">I₀ = <span id="eqI0">—</span></div>
       </div>
@@ -400,8 +415,9 @@ button[aria-pressed="true"]:not(.primary){border-color:var(--ui)}
     <details class="notes">
       <summary>What is modelled</summary>
       <ul>
-        <li>Magnet at the origin, m = m(sin χ cos θ, sin χ sin θ, cos χ). Loop at (d,0,0), radius 2 cm, one turn, surface normal −x, load 10 Ω.</li>
-        <li>On the axis the closed form is Φ = −(μ₀/4π)·2Am·sin χ·cos θ / d³. Only the part of m across the precession axis contributes; the parallel part is constant and drops out of dΦ/dt.</li>
+        <li>Magnet at the origin, m = m(sin χ cos θ, sin χ sin θ, cos χ). Loop of radius 2 cm, one turn, load 10 Ω, centred at d·u with u = (sin α, 0, cos α) and turned by γ about the vertical axis through its own centre, giving the surface normal n = R_z(γ)(−u). The default α = 90°, γ = 0 puts it at (d,0,0) with normal −x.</li>
+        <li>The flux is the general dipole result Φ = (μ₀/4π)A(m·V)/d³ with V = 3(u·n)u − n, so Φ₀ ∝ sin χ·|V_xy| and Φ_dc ∝ cos χ·V_z. Only the part of m across the precession axis contributes to the EMF; the parallel part is constant and drops out of dΦ/dt. Face-on in the transverse plane gives V = −2u and the familiar Φ₀ = (μ₀/4π)·2Am·sin χ / d³.</li>
+        <li>Position and rotation do different things. For a transverse loop |V_xy| = √(1 + 3cos²γ), so turning it side-on halves the amplitude rather than removing it and shifts the phase by 90°: face-on the loop reads the radial part of the dipole field, which is twice the tangential part it reads side-on. Only the placement can silence it completely — face-on on the precession axis the flux is the largest of any placement and perfectly steady, so nothing is induced. On that axis the turning does nothing at all, since the loop is then rotating about its own normal.</li>
         <li>No inductance, so I is exactly in phase with the EMF. A single small loop gives a genuinely tiny signal — that is not a scaling error, it is why real coils have turns and preamplifiers.</li>
         <li>Plot scales are fixed at four times the peak at default settings. The slider ranges are then chosen so that any one control taken to its extreme just fills the axis: moment and rate each span 4× the default, and the closest distance gives 3.9×. Move two at once and it clips; the header says by how much. The flux reference carries no frequency, which is why raising the rate grows EMF and current but not Φ.</li>
         <li>The window runs two seconds either side of now. For an analytic signal the future is as computable as the past, so the trace is drawn through the now-line.</li>
@@ -415,7 +431,7 @@ button[aria-pressed="true"]:not(.primary){border-color:var(--ui)}
 
     <details class="notes">
       <summary>Why this matters for MRI</summary>
-      <p>The precession axis is B₀, the tilt is the flip angle, the rate is the Larmor frequency, the loop is a surface coil. Tilt 0° is a fully relaxed spin system: the magnetisation is at its largest and the signal is exactly zero, because signal comes from change, not magnitude. Sweep the tilt for the sin χ flip-angle dependence, and the distance for the 1/d³ falloff that decides where a surface coil stops earning its place.</p>
+      <p>The precession axis is B₀, the tilt is the flip angle, the rate is the Larmor frequency, the loop is a surface coil. Tilt 0° is a fully relaxed spin system: the magnetisation is at its largest and the signal is exactly zero, because signal comes from change, not magnitude. Sweep the tilt for the sin χ flip-angle dependence, and the distance for the 1/d³ falloff that decides where a surface coil stops earning its place. Sweep the loop angle to see why no coil is placed face-on along B₀: there the flux is at its largest and perfectly steady, so nothing is induced. Then sweep the loop rotation: what reaches the coil is the part of the rotating field that threads it, so turning the loop side-on trades half the amplitude for a 90° phase shift — the relation a quadrature pair is built on.</p>
     </details>
 <details class="notes">
       <summary>Controls</summary>
@@ -1516,13 +1532,26 @@ button[aria-pressed="true"]:not(.primary){border-color:var(--ui)}
 (function(){
 
 const BUILD = {
-  version: "0.7.13",
+  version: "0.7.16",
   date: "2026-09-17",
   authors: "Designed by Filip Sz (Lund University) · Coded by Claude (Anthropic) and ChatGPT (OpenAI)"
 };
 
 const CHANGELOG = [
-  {v:"0.7.13", tag:"current", items:[
+  {v:"0.7.16", tag:"current", items:[
+    "The loop rotation is now about the vertical axis through the loop centre, the one parallel to z, rather than about the horizontal diameter. Facing the magnet at 0 degrees and side-on to it at 90 degrees, as before, but the loop now turns the way a surface coil would be swung around a patient.",
+    "With that axis a transverse loop turned side-on reads the tangential part of the dipole field instead of the radial part: half the amplitude and a 90 degree phase shift, |V_xy| = sqrt(1 + 3 cos^2 gamma), rather than no signal at all. Silencing the loop completely is then purely a matter of placement, face-on on the precession axis.",
+    "On the precession axis the rotation is about the loop\u2019s own normal and correctly does nothing."
+  ]},
+  {v:"0.7.15", items:[
+    "Two loop-placement sliders: where the loop sits, as an angle from the precession axis z, and how it is turned about its own diameter, from facing the magnet to presenting its side to it. The distance slider still sets the separation.",
+    "The flux model is the general dipole expression rather than the on-axis special case: Phi = (mu0/4pi) A (m.V) / d^3 with V = 3(u.n)u - n, so Phi_0 follows sin chi times the transverse part of V and the constant offset follows cos chi times its z part.",
+    "That separates the two ways a coil can be blind. A transverse loop turned edge-on sees nothing because the rotating field lies in its plane, and a loop parked face-on on the axis sees the largest flux of any placement and still induces nothing, because that flux never changes. The live equations carry Phi_dc and |V_xy|."
+  ]},
+  {v:"0.7.14", items:[
+    "First version of the loop-placement control, as an angle from the axis and an azimuth around it, with the loop always facing the magnet."
+  ]},
+  {v:"0.7.13", items:[
     "Renamed from Induction bench to Induction sim, matching the other simulators.",
     "House style shared across the simulator suite: capitalised title with the version and theme chips at the right of the header, a one-line description under the title, uppercase section headings, one colour palette with a teal interface accent, common slider, button and dialog styling, a 300 px control rail, one phone-layout breakpoint (1000 px), and a tab icon. The rail palette matches the other simulators; the 3D scene and trace colours are unchanged.",
     "The light/dark choice is shared by all simulators in the suite and remembered; on a first visit the operating-system setting is used. The older inductsim.theme key is still read.",
@@ -1607,34 +1636,76 @@ const R_LOAD  = 10;
 const CM      = 100;
 
 /* defaults define the fixed plot reference */
-const D_M = 1.0, D_F = 1.0, D_CHI = Math.PI/2, D_D = 0.08;
+const D_M = 1.0, D_F = 1.0, D_CHI = Math.PI/2, D_D = 0.08, D_ALPHA = Math.PI/2, D_GAMMA = 0;
 const HEADROOM = 4;
 const M_MIN = 0.1, M_MAX = 4;
 const T_WIN = 4.0;              // s of simulated time shown, past and future
 
 const S = {
-  running:true, m:D_M, f:D_F, d:D_D, chi:D_CHI,
+  running:true, m:D_M, f:D_F, d:D_D, chi:D_CHI, alpha:D_ALPHA, gamma:D_GAMMA,
   t:0, playback:1, tracer:0,
   fieldLines:true, showFlux:false, showCur:true, fluxDisk:true,
   spinMode:false
 };
 
-/* ---------------- signal ---------------- */
+/* ---------------- signal ----------------------------------------------
+   Two angles place the loop, both in the x-z plane that contains the
+   precession axis:
+     alpha  where the loop sits, measured from the precession axis z, so the
+            loop centre is at d*u with u = (sin a, 0, cos a);
+     gamma  how the loop is turned about the vertical axis through its own
+            centre, the one parallel to z, from facing the magnet at 0 to
+            presenting its side to it at 90 degrees.
+   The surface normal is therefore n = Rz(g)(-u), a rotation of the face-on
+   normal about z. On the precession axis u = z, so there the rotation is
+   about the loop's own normal and changes nothing.
+
+   The flux is the general point-dipole result, not the on-axis special case:
+       Phi = A n.B,  B = (mu0/4pi)[3(m.u)u - m]/d^3
+           = (mu0/4pi) A (m.V) / d^3,   V = 3(u.n)u - n
+   With m = m[sin chi (cos th, sin th, 0) + cos chi z] this is
+       Phi(t) = Phi_dc + Phi_0 cos(th - psi)
+       Phi_0  = (mu0/4pi) A m sin chi |V_xy| / d^3,  psi = atan2(V_y, V_x)
+       Phi_dc = (mu0/4pi) A m cos chi V_z / d^3
+   Face-on at alpha = 90 recovers Phi_0 = (mu0/4pi) 2Am sin chi / d^3, and
+   |V_xy| = sqrt(1 + 3 cos^2 g) there: turning the loop side-on halves the
+   amplitude and shifts the phase by 90 degrees, because the loop then reads
+   the tangential part of the dipole field instead of the radial part. It is
+   the placement, not the turning, that can silence the loop entirely: face-on
+   on the precession axis the flux is the largest of any placement and never
+   changes, so nothing is induced. */
 function area(){ return Math.PI*COIL_R*COIL_R; }
 function omega(){ return 2*Math.PI*S.f; }
 function theta(){ return omega()*S.t; }
-function fluxPeakFor(m, chi, d){ return MU0_4PI*2*area()*m*Math.sin(chi)/(d*d*d); }
-function fluxPeak(){ return fluxPeakFor(S.m, S.chi, S.d); }
+function coilDir(){ return {x:Math.sin(S.alpha), y:0, z:Math.cos(S.alpha)}; }
+function coilNormal(){
+  /* The loop turns about the vertical axis through its own centre, i.e. the
+     one parallel to z, so the face-on normal -u is simply rotated about z. */
+  const u=coilDir(), cg=Math.cos(S.gamma), sg=Math.sin(S.gamma);
+  return {x:-u.x*cg, y:-u.x*sg, z:-u.z};
+}
+function fluxVector(){
+  const u=coilDir(), n=coilNormal();
+  const p = u.x*n.x + u.y*n.y + u.z*n.z;
+  return {x:3*p*u.x - n.x, y:3*p*u.y - n.y, z:3*p*u.z - n.z};
+}
+function fluxScale(){ return MU0_4PI*area()*S.m/(S.d*S.d*S.d); }
+function fluxPeak(){
+  const V=fluxVector();
+  return fluxScale()*Math.sin(S.chi)*Math.hypot(V.x, V.y);
+}
+function fluxPhase(){ const V=fluxVector(); return Math.atan2(V.y, V.x); }
+function fluxDC(){ return fluxScale()*Math.cos(S.chi)*fluxVector().z; }
 function emfPeak(){ return omega()*fluxPeak(); }
 function curPeak(){ return emfPeak()/R_LOAD; }
-function fluxAt(t){ return -fluxPeak()*Math.cos(omega()*t); }
-function emfAt(t){ return -fluxPeak()*omega()*Math.sin(omega()*t); }   // -dPhi/dt
+function fluxAt(t){ return fluxDC() + fluxPeak()*Math.cos(omega()*t - fluxPhase()); }
+function emfAt(t){ return fluxPeak()*omega()*Math.sin(omega()*t - fluxPhase()); }  // -dPhi/dt
 function curAt(t){ return emfAt(t)/R_LOAD; }
 
 /* fixed reference scales: HEADROOM times the peak at default settings.
    The flux reference carries no frequency, so raising the rate grows EMF
    and current on the plot while leaving the flux trace untouched. */
-const REF_FLUX_1 = fluxPeakFor(D_M, D_CHI, D_D);
+const REF_FLUX_1 = MU0_4PI*2*area()*D_M*Math.sin(D_CHI)/(D_D*D_D*D_D);
 const REF = {
   flux: HEADROOM*REF_FLUX_1,
   emf:  HEADROOM*2*Math.PI*D_F*REF_FLUX_1,
@@ -1688,6 +1759,9 @@ scene.add(new THREE.AmbientLight(0xffffff, 0.58));
 const key = new THREE.DirectionalLight(0xffffff, 0.80); key.position.set(14, -10, 22); scene.add(key);
 const fill = new THREE.DirectionalLight(0xffffff, 0.32); fill.position.set(-14, 12, -8); scene.add(fill);
 
+const coilVec = new THREE.Vector3(1,0,0);
+const normVec = new THREE.Vector3(1,0,0);
+const qCoil = new THREE.Quaternion();
 const X_AXIS = new THREE.Vector3(1,0,0);
 const Y_AXIS = new THREE.Vector3(0,1,0);
 const Z_AXIS = new THREE.Vector3(0,0,1);
@@ -1999,7 +2073,7 @@ function eng(x, unit){
 
 function overScale(){
   let o = 1;
-  if(S.showFlux) o = Math.max(o, fluxPeak()/REF.flux);
+  if(S.showFlux) o = Math.max(o, (fluxPeak()+Math.abs(fluxDC()))/REF.flux);
   if(S.showCur)  o = Math.max(o, curPeak()/REF.cur);
   return o;
 }
@@ -2090,7 +2164,7 @@ function drawChart(){
    Readouts
    ====================================================================== */
 const el = {};
-['rFlux','rEmf','rCur','rNow','eqOmega','eqFlux0','eqEmf0','eqI0','eqTheta',
+['rFlux','rEmf','rCur','rNow','eqOmega','eqFlux0','eqFluxDc','eqVxy','eqEmf0','eqI0','eqTheta',
  'eqWpar','eqWperp','rho00','rho01','rho10','rho11','pol','rx','ry','rz'
 ].forEach(function(id){ el[id]=document.getElementById(id); });
 
@@ -2105,6 +2179,8 @@ function readouts(now){
   el.rNow.textContent  = eng(curAt(S.t),'A');
   el.eqOmega.textContent = omega().toFixed(3)+' rad/s';
   el.eqFlux0.textContent = eng(fluxPeak(),'Wb');
+  el.eqFluxDc.textContent = eng(fluxDC(),'Wb');
+  el.eqVxy.textContent = (function(){ const V=fluxVector(); return Math.hypot(V.x,V.y).toFixed(3); })();
   el.eqEmf0.textContent  = eng(emfPeak(),'V');
   el.eqI0.textContent    = eng(curPeak(),'A');
   el.eqTheta.textContent = deg.toFixed(0)+'°';
@@ -2146,6 +2222,8 @@ bind('sMom','vMom',   function(v){ S.m=v; applyMagnetColour(); },
      function(v){ return S.spinMode ? 'P = '+momentFrac().toFixed(2) : v.toFixed(2)+' A·m²'; });
 bind('sFreq','vFreq', function(v){ S.f=v; }, function(v){ return v.toFixed(2)+' Hz'; });
 bind('sDist','vDist', function(v){ S.d=v/100; }, function(v){ return v.toFixed(1)+' cm'; });
+bind('sAlpha','vAlpha', function(v){ S.alpha=v*Math.PI/180; }, function(v){ return v.toFixed(0)+'°'; });
+bind('sGamma','vGamma', function(v){ S.gamma=v*Math.PI/180; }, function(v){ return v.toFixed(0)+'°'; });
 bind('sSpeed','vSpeed', function(v){ S.playback=v; },
      function(v){ return v>=0.999 ? '1× real time' : v.toFixed(2)+'×'; });
 
@@ -2317,8 +2395,16 @@ function frame(now){
   coneGeo.attributes.position.needsUpdate = true;
   coneLine.visible = sc > 0.02;
 
-  /* coil placement */
-  coilGroup.position.set(S.d*CM, 0, 0);
+  /* Coil placement: the group is built with its axis along local x, so
+     rotating x onto u puts the loop face-on to the magnet at d*u. */
+  const u = coilDir(), nrm = coilNormal();
+  coilVec.set(u.x, u.y, u.z);
+  coilGroup.position.copy(coilVec).multiplyScalar(S.d*CM);
+  /* the group is built with the loop axis along local +x, and the surface
+     normal is -x, so map +x onto -n */
+  normVec.set(-nrm.x, -nrm.y, -nrm.z).normalize();
+  qCoil.setFromUnitVectors(X_AXIS, normVec);
+  coilGroup.quaternion.copy(qCoil);
 
   /* flux disk, shaded by the flux relative to the default peak */
   disk.visible = S.fluxDisk;
@@ -2343,7 +2429,7 @@ function frame(now){
 
   /* Re-centre the pair on the origin. The camera is left alone: changing the
      separation must not move the viewpoint. Reset view reframes on demand. */
-  world.position.set(-S.d*CM/2, 0, 0);
+  world.position.copy(coilVec).multiplyScalar(-S.d*CM/2);
 
   resize(); controls.update();
   renderer.render(scene, camera);
@@ -2356,8 +2442,9 @@ requestAnimationFrame(frame);
 /* reported for the readout strip and for tests */
 function selfSpinRate(){ return omega()*Math.cos(S.chi); }
 
-window.__sim = {S:S, selfSpinRate:selfSpinRate, REF:REF, REF_FLUX_1:REF_FLUX_1, fluxPeak:fluxPeak, fluxPeakFor:fluxPeakFor,
+window.__sim = {S:S, selfSpinRate:selfSpinRate, REF:REF, REF_FLUX_1:REF_FLUX_1, fluxPeak:fluxPeak,
   emfPeak:emfPeak, curPeak:curPeak, fluxAt:fluxAt, emfAt:emfAt, curAt:curAt, theta:theta,
+  fluxDC:fluxDC, coilDir:coilDir, coilNormal:coilNormal, fluxVector:fluxVector, fluxPhase:fluxPhase,
   overScale:overScale, scene:scene, world:world, controls:controls, magnet:magnet, spinGroup:spinGroup,
   probSurface:probSurface, probGeo:probGeo, coilGroup:coilGroup, disk:disk, diskMat:diskMat,
   tracers:tracers, traceMats:traceMats, magnetQuat:function(){return magnet.quaternion;}, fieldLines:fieldLines, fieldMat:fieldMat,
