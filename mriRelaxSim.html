@@ -1,20 +1,23 @@
 <!doctype html>
 <!--
-  Spin packets & relaxation — a teaching visualisation of T1, T2 and T2*
+  Relaxation sim (formerly "Spin packets & relaxation") — a teaching
+  visualisation of T1, T2 and T2*.
   Designed by Filip Sz (Lund University) and coded by Claude (Anthropic).
 
   Single self-contained file: no build step, no network, no dependencies.
   Version history lives in the CHANGELOG constant in the script below and is
-  shown in the sidebar; bump VERSION whenever you change the physics or the UI.
+  shown in the version dialog; bump VERSION whenever you change the physics or the UI.
   VERSION is the single source of truth — this header deliberately does not repeat it.
-  Release the file as mriRelaxSim_<VERSION>.html, e.g. mriRelaxSim_0.3.1.html,
-  so the version is visible without opening it.
+  The file name carries no version (mriRelaxSim.html); git tracks the history.
 -->
 <html lang="en" data-theme="dark">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Spin packets — T1, T2 and T2* relaxation</title>
+<title>Relaxation sim — T1, T2 and T2* relaxation</title>
+<meta name="author" content="Filip Sz (Lund University); Claude (Anthropic)">
+<meta name="description" content="Interactive isochromat visualisation of where T1, T2 and T2* relaxation come from.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23151b24'/%3E%3Cg fill='none' stroke='%232fb6b0' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 7 C9 7 10 25 26 25'/%3E%3Cpath d='M6 25 H26' stroke='%234d5a6b' stroke-width='1.6'/%3E%3C/g%3E%3C/svg%3E">
 <style>
 :root{
   --bg:#0e1219; --panel:#151b24; --panel2:#1b2230; --rule:#26303f;
@@ -127,7 +130,7 @@ main{display:grid; grid-template-rows:minmax(0,1fr) 232px; min-width:0; overflow
 .hint{position:absolute; bottom:8px; right:12px; z-index:2; pointer-events:none; font-size:10px; color:var(--dim)}
 #cv3d{cursor:grab}
 #cv3d.drag{cursor:grabbing}
-@media (max-width:960px){
+@media (max-width:1000px){
   body{grid-template-columns:1fr; grid-template-rows:auto 1fr; overflow:auto}
   #rail{border-right:none; border-bottom:1px solid var(--rule)}
   main{height:78vh}
@@ -135,23 +138,83 @@ main{display:grid; grid-template-rows:minmax(0,1fr) 232px; min-width:0; overflow
   .pane+.pane{border-left:none; border-top:1px solid var(--rule)}
 }
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
+
+/* =====================================================================
+   HOUSE STYLE — shared by all MRI simulators in this suite (header, rail,
+   controls, dialog). Keep this block identical in spirit across files;
+   only the variable names differ. Appended last so it takes precedence.
+   ===================================================================== */
+html,body{font-family:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace}
+body{font-size:13px}
+#rail .brand{
+  position:sticky; top:0; z-index:3; background:var(--panel);
+  border-bottom:1px solid var(--rule); padding:13px 14px 11px; margin:0;
+  display:flex; flex-wrap:wrap; align-items:baseline; gap:0 5px;
+}
+#rail .brand h1{
+  margin:0 auto 0 0; font-size:12px; font-weight:600; line-height:1.45;
+  letter-spacing:.16em; text-transform:uppercase; white-space:nowrap; color:var(--text);
+}
+#rail .brand .themebtn{margin:0}
+#rail .brand .brand-sub{
+  flex:1 0 100%; margin:6px 0 0; font-size:11px; line-height:1.4; color:var(--muted);
+}
+.themebtn,button.themebtn{
+  appearance:none; background:transparent; border:1px solid var(--rule); color:var(--muted);
+  font:inherit; font-size:10px; line-height:1.45; letter-spacing:.1em; text-transform:uppercase;
+  padding:3px 7px; cursor:pointer; border-radius:2px;
+}
+.themebtn:hover,button.themebtn:hover{background:transparent; color:var(--text); border-color:var(--muted)}
+input[type=range]{
+  -webkit-appearance:none; appearance:none; width:100%; height:18px; margin:0;
+  background:transparent; cursor:pointer;
+}
+input[type=range]::-webkit-slider-runnable-track{height:2px; background:var(--rule); border-radius:0}
+input[type=range]::-moz-range-track{height:2px; background:var(--rule); border-radius:0}
+input[type=range]::-webkit-slider-thumb{
+  -webkit-appearance:none; width:12px; height:12px; margin-top:-5px; border:0; border-radius:50%;
+  background:var(--accent);
+}
+input[type=range]::-moz-range-thumb{width:12px; height:12px; border:0; border-radius:50%; background:var(--accent)}
+input[type=range]:disabled{cursor:default; opacity:.5}
+input[type=checkbox],input[type=radio]{accent-color:var(--accent)}
+select,input[type=number]{border-radius:3px}
+button{border-radius:3px}
+button.primary,button.primary:hover{background:var(--btn); color:var(--accent); border-color:var(--accent)}
+:focus-visible{outline-color:var(--accent)}
+.credit{margin:14px 14px 0; font-size:10px; line-height:1.6; color:var(--dim); letter-spacing:.02em}
+#about .sheet{border-radius:4px}
+#about h3{margin:0 0 3px; font-size:13px; letter-spacing:.16em; text-transform:uppercase}
+#about .by{margin:0 0 12px; color:var(--accent); font-size:12px}
+#about .rel h5{margin:0 0 5px; font-size:11px; letter-spacing:.1em; font-weight:600; color:var(--text)}
+#about .rel h5 em{color:var(--dim); font-style:normal; font-weight:400; letter-spacing:0}
+h2{font-weight:400; letter-spacing:.18em; margin-bottom:9px}
+.lab span:first-child{color:var(--muted)}
+.val{color:var(--text)}
+.lab span:first-child,.lab .val{font-size:12px}
+#about[hidden]{display:none}
+#about{position:fixed; inset:0; z-index:40; display:grid; place-items:center; background:rgba(0,0,0,.5); padding:20px}
+#about .sheet{background:var(--panel); border:1px solid var(--rule); padding:20px 22px; max-width:520px; width:100%; max-height:82vh; overflow-y:auto}
+#about .note{margin:0 0 16px; color:var(--muted); font-size:11.5px; line-height:1.6}
+#about .rel{border-top:1px solid var(--rule); padding-top:9px; margin-top:9px}
+#about .rel p{margin:0; color:var(--muted); font-size:11.5px; line-height:1.6}
+#about #aboutClose{margin-top:18px}
 </style>
 </head>
 <body>
 
 <div id="rail">
-  <div id="head">
-    <div>
-      <h1>Spin packets &amp; relaxation</h1>
-      <p>A qualitative picture of where T1, T2 and T2* come from.</p>
-    </div>
-    <button id="theme" title="Switch colour scheme">Dark</button>
+  <div id="head" class="brand">
+    <h1>Relaxation sim</h1>
+    <button class="themebtn" id="ver" type="button" title="Version, credits and changelog"></button>
+    <button class="themebtn" id="theme" type="button" title="Switch colour theme">Light</button>
+    <p class="brand-sub">A qualitative picture of where T1, T2 and T2* come from</p>
   </div>
 
   <section>
     <h2>Transport</h2>
     <div class="row">
-      <button id="play">Pause</button>
+      <button id="play" class="primary">Pause</button>
       <button id="reset">Reset</button>
       <button id="p30">30°<sub>x</sub></button>
       <button id="p90">90°<sub>x</sub></button>
@@ -250,17 +313,7 @@ main{display:grid; grid-template-rows:minmax(0,1fr) 232px; min-width:0; overflow
     <p id="note"></p>
   </section>
 
-  <section id="about" style="border-bottom:none">
-    <h2>About</h2>
-    <p class="sub" style="margin-top:0">
-      <span id="authors"></span>.
-      Qualitative teaching tool — the mechanisms are modelled, not measured.
-    </p>
-    <details>
-      <summary><span id="vTag"></span> · version history</summary>
-      <ol id="log"></ol>
-    </details>
-  </section>
+  <p class="credit" id="credit"></p>
 </div>
 
 <main>
@@ -281,6 +334,21 @@ main{display:grid; grid-template-rows:minmax(0,1fr) 232px; min-width:0; overflow
     <canvas id="cvsig"></canvas>
   </div>
 </main>
+
+<div id="about" hidden>
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="aboutTitle">
+    <h3 id="aboutTitle">Relaxation sim</h3>
+    <p class="by"></p>
+    <p class="note">
+      A qualitative teaching aid, not a quantitative simulator: the mechanisms are
+      modelled, not measured. One ensemble of isochromats driven by T1 relaxation,
+      spin–spin fluctuation with a correlation time, and a static ΔB₀ spread.
+      Relaxation values are illustrative and not field-strength corrected.
+    </p>
+    <div id="changelog"></div>
+    <button class="themebtn" id="aboutClose" type="button">Close</button>
+  </div>
+</div>
 
 <script>
 /* ==================== PHYSICS CORE (pure, no DOM) ==================== */
@@ -459,9 +527,17 @@ function gaussStd(){                        // Box-Muller
 
 
 /* ---------------------------------------------------------- version */
-const VERSION = "0.3.1";
-const AUTHORS = "Designed by Filip Sz (Lund University), coded by Claude (Anthropic)";
+const VERSION = "0.3.2";
+const AUTHORS = "Designed by Filip Sz (Lund University) and coded by Claude (Anthropic)";
 const CHANGELOG = [
+  ["0.3.2", "2026-09-17",
+   "Renamed from Spin packets to Relaxation sim, matching the other simulators. " +
+   "The version and changelog moved from the sidebar into a dialog opened from a " +
+   "version chip in the header, as in the other simulators, and the credit line " +
+   "sits at the foot of the rail. House style shared across the simulator suite: capitalised title with the version and theme chips at the right of the header, a one-line description under the title, uppercase section headings, one colour palette with a teal interface accent, common slider, button and dialog styling, a 300 px control rail, one phone-layout breakpoint (1000 px), and a tab icon. " +
+   "Slider labels are muted and values bright, as elsewhere. " +
+   "The light/dark choice is shared by all simulators in the suite and remembered; on a first visit the operating-system setting is used. The theme button now names the theme it " +
+   "switches to; it used to show the current one."],
   ["0.3.1", "2026-08-17", "Attribution updated to name the roles: designed by " +
    "Filip Sz (Lund University), coded by Claude (Anthropic)."],
   ["0.3.0", "2026-08-17",
@@ -977,7 +1053,7 @@ $("echo").addEventListener("click", () => {
 $("theme").addEventListener("click", () => {
   const dark = document.documentElement.dataset.theme === "dark";
   document.documentElement.dataset.theme = dark ? "light" : "dark";
-  $("theme").textContent = dark ? "Light" : "Dark";
+  $("theme").textContent = dark ? "Dark" : "Light";
   readTheme();
 });
 
@@ -1007,17 +1083,65 @@ document.addEventListener("keydown", e => {
 });
 
 /* ------------------------------------------------------------- go */
-$("vTag").textContent = "v" + VERSION;
-$("log").innerHTML = CHANGELOG
-  .map(([v,d,t]) => `<li><b>v${v}</b> &middot; ${d}<br>${t}</li>`).join("");
-document.title = `Spin packets — T1, T2 and T2* relaxation (v${VERSION})`;
-$("authors").textContent = AUTHORS;
+$("ver").textContent = "v" + VERSION;
+$("credit").textContent = `Relaxation sim v${VERSION} · ${AUTHORS}`;
+document.querySelector("#about .by").textContent = AUTHORS;
+$("changelog").innerHTML = CHANGELOG.map(([v,d,t], i) =>
+  `<div class="rel"><h5>${v} <em>· ${i === 0 ? "current, " : ""}${d}</em></h5><p>${t}</p></div>`).join("");
+{
+  const about = $("about");
+  const close = () => { about.hidden = true; $("ver").focus(); };
+  $("ver").addEventListener("click", () => {
+    about.hidden = false; about.querySelector(".sheet").scrollTop = 0;
+    $("aboutClose").focus({preventScroll:true});
+  });
+  $("aboutClose").addEventListener("click", close);
+  about.addEventListener("click", e => { if(e.target === about) close(); });
+  document.addEventListener("keydown", e => { if(e.key === "Escape" && !about.hidden) close(); });
+}
 
 readTheme();
 reset();
 pulse(Math.PI/2);
 syncLabels();
 requestAnimationFrame(t => { last = t; frame(t); });
+</script>
+<script>
+/* House style (shared by the MRI simulators): one light/dark preference for the
+   whole suite. The saved choice (or the operating-system setting on a first
+   visit) is applied by clicking the app's own theme button, so each app redraws
+   through its usual path. The button always names the theme it switches TO. */
+(function () {
+  "use strict";
+  var KEY = "mrisim.theme", LEGACY = [];
+  function saved() {
+    try {
+      var keys = [KEY].concat(LEGACY);
+      for (var i = 0; i < keys.length; i++) {
+        var v = localStorage.getItem(keys[i]);
+        if (v === "light" || v === "dark") return v;
+      }
+    } catch (e) { /* storage can be unavailable for file:// pages */ }
+    return null;
+  }
+  window.addEventListener("load", function () {
+    setTimeout(function () {
+      var btn = document.getElementById("theme");
+      if (!btn) return;
+      var root = document.documentElement;
+      var cur = function () { return root.getAttribute("data-theme") === "light" ? "light" : "dark"; };
+      var label = function () { btn.textContent = cur() === "dark" ? "Light" : "Dark"; };
+      var want = saved() || (window.matchMedia &&
+        window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark");
+      if (want !== cur()) btn.click();
+      label();
+      btn.addEventListener("click", function () {
+        label();
+        try { localStorage.setItem(KEY, cur()); } catch (e) { /* file:// */ }
+      });
+    }, 0);
+  });
+})();
 </script>
 </body>
 </html>

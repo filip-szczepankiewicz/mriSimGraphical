@@ -11,6 +11,7 @@
 <meta name="description" content="Interactive Bloch-equation simulator for teaching MRI pulse sequences.">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Sequence sim — MRI spin-dynamics teaching simulator</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23151b24'/%3E%3Cg fill='none' stroke='%232fb6b0' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 22 H8 V11 H11 V22 H14 C15 22 15.5 10 17 10 S19 22 20 22 H28'/%3E%3C/g%3E%3C/svg%3E">
 <style>
 :root{
   --bg:#0e1219; --panel:#151b24; --panel2:#1b2230; --rule:#26303f;
@@ -36,7 +37,7 @@ body{
   margin:0; background:var(--bg); color:var(--text);
   font:13px/1.45 ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
   -webkit-font-smoothing:antialiased;
-  display:grid; grid-template-columns:318px 1fr; height:100vh; overflow:hidden;
+  display:grid; grid-template-columns:300px 1fr; height:100vh; overflow:hidden;
 }
 /* ---------------------------------------------------------- console rail */
 #rail{
@@ -214,6 +215,59 @@ main{display:grid; grid-template-rows:minmax(190px,0.82fr) 1.4fr; gap:9px; paddi
   .views > .card{height:78vh; min-height:230px; max-height:none}
 }
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
+
+/* =====================================================================
+   HOUSE STYLE — shared by all MRI simulators in this suite (header, rail,
+   controls, dialog). Keep this block identical in spirit across files;
+   only the variable names differ. Appended last so it takes precedence.
+   ===================================================================== */
+html,body{font-family:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace}
+body{font-size:13px}
+#rail .brand{
+  position:sticky; top:0; z-index:3; background:var(--panel);
+  border-bottom:1px solid var(--rule); padding:13px 14px 11px; margin:0;
+  display:flex; flex-wrap:wrap; align-items:baseline; gap:0 5px;
+}
+#rail .brand h1{
+  margin:0 auto 0 0; font-size:12px; font-weight:600; line-height:1.45;
+  letter-spacing:.16em; text-transform:uppercase; white-space:nowrap; color:var(--text);
+}
+#rail .brand .themebtn{margin:0}
+#rail .brand .brand-sub{
+  flex:1 0 100%; margin:6px 0 0; font-size:11px; line-height:1.4; color:var(--muted);
+}
+.themebtn,button.themebtn{
+  appearance:none; background:transparent; border:1px solid var(--rule); color:var(--muted);
+  font:inherit; font-size:10px; line-height:1.45; letter-spacing:.1em; text-transform:uppercase;
+  padding:3px 7px; cursor:pointer; border-radius:2px;
+}
+.themebtn:hover,button.themebtn:hover{background:transparent; color:var(--text); border-color:var(--muted)}
+input[type=range]{
+  -webkit-appearance:none; appearance:none; width:100%; height:18px; margin:0;
+  background:transparent; cursor:pointer;
+}
+input[type=range]::-webkit-slider-runnable-track{height:2px; background:var(--rule); border-radius:0}
+input[type=range]::-moz-range-track{height:2px; background:var(--rule); border-radius:0}
+input[type=range]::-webkit-slider-thumb{
+  -webkit-appearance:none; width:12px; height:12px; margin-top:-5px; border:0; border-radius:50%;
+  background:var(--cursor);
+}
+input[type=range]::-moz-range-thumb{width:12px; height:12px; border:0; border-radius:50%; background:var(--cursor)}
+input[type=range]:disabled{cursor:default; opacity:.5}
+input[type=checkbox],input[type=radio]{accent-color:var(--cursor)}
+select,input[type=number]{border-radius:3px}
+button{border-radius:3px}
+button.primary,button.primary:hover{background:var(--panel2); color:var(--cursor); border-color:var(--cursor)}
+:focus-visible{outline-color:var(--cursor)}
+.credit{margin:14px 14px 0; font-size:10px; line-height:1.6; color:var(--dim); letter-spacing:.02em}
+#about .sheet{border-radius:4px}
+#about h3{margin:0 0 3px; font-size:13px; letter-spacing:.16em; text-transform:uppercase}
+#about .by{margin:0 0 12px; color:var(--cursor); font-size:12px}
+#about .rel h5{margin:0 0 5px; font-size:11px; letter-spacing:.1em; font-weight:600; color:var(--text)}
+#about .rel h5 em{color:var(--dim); font-style:normal; font-weight:400; letter-spacing:0}
+.transport button,#nullers button{border-radius:3px}
+.transport button{font-size:11.5px}
+.slab{font-size:12px}
 </style>
 </head>
 <body>
@@ -221,8 +275,9 @@ main{display:grid; grid-template-rows:minmax(190px,0.82fr) 1.4fr; gap:9px; paddi
 <aside id="rail">
   <div class="brand">
     <h1>Sequence sim</h1>
-    <button class="themebtn" id="ver" type="button" title="Version and credits" style="margin-left:auto"></button>
-    <button class="themebtn" id="theme" type="button">Light</button>
+    <button class="themebtn" id="ver" type="button" title="Version, credits and changelog"></button>
+    <button class="themebtn" id="theme" type="button" title="Switch colour theme">Light</button>
+    <p class="brand-sub">Bloch simulation of common pulse sequences</p>
   </div>
 
   <fieldset>
@@ -355,15 +410,18 @@ main{display:grid; grid-template-rows:minmax(190px,0.82fr) 1.4fr; gap:9px; paddi
 
 /* ------------------------------------------------------------- build info */
 const BUILD = {
-  version: "1.4.1",
-  date:    "2026-08-14",
+  version: "1.4.2",
+  date:    "2026-09-17",
   authors: "Designed by Filip Sz (Lund University) and coded by Claude (Anthropic)"
 };
 
 /* Newest first.  Versions below 0.7.0 describe the MATLAB implementation this
    app was ported from; that version is still in the same folder. */
 const CHANGELOG = [
-  {v:"1.4.1", tag:"current", items:[
+  {v:"1.4.2", tag:"current", items:[
+    "House style shared across the simulator suite: capitalised title with the version and theme chips at the right of the header, a one-line description under the title, uppercase section headings, one colour palette with a teal interface accent, common slider, button and dialog styling, a 300 px control rail, one phone-layout breakpoint (1000 px), and a tab icon.",
+    "The light/dark choice is shared by all simulators in the suite and remembered; on a first visit the operating-system setting is used."]},
+  {v:"1.4.1", items:[
     "Renamed to Sequence sim, and the credit updated to name the design and the coding separately."]},
   {v:"1.4.0", items:[
     "Off-resonance is a live slider now: drag it and the simulation re-runs, once per frame.",
@@ -2192,6 +2250,43 @@ async function encodeWebM(idx, drawFrame, out, fps, say, wasFallback){
 
   renderTable(); nullers();
   rebuild();
+})();
+</script>
+<script>
+/* House style (shared by the MRI simulators): one light/dark preference for the
+   whole suite. The saved choice (or the operating-system setting on a first
+   visit) is applied by clicking the app's own theme button, so each app redraws
+   through its usual path. The button always names the theme it switches TO. */
+(function () {
+  "use strict";
+  var KEY = "mrisim.theme", LEGACY = [];
+  function saved() {
+    try {
+      var keys = [KEY].concat(LEGACY);
+      for (var i = 0; i < keys.length; i++) {
+        var v = localStorage.getItem(keys[i]);
+        if (v === "light" || v === "dark") return v;
+      }
+    } catch (e) { /* storage can be unavailable for file:// pages */ }
+    return null;
+  }
+  window.addEventListener("load", function () {
+    setTimeout(function () {
+      var btn = document.getElementById("theme");
+      if (!btn) return;
+      var root = document.documentElement;
+      var cur = function () { return root.getAttribute("data-theme") === "light" ? "light" : "dark"; };
+      var label = function () { btn.textContent = cur() === "dark" ? "Light" : "Dark"; };
+      var want = saved() || (window.matchMedia &&
+        window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark");
+      if (want !== cur()) btn.click();
+      label();
+      btn.addEventListener("click", function () {
+        label();
+        try { localStorage.setItem(KEY, cur()); } catch (e) { /* file:// */ }
+      });
+    }, 0);
+  });
 })();
 </script>
 </body>
