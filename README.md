@@ -124,8 +124,11 @@ after the refocusing pulse to show how that changes the path.
 Eight acquisition modes, grouped by readout type. Cartesian line by line:
 line-by-line and multi-echo spin echo (three echoes per shot). EPI: one-shot,
 segmented in kx, segmented in ky, and segmented as propeller blades. Spiral:
-one-shot and segmented. Phase-encoding resolution is adjustable. Gradient areas
-define the path; ramps, hardware limits and relaxation are simplified.
+one-shot and segmented. Phase-encoding resolution is adjustable, and the spiral
+density follows it: the lap count is N/2, since a radial line crosses a spiral
+twice per lap, so 30 samples per EPI line corresponds to 15 laps and all modes
+are comparable at the same resolution. Gradient areas define the path; ramps,
+hardware limits and relaxation are simplified.
 
 In the propeller variant each shot is a short EPI blade of eight parallel lines through the
 centre of k-space, and successive blades are rotated by 180°/blades, so the

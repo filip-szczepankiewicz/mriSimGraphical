@@ -251,12 +251,15 @@ select{border-radius:3px; background:var(--panel2, var(--btn))}
 'use strict';
 const BUILD = {
   name: 'Readout sim',
-  version: '0.2.1',
+  version: '0.2.2',
   date: '2026-09-18',
   authors: 'Designed by Filip Sz (Lund University) and coded by ChatGPT (OpenAI)',
 };
 const CHANGELOG = [
-  { v: '0.2.1', tag: 'current', items: [
+  { v: '0.2.2', tag: 'current', items: [
+    'Spiral density now follows the phase-encoding resolution instead of fixed numbers. The lap count is N/2 for the one-shot spiral and N/(2·4) per interleaf for the segmented one, because a radial line crosses a spiral twice per lap: 30 samples per EPI line then corresponds to 15 laps, and the spiral and Cartesian modes are directly comparable at any resolution.',
+    'ADC spacing along the spiral is set from its arc length to the Cartesian step Δk = 2/(N−1), so the sample density along the trajectory matches too.' ] },
+  { v: '0.2.1', items: [
     'Trajectory names follow the readout family: the blade variant is Segmented EPI (propeller), and the two Cartesian segmented modes are Segmented EPI (in kx) and Segmented EPI (in ky). Both were always read as short EPI trains, which the old names did not say.',
     'The trajectory list is grouped by readout type — Cartesian line by line, EPI, spiral — so related modes sit together.' ] },
   { v: '0.2.0', items: [
@@ -337,8 +340,8 @@ const MODE_META = {
   segPhase:{label:'Segmented EPI (in ky)', title:'Segmented spin-echo EPI · segments in ky', desc:'Each shot acquires four complete kx lines as a short EPI train. Successive shots cover the remaining groups of phase-encoding steps.'},
   propeller:{label:'Segmented EPI (propeller)', title:'Segmented spin-echo EPI · rotating propeller blades',
     desc:'Each shot is a short EPI blade: 8 parallel lines through the centre of k-space, read as a small EPI train. Successive blades are rotated by 180°/blades, so the blades cover k-space as a fan and every blade re-samples the centre — the redundancy PROPELLER/BLADE uses to detect and correct motion between shots. The blade count follows π/2·N/L, the number needed to keep the sampling at the edge of k-space at the Nyquist limit.'},
-  spiral:{label:'One-shot spiral', title:'Spin-echo spiral · one-shot center-out readout', desc:'The spin echo forms at k = 0 and a continuous oscillating Gx/Gy readout traces a center-out spiral in one shot.'},
-  segSpiral:{label:'Segmented spiral', title:'Segmented spin-echo spiral · interleaved spiral shots', desc:'Four rotated center-out spiral interleaves are acquired over four shots. Each shot begins at k = 0 and the interleaves combine to fill k-space.'}
+  spiral:{label:'One-shot spiral', title:'Spin-echo spiral · one-shot center-out readout', desc:'The spin echo forms at k = 0 and a continuous oscillating Gx/Gy readout traces a center-out spiral in one shot. The number of laps is half the phase-encoding resolution: a radial line crosses the spiral twice per lap, so a diameter carries as many crossings as an EPI line carries samples.'},
+  segSpiral:{label:'Segmented spiral', title:'Segmented spin-echo spiral · interleaved spiral shots', desc:'Four rotated center-out spiral interleaves are acquired over four shots. Each shot begins at k = 0 and the interleaves combine to fill k-space. Each interleaf carries an eighth of the phase-encoding resolution in laps, so the four together match the radial density of the one-shot spiral.'}
 };
 
 const ui = {
@@ -483,17 +486,38 @@ function snakePathAt(u,s=shot){
   return {x:xB,y:lerp(y,nextY,(local-readFrac)/(1-readFrac)),z:0,adc:false,event:'Gy blip — next phase step'};
 }
 
+/* Spiral density is tied to the Cartesian/EPI resolution.
+
+   Radial: a center-out Archimedean spiral with T laps has radial spacing 1/T
+   in these normalized coordinates (r runs 0 to 1). A radial line through the
+   centre crosses the spiral twice per lap, once on each side, so a diameter
+   carries 2T crossings. Matching the N samples an EPI line carries across the
+   same diameter gives T = N/2: 30 samples per line, 15 laps. With I rotated
+   interleaves the radial spacing is 1/(I·T), so T = N/(2I) per interleave.
+
+   Tangential: the spacing between consecutive ADC samples along the spiral is
+   set to the Cartesian step Δk = 2/(N−1), using the arc length of the spiral. */
+function spiralInterleaves(){ return mode==='segSpiral' ? SPIRAL_SEGMENTS : 1; }
 function spiralTurns(){
-  // For a center-out Archimedean spiral, radial spacing between turns is ~1/turns
-  // in these normalized coordinates. Match that spacing to the Cartesian grid step.
-  return mode==='segSpiral' ? 2.25 : Math.max(8,(nLines-1)/2);
+  return Math.max(1, nLines/(2*spiralInterleaves()));
+}
+function cartesianStep(){ return nLines>1 ? 2/(nLines-1) : 2; }
+function spiralArcLength(){
+  // Numerical arc length of r = u, theta = 2*pi*T*u for u in [0,1].
+  const a=2*Math.PI*spiralTurns(), M=400;
+  let L=0;
+  for(let i=0;i<M;i++){
+    const u0=i/M, u1=(i+1)/M, um=(u0+u1)/2;
+    // Simpson's rule on |dr/du| = sqrt(1 + (a*u)^2) in normalized units.
+    const f=u=>Math.sqrt(1+(a*u)*(a*u));
+    L += (u1-u0)/6*(f(u0)+4*f(um)+f(u1));
+  }
+  return L;
 }
 function spiralSampleCount(){
-  if(mode==='segSpiral') return 420;
-  // Dense enough that tangential ADC spacing is also near/below the Cartesian Δk.
-  return Math.max(700,Math.ceil(0.95*nLines*nLines));
+  return Math.max(64, Math.ceil(spiralArcLength()/cartesianStep())+1);
 }
-function spiralRotation(s=shot){ return mode==='segSpiral' ? 2*Math.PI*s/SPIRAL_SEGMENTS : 0; }
+function spiralRotation(s=shot){ return mode==='segSpiral' ? 2*Math.PI*s/spiralInterleaves() : 0; }
 function spiralPathAt(u,s=shot){
   u=clamp(u,0,1);
   const turns=spiralTurns();
