@@ -3,9 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>K-space sim — spin-echo trajectories</title>
+<title>Readout sim — spin-echo k-space trajectories</title>
 <!--
-  kspaceSpinEchoSim — spin-echo k-space trajectory teaching simulator
+  Readout sim (mriReadoutSim; formerly "K-space sim") — spin-echo k-space
+  trajectory teaching simulator
   Designed by Filip Sz (Lund University) and coded by ChatGPT (OpenAI)
   Self-contained; no network dependencies.
   Version and changelog: see BUILD and CHANGELOG at the top of the app script
@@ -139,7 +140,7 @@ select{border-radius:3px; background:var(--panel2, var(--btn))}
 <div id="app">
   <aside id="rail">
     <div class="brand">
-      <h1>K-space sim</h1>
+      <h1>Readout sim</h1>
       <button class="themebtn" id="ver" type="button" title="Version, credits and changelog"></button>
       <button class="themebtn" id="theme" type="button" title="Switch colour theme">Light</button>
       <p class="brand-sub">Spin-echo trajectories and k-space acquisition</p>
@@ -162,13 +163,20 @@ select{border-radius:3px; background:var(--panel2, var(--btn))}
       <div class="control">
         <label><span>Trajectory</span><b id="modeVal">Line by line</b></label>
         <select id="acquisitionMode">
-          <option value="line" selected>Line by line</option>
-          <option value="epi">One-shot EPI</option>
-          <option value="spiral">One-shot spiral</option>
-          <option value="segSpiral">Segmented spiral</option>
-          <option value="multiEcho">Multi-echo spin echo (3 echoes)</option>
-          <option value="segPhase">Segmented (multiple phase steps)</option>
-          <option value="segKx">Segmented (segments in kx)</option>
+          <optgroup label="Cartesian, line by line">
+            <option value="line" selected>Line by line</option>
+            <option value="multiEcho">Multi-echo spin echo (3 echoes)</option>
+          </optgroup>
+          <optgroup label="EPI">
+            <option value="epi">One-shot EPI</option>
+            <option value="segKx">Segmented EPI (in kx)</option>
+            <option value="segPhase">Segmented EPI (in ky)</option>
+            <option value="propeller">Segmented EPI (propeller)</option>
+          </optgroup>
+          <optgroup label="Spiral">
+            <option value="spiral">One-shot spiral</option>
+            <option value="segSpiral">Segmented spiral</option>
+          </optgroup>
         </select>
       </div>
       <div class="control">
@@ -231,7 +239,7 @@ select{border-radius:3px; background:var(--panel2, var(--btn))}
 
 <div id="about" hidden>
   <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="aboutTitle">
-    <h3 id="aboutTitle">K-space sim</h3>
+    <h3 id="aboutTitle">Readout sim</h3>
     <p class="by"></p>
     <p class="note2">A teaching aid for visualizing how slice selection, refocusing, phase encoding and frequency encoding move the effective signal location through k-space. Coordinates and gradient amplitudes are normalized for clarity; timing is schematic rather than a scanner prescription.</p>
     <div id="changelog"></div>
@@ -242,13 +250,20 @@ select{border-radius:3px; background:var(--panel2, var(--btn))}
 <script>
 'use strict';
 const BUILD = {
-  name: 'K-space sim',
-  version: '0.1.4',
-  date: '2026-09-17',
+  name: 'Readout sim',
+  version: '0.2.1',
+  date: '2026-09-18',
   authors: 'Designed by Filip Sz (Lund University) and coded by ChatGPT (OpenAI)',
 };
 const CHANGELOG = [
-  { v: '0.1.4', tag: 'current', items: [
+  { v: '0.2.1', tag: 'current', items: [
+    'Trajectory names follow the readout family: the blade variant is Segmented EPI (propeller), and the two Cartesian segmented modes are Segmented EPI (in kx) and Segmented EPI (in ky). Both were always read as short EPI trains, which the old names did not say.',
+    'The trajectory list is grouped by readout type — Cartesian line by line, EPI, spiral — so related modes sit together.' ] },
+  { v: '0.2.0', items: [
+    'Renamed from K-space sim to Readout sim, matching the file name and the other simulators.',
+    'New PROPELLER / BLADE trajectory: each shot is a short EPI blade of parallel lines through the centre of k-space, and successive blades are rotated by 180°/blades so the blades cover k-space as a fan. Every blade samples the centre, which is what makes the scheme self-navigated in practice. The blade count follows the usual π/2·N/L rule, with L = 8 lines per blade, and the sequence diagram switches its gradient rows to the blade axes because the physical Gx and Gy are the rotated combination of them.',
+    'The current blade outline is drawn in the k-space view so the rotation between shots is visible.' ] },
+  { v: '0.1.4', items: [
     'House style shared across the simulator suite: capitalised title with the version and theme chips at the right of the header, a one-line description under the title, uppercase section headings, one colour palette with a teal interface accent, common slider, button and dialog styling, a 300 px control rail, one phone-layout breakpoint (1000 px), and a tab icon. Plot and k-space colours are unchanged. (Style harmonisation coded by Claude, Anthropic.)',
     'Section headings are plain uppercase labels instead of boxed fieldsets; the Pause button is outlined in the accent colour rather than filled, as in the other simulators.',
     'The light/dark choice is shared by all simulators in the suite and remembered; on a first visit the operating-system setting is used.' ] },
@@ -291,6 +306,7 @@ const RF180 = 37;
 const TE = 80;
 const PHASE_LINES_PER_SHOT = 4;
 const KX_SEGMENTS = 4;
+const BLADE_LINES = 8;   /* PROPELLER: ky lines per blade */
 const SPIRAL_SEGMENTS = 4;
 const MULTI_ECHO_CENTERS = [80,160,240];
 const MULTI_RF180_CENTERS = [40,120,200];
@@ -313,13 +329,16 @@ let completionActive = false;
 let completionElapsed = 0;
 
 const MODE_META = {
+  /* Grouped by readout type: Cartesian line-by-line, EPI, spiral. */
   line:{label:'Line by line', title:'2D spin-echo · one line per shot', desc:'One Cartesian ky line is acquired after each refocusing pulse. Each new shot selects a new phase-encoding level.'},
-  epi:{label:'One-shot EPI', title:'Spin-echo EPI · all lines in one shot', desc:'A single shot traverses all ky lines with alternating Gx readouts and short Gy blips between lines.'},
-  spiral:{label:'One-shot spiral', title:'Spin-echo spiral · one-shot center-out readout', desc:'The spin echo forms at k = 0 and a continuous oscillating Gx/Gy readout traces a center-out spiral in one shot.'},
-  segSpiral:{label:'Segmented spiral', title:'Segmented spin-echo spiral · interleaved spiral shots', desc:'Four rotated center-out spiral interleaves are acquired over four shots. Each shot begins at k = 0 and the interleaves combine to fill k-space.'},
   multiEcho:{label:'Multi-echo spin echo (3 echoes)', title:'Multi-echo spin echo · three phase-encode lines per shot', desc:'Three different ky lines are sampled in one echo train. Refocusing pulses at 40, 120 and 200 ms generate readouts centered at TE = 80, 160 and 240 ms, with Gy rewinding and a new phase step between echoes.'},
-  segPhase:{label:'Segmented: phase steps', title:'Segmented spin-echo · multiple phase steps per shot', desc:'Each shot acquires four complete kx lines. Successive shots cover the remaining groups of phase-encoding steps.'},
-  segKx:{label:'Segmented: kx strips', title:'Segmented spin-echo · segments in kx', desc:'Each shot acquires one vertical kx strip across all ky values. Four shots combine to fill the Cartesian grid.'}
+  epi:{label:'One-shot EPI', title:'Spin-echo EPI · all lines in one shot', desc:'A single shot traverses all ky lines with alternating Gx readouts and short Gy blips between lines.'},
+  segKx:{label:'Segmented EPI (in kx)', title:'Segmented spin-echo EPI · segments in kx', desc:'Each shot acquires one vertical kx strip across all ky values, as a short EPI train. Four shots combine to fill the Cartesian grid.'},
+  segPhase:{label:'Segmented EPI (in ky)', title:'Segmented spin-echo EPI · segments in ky', desc:'Each shot acquires four complete kx lines as a short EPI train. Successive shots cover the remaining groups of phase-encoding steps.'},
+  propeller:{label:'Segmented EPI (propeller)', title:'Segmented spin-echo EPI · rotating propeller blades',
+    desc:'Each shot is a short EPI blade: 8 parallel lines through the centre of k-space, read as a small EPI train. Successive blades are rotated by 180°/blades, so the blades cover k-space as a fan and every blade re-samples the centre — the redundancy PROPELLER/BLADE uses to detect and correct motion between shots. The blade count follows π/2·N/L, the number needed to keep the sampling at the edge of k-space at the Nyquist limit.'},
+  spiral:{label:'One-shot spiral', title:'Spin-echo spiral · one-shot center-out readout', desc:'The spin echo forms at k = 0 and a continuous oscillating Gx/Gy readout traces a center-out spiral in one shot.'},
+  segSpiral:{label:'Segmented spiral', title:'Segmented spin-echo spiral · interleaved spiral shots', desc:'Four rotated center-out spiral interleaves are acquired over four shots. Each shot begins at k = 0 and the interleaves combine to fill k-space.'}
 };
 
 const ui = {
@@ -349,8 +368,42 @@ function multiEchoLineIndicesForShot(s){
   return [0,1,2].map(e => (3*s + e) % nLines);
 }
 
+/* ---------------------------------------------------------------- PROPELLER
+   A blade is a short EPI train of BLADE_LINES parallel lines, centred on
+   k = 0 and read at the blade angle. Line spacing inside the blade is the
+   Cartesian Δk, so blades are directly comparable with the other modes. The
+   blade count is the usual π/2·N/L: the number of blades whose fan keeps the
+   azimuthal spacing at the edge of k-space at Δk. */
+function bladeLineCount(){ return Math.max(2, Math.min(nLines, BLADE_LINES)); }
+function bladeCount(){ return Math.max(3, Math.ceil(Math.PI/2*nLines/bladeLineCount())); }
+function bladeAngle(s=shot){ return Math.PI*s/bladeCount(); }
+function bladeKyOffsets(){
+  const L=bladeLineCount(), d=nLines>1 ? 2/(nLines-1) : 0;
+  return Array.from({length:L},(_,j)=>(j-(L-1)/2)*d);
+}
+function rotateInPlane(p,th){
+  const c0=Math.cos(th), s0=Math.sin(th);
+  return Object.assign({},p,{x:c0*p.x - s0*p.y, y:s0*p.x + c0*p.y});
+}
+function bladePathAt(u,s=shot){
+  const off=bladeKyOffsets(), n=off.length;
+  u=clamp(u,0,1);
+  const idx=Math.min(n-1,Math.floor(u*n));
+  const local = (idx===n-1 && u===1) ? 1 : u*n-idx;
+  const y=off[idx], nextY=idx<n-1?off[idx+1]:y;
+  const xA=idx%2===0?-1:1, xB=idx%2===0?1:-1;
+  const readFrac=idx===n-1?1:0.82;
+  const local2 = local<=readFrac
+    ? {x:lerp(xA,xB,local/readFrac), y, z:0, adc:true,
+       event:'ADC ON — blade readout · blade '+(s+1)+' / '+bladeCount()}
+    : {x:xB, y:lerp(y,nextY,(local-readFrac)/(1-readFrac)), z:0, adc:false,
+       event:'Blade phase blip — next line within the blade'};
+  return rotateInPlane(local2, bladeAngle(s));
+}
+
 function shotCount(){
   if(mode==='line') return nLines;
+  if(mode==='propeller') return bladeCount();
   if(mode==='multiEcho') return Math.ceil(nLines/3);
   if(mode==='segPhase') return Math.ceil(nLines/PHASE_LINES_PER_SHOT);
   if(mode==='segKx') return KX_SEGMENTS;
@@ -361,7 +414,7 @@ function shotCount(){
 function acquisitionTiming(){
   if(mode==='multiEcho') return {start:68,end:252,holdEnd:257,fadeEnd:264,duration:264};
   let start=68,end=92;
-  if(mode==='epi' || mode==='segKx'){ start=64; end=96; }
+  if(mode==='epi' || mode==='segKx' || mode==='propeller'){ start=64; end=96; }
   if(mode==='segPhase'){ start=66; end=94; }
   if(mode==='spiral' || mode==='segSpiral'){ start=TE; end=100; }
   return {start,end,holdEnd:end+5,fadeEnd:end+12,duration:end+12};
@@ -399,6 +452,10 @@ function acquisitionStart(s=shot){
     return {x:-1,y:kyForLine(first),z:0};
   }
   if(mode==='spiral' || mode==='segSpiral') return {x:0,y:0,z:0};
+  if(mode==='propeller'){
+    const p=bladePathAt(0,s);
+    return {x:p.x,y:p.y,z:0};
+  }
   if(mode==='segKx'){
     const [x0]=kxBoundsForShot(s);
     return {x:x0,y:-1,z:0};
@@ -450,6 +507,7 @@ function acquisitionPathAt(u,s=shot){
     return {x:lerp(-1,1,u),y:kyForLine(s),z:0,adc:true,event:Math.abs(u-.5)<.03?'Spin echo / kx = 0':'ADC ON — acquiring signal'};
   }
   if(mode==='spiral' || mode==='segSpiral') return spiralPathAt(u,s);
+  if(mode==='propeller') return bladePathAt(u,s);
   return snakePathAt(u,s);
 }
 
@@ -609,6 +667,19 @@ function sampleListForShot(s){
     }
     return out;
   }
+  if(mode==='propeller'){
+    const off=bladeKyOffsets(), n=off.length, th=bladeAngle(s);
+    for(let j=0;j<n;j++){
+      const readFrac=j===n-1?1:0.82;
+      for(let i=0;i<nLines;i++){
+        const v=nLines===1?0:i/(nLines-1);
+        const x=j%2===0?kxForSample(i):-kxForSample(i);
+        const p=rotateInPlane({x,y:off[j],z:0},th);
+        out.push({u:(j+v*readFrac)/n,x:p.x,y:p.y,z:0});
+      }
+    }
+    return out;
+  }
   const inds=phaseLineIndicesForShot(s);
   const n=Math.max(1,inds.length);
   const xInds=kxIndicesForShot(s);
@@ -687,6 +758,10 @@ function drawKspace(){
       // Aim for ~28 vertices per EPI readout+blip unit even at 64 phase steps.
       return clamp((tm.end-tm.start)/(Math.max(1,nLines)*28),0.010,0.050);
     }
+    if(mode==='propeller'){
+      // ~28 vertices per blade line, as for EPI, so the blade corners stay sharp.
+      return clamp((tm.end-tm.start)/(Math.max(1,bladeLineCount())*28),0.010,0.050);
+    }
     if(mode==='spiral' || mode==='segSpiral'){
       // Keep many vertices around each turn so the spiral stays visually smooth.
       return clamp((tm.end-tm.start)/(Math.max(1,spiralTurns())*90),0.012,0.055);
@@ -763,6 +838,17 @@ function drawKspace(){
     }
   }
 
+  // Outline of the blade being acquired, so the rotation between shots is visible.
+  if(mode==='propeller'){
+    const off=bladeKyOffsets(), th=bladeAngle(shot);
+    const d=off.length>1 ? (off[1]-off[0])/2 : 0.02;
+    const yLo=off[0]-d, yHi=off[off.length-1]+d;
+    const corners=[{x:-1,y:yLo,z:0},{x:1,y:yLo,z:0},{x:1,y:yHi,z:0},{x:-1,y:yHi,z:0}]
+      .map(p=>rotateInPlane(p,th));
+    for(let i=0;i<4;i++)
+      line3(kctx,proj,corners[i],corners[(i+1)%4],c('--sample'),1.2,.5,[4,4]);
+  }
+
   const center=proj({x:0,y:0,z:0});
   circle(kctx,center,5,null,c('--echo'),1.2,.72);
 
@@ -781,7 +867,9 @@ function drawSequence(){
   const DURATION=tm.duration;
   const left=92,right=w-18,top=34,bottom=h-28,rowH=(bottom-top)/3;
   const X=ms=>left+(ms/DURATION)*(right-left);
-  const rows=['RF / Gslice / ADC','Gy  phase','Gx  frequency'];
+  const rows = mode==='propeller'
+    ? ['RF / Gslice / ADC',"Gy'  blade phase","Gx'  blade read"]
+    : ['RF / Gslice / ADC','Gy  phase','Gx  frequency'];
   sctx.font='11px ui-monospace, Menlo, Consolas, monospace';
   rows.forEach((name,i)=>{const y=top+i*rowH+rowH/2;sctx.fillStyle=c('--mute');sctx.fillText(name,10,y+4);sctx.strokeStyle=c('--line');sctx.lineWidth=1;sctx.beginPath();sctx.moveTo(left,y+.5);sctx.lineTo(right,y+.5);sctx.stroke();});
 
@@ -867,13 +955,21 @@ function drawSequence(){
     } else if(mode==='epi'){
       rectLobe(1,preA,preB,sign*start.y,c('--ky'),.34,1);
       rectLobe(2,preA,preB,sign*start.x,c('--kx'),.34,1);
+    } else if(mode==='propeller'){
+      /* Drawn in the blade frame: the physical Gx and Gy are these two
+         waveforms rotated by the blade angle. */
+      const off=bladeKyOffsets();
+      rectLobe(1,preA,preB,sign*off[0],c('--ky'),.34,1);
+      rectLobe(2,preA,preB,sign*-1,c('--kx'),.34,1);
     } else if(mode==='segKx'){
       rectLobe(1,preA,preB,sign*start.y,c('--ky'),.34,1);
       for(let s=0;s<KX_SEGMENTS;s++) rectLobe(2,preA,preB,sign*acquisitionStart(s).x,c('--kx-muted'),.34,.32);
       rectLobe(2,preA,preB,sign*start.x,c('--kx'),.34,1);
     }
 
-    const inds=phaseLineIndicesForShot(shot),n=Math.max(1,inds.length),block=(tm.end-tm.start)/n;
+    const inds=phaseLineIndicesForShot(shot);
+    const n=mode==='propeller' ? bladeLineCount() : Math.max(1,inds.length);
+    const block=(tm.end-tm.start)/n;
     const gScale=mode==='segKx'?0.42:1;
     for(let j=0;j<n;j++){
       const a=tm.start+j*block;
@@ -924,6 +1020,8 @@ function phaseSummary(){
     return {value:inds.map(i=>i+1).join(' / '),label:'ky lines at echoes 1 / 2 / 3'};
   }
   if(mode==='epi') return {value:nLines+' lines',label:'ky lines in this shot'};
+  if(mode==='propeller') return {value:'blade '+(shot+1)+' / '+bladeCount()+' · '+Math.round(bladeAngle()*180/Math.PI)+'\u00b0',
+    label:bladeLineCount()+' lines per blade, rotated between shots'};
   if(mode==='spiral') return {value:'center-out',label:'spiral trajectory'};
   if(mode==='segSpiral') return {value:(shot+1)+' / '+SPIRAL_SEGMENTS,label:'spiral interleave'};
   if(mode==='segPhase'){
@@ -944,7 +1042,10 @@ function updateUI(){
   ui.modeVal.textContent=meta.label;ui.modeTitle.textContent=meta.title;ui.modeDescription.textContent=meta.desc;
   if(ui.echoStat) ui.echoStat.textContent=mode==='multiEcho'?'TE 80 / 160 / 240 ms':'TE 80 ms';
   if(ui.echoLabel) ui.echoLabel.textContent=mode==='multiEcho'?'three spin-echo centers':'spin-echo center';
-  if(ui.pulseSub) ui.pulseSub.textContent=mode==='multiEcho'?'First 264 ms shown; long TR recovery delay omitted':'Sequence timing shown; long TR recovery delay omitted';
+  if(ui.pulseSub) ui.pulseSub.textContent=
+    mode==='multiEcho' ? 'First 264 ms shown; long TR recovery delay omitted'
+    : mode==='propeller' ? 'Gradients shown in the blade frame; physical Gx and Gy are their rotation by the blade angle'
+    : 'Sequence timing shown; long TR recovery delay omitted';
 }
 
 function render(){ drawKspace(); drawSequence(); updateUI(); }

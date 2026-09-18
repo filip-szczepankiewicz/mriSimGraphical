@@ -27,7 +27,7 @@ that are not corrected for field strength.
 | [`mriFieldSim.html`](#mrifieldsimhtml--field-sim) | Gradient and concomitant (Maxwell) fields |
 | [`mriInductSim.html`](#mriinductsimhtml--induction-sim) | Signal induction in a receive coil |
 | [`mriSliceSim.html`](#mrislicesimhtml--slice-sim) | Slice-selective excitation and the rewinder |
-| [`mriReadoutSim.html`](#mrireadoutsimhtml--k-space-sim) | K-space trajectories in spin-echo imaging |
+| [`mriReadoutSim.html`](#mrireadoutsimhtml--readout-sim) | K-space trajectories in spin-echo imaging |
 
 ## How to use
 
@@ -111,9 +111,9 @@ multiband pulse. Flip angle, slice thickness or gradient, slice offset, pulse
 duration, rewinder area and rewinder duration are adjustable. The model uses the
 rotating-frame Bloch equation without relaxation or off-resonance.
 
-## `mriReadoutSim.html` — K-space sim
+## `mriReadoutSim.html` — Readout sim
 
-![K-space sim](docs/img/mriReadoutSim.png)
+![Readout sim](docs/img/mriReadoutSim.png)
 
 The effective k-space trajectory of a spin-echo acquisition, drawn in 3D and kept
 in sync with an RF/gradient/ADC sequence diagram. Acquired samples accumulate on
@@ -121,10 +121,18 @@ the k-space grid shot by shot, and the 180° pulse is shown as the k → −k
 mapping of the transverse coherence. The x/y prewinders can be placed before or
 after the refocusing pulse to show how that changes the path.
 
-Seven acquisition modes: line-by-line Cartesian, single-shot EPI, single-shot
-spiral, segmented spiral, multi-echo spin echo (three echoes per shot), and two
-segmented Cartesian schemes. Phase-encoding resolution is adjustable. Gradient
-areas define the path; ramps, hardware limits and relaxation are simplified.
+Eight acquisition modes, grouped by readout type. Cartesian line by line:
+line-by-line and multi-echo spin echo (three echoes per shot). EPI: one-shot,
+segmented in kx, segmented in ky, and segmented as propeller blades. Spiral:
+one-shot and segmented. Phase-encoding resolution is adjustable. Gradient areas
+define the path; ramps, hardware limits and relaxation are simplified.
+
+In the propeller variant each shot is a short EPI blade of eight parallel lines through the
+centre of k-space, and successive blades are rotated by 180°/blades, so the
+blades cover k-space as a fan and every blade re-samples the centre. The blade
+count follows π/2·N/L, as in PROPELLER/BLADE. For these blades the sequence diagram switches its
+gradient rows to the blade axes, since the physical Gx and Gy are their rotation
+by the blade angle.
 
 ## Licence
 

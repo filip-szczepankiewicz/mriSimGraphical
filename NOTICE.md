@@ -14,13 +14,13 @@ Claude (Anthropic)
 - Generated code and revisions for several versions of the Induction bench.
 - Generated code and revisions for the Slice sim.
 - Harmonised the interface style across all six simulators (header, control rail,
-  palette, controls and dialog), including in the K-space sim.
+  palette, controls and dialog), including in the Readout sim (formerly K-space sim).
 
 ChatGPT (OpenAI)
 - Generated code and revisions for the Induction bench, including teaching
   overlays and later interface, visualization, debugging, documentation, and
   spin-density-operator work.
-- Generated code and revisions for the K-space sim.
+- Generated code and revisions for the Readout sim (formerly K-space sim).
 
 The individual simulator files contain more detailed development history where
 available. In particular, the Induction bench records specific contributions
