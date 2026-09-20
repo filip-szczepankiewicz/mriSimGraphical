@@ -1,109 +1,79 @@
 # MRI Simulator House Style
 
-This document defines the visual and interaction style for the MRI teaching simulators.
+Visual and interaction rules for the MRI teaching simulator suite.
 
-The goal is that every simulator should feel like part of the same software suite, even when the scientific visualization and controls are different.
-
-The simulators are **educational MRI visualizations**, not clinical or scanner-control software. The UI should therefore feel like a precise, compact **scientific teaching instrument**.
+The UI should feel like a **compact scientific instrument**: technical, restrained, precise, and visualization-first.
 
 ---
 
-## 1. Design Principles
+## 1. Core Principles
 
-The visual language should be:
-
-* technical
-* restrained
-* scientific
-* compact
-* information-dense
-* precise
-* unobtrusive
-* consistent across simulators
-
-Prefer:
+Use:
 
 * monospace typography
-* thin borders and rules
 * compact controls
-* restrained colours
-* small amounts of rounding
-* clear hierarchy through typography and spacing
-* visualization-first layouts
+* thin borders/rules
+* minimal rounding and shadows
+* restrained UI colors
+* dark/light themes
+* high information density
+* clear hierarchy through spacing and typography
 
 Avoid:
 
-* gradients in the UI
-* large decorative headings
+* gradients in UI
+* large headings
 * pill-shaped controls
-* large colourful buttons
-* excessive shadows
+* large colorful buttons
+* heavy shadows
 * excessive rounded cards
-* Bootstrap/Material-style generic UI
-* decorative illustrations
+* Bootstrap/Material-style UI
+* decorative elements
 * unnecessary animation
-* excessive whitespace
-* changing the visual language for an individual simulator
 
-The interface should feel more like a **scientific instrument console** than a consumer application or SaaS dashboard.
+**Do not redesign the house style for an individual simulator.**
 
 ---
 
-# 2. Layout
+## 2. Layout
 
-## Desktop
-
-Use a two-column layout:
+### Desktop
 
 ```text
-┌──────────────────────┬─────────────────────────────────────────────┐
-│ CONTROL RAIL         │                                             │
-│ ~300 px              │                                             │
-│                      │             MAIN VISUALIZATION              │
-│ simulator header     │                                             │
-│                      │                                             │
-│ section              │                                             │
-│ controls             │                                             │
-│                      │                                             │
-│ section              │                                             │
-│ controls             │                                             │
-│                      │                                             │
-│ notes / credits      │                                             │
-└──────────────────────┴─────────────────────────────────────────────┘
+┌──────────────────┬──────────────────────────────────────┐
+│ CONTROL RAIL     │                                      │
+│ ~300 px          │          MAIN VISUALIZATION          │
+│                  │                                      │
+│ Header           │                                      │
+│ Controls         │                                      │
+│ Controls         │                                      │
+│ Credits          │                                      │
+└──────────────────┴──────────────────────────────────────┘
 ```
 
-The control rail should be approximately **300 px wide**.
+* Control rail: ~300 px.
+* Visualization fills remaining space.
+* 1 px divider between rail and visualization.
+* Header remains visible when the rail scrolls.
 
-The main visualization occupies the remaining space.
+### Mobile
 
-The control rail has a 1 px vertical divider.
-
-The exact arrangement of visualizations is simulator-specific, but the overall geometry should remain consistent.
-
-## Mobile / narrow screens
-
-Use a breakpoint at approximately:
+Breakpoint:
 
 ```css
 @media (max-width: 1000px)
 ```
 
-At this breakpoint:
-
-* stack the control rail above the visualization
-* change the vertical divider into a horizontal divider
-* allow the page to scroll vertically
-* stack visualization panels where necessary
-* retain the same typography and controls
-* do not create a separate mobile visual language
-
-The mobile interface should look like the same application rearranged for a narrow screen.
+* Stack control rail above visualization.
+* Change vertical divider to horizontal.
+* Stack visualization panels as needed.
+* Keep the same visual styling.
 
 ---
 
-# 3. Typography
+## 3. Typography
 
-Use a monospace system font stack throughout the application:
+Use:
 
 ```css
 font-family:
@@ -116,335 +86,112 @@ font-family:
   monospace;
 ```
 
-Base font size:
+Base size: **13 px**.
 
-```text
-13px
-```
+### Simulator title
 
-Avoid introducing additional fonts.
-
-## Simulator title
-
-The simulator title should be:
-
-* approximately 12 px
+* ~12 px
 * semibold
 * uppercase
-* letter-spacing approximately `0.16em`
-* understated
+* `letter-spacing: .16em`
 
-Example:
+### Section headings
 
-```text
-RELAXATION SIM
-```
-
-Do not use a large application title.
-
-## Section headings
-
-Section headings should be:
-
-* approximately 10 px
-* uppercase
+* ~10 px
 * semibold
-* letter-spacing approximately `0.18em`
-* muted/dim colour
+* uppercase
+* `letter-spacing: .18em`
+* dim color
 
-Examples:
+### Body/controls
 
-```text
-PLAYBACK
-```
+* 11–13 px
+* muted labels
+* primary color for important values
 
-```text
-TISSUE
-```
-
-```text
-SEQUENCE
-```
-
-Do not use large H2/H3-style headings for control sections.
-
-## Body and controls
-
-Normal labels:
-
-```text
-11–13px
-```
-
-Explanatory text:
-
-```text
-10–11.5px
-```
-
-Use line-height around `1.5–1.6` for explanatory text.
-
-Use typography, colour and spacing—not large font sizes—to establish hierarchy.
+Avoid large typography.
 
 ---
 
-# 4. Colour System
+## 4. Colors
 
-Use CSS variables for all UI colours.
+Use CSS variables. Do not scatter hard-coded UI colors.
 
-Do not scatter hard-coded colours throughout the application.
-
-## Dark theme
+### Dark
 
 ```css
 --bg:     #0e1219;
 --panel:  #151b24;
 --panel2: #1b2230;
 --line:   #26303f;
-
 --text:   #ccd6e4;
 --muted:  #7c8a9d;
 --dim:    #4d5a6b;
-
 --ui:     #2fb6b0;
-
 --btn:    #1b2230;
 --btnh:   #232c3c;
 --btna:   #2a3547;
 ```
 
-## Light theme
+### Light
 
 ```css
 --bg:     #f2f4f7;
 --panel:  #ffffff;
 --panel2: #f7f9fb;
 --line:   #d7dde5;
-
 --text:   #1b2430;
 --muted:  #5f6c7d;
 --dim:    #9aa5b3;
-
 --ui:     #0f8f8a;
-
 --btn:    #eef1f5;
 --btnh:   #e4e9f0;
 --btna:   #d9e0ea;
 ```
 
-## Colour hierarchy
+### Color roles
 
-### Primary text
+* `--text`: primary text and important values
+* `--muted`: labels/descriptions
+* `--dim`: section headings/tertiary information
+* `--ui`: interaction accent
 
-Dark:
+**UI color means interaction. Visualization color means physics.**
 
-```text
-#ccd6e4
-```
-
-Light:
-
-```text
-#1b2430
-```
-
-Use for:
-
-* simulator title
-* important values
-* primary labels
-* important explanatory text
-
-### Muted text
-
-Dark:
-
-```text
-#7c8a9d
-```
-
-Light:
-
-```text
-#5f6c7d
-```
-
-Use for:
-
-* control labels
-* descriptions
-* secondary information
-
-### Dim text
-
-Dark:
-
-```text
-#4d5a6b
-```
-
-Light:
-
-```text
-#9aa5b3
-```
-
-Use for:
-
-* section headings
-* credits
-* tertiary information
-
-### Accent
-
-Dark:
-
-```text
-#2fb6b0
-```
-
-Light:
-
-```text
-#0f8f8a
-```
-
-Use sparingly for:
-
-* focus indicators
-* slider thumbs
-* selected controls
-* active states
-* important interaction indicators
-* primary button borders/text
-* dynamic values where appropriate
-
-The accent is an **interaction colour**, not the dominant colour of the application.
+Scientific visualizations may use their own semantic colors.
 
 ---
 
-# 5. UI Colour vs. Physics Colour
+## 5. Header
 
-This distinction is important.
-
-There are two separate colour systems:
-
-1. **UI colours**
-2. **Scientific visualization colours**
-
-The UI palette should remain consistent across the entire simulator suite.
-
-Scientific visualizations may use different colours to represent different physical quantities.
-
-The fundamental rule is:
-
-> **UI colour means interaction. Visualization colour means physics.**
-
-Do not force scientific visualizations to use the teal UI accent.
-
-For example, a simulator may use distinct colours for:
-
-* transverse magnetization
-* longitudinal magnetization
-* RF
-* gradients
-* ADC
-* magnetic fields
-* k-space
-* trajectories
-* tissue components
-
-These colours should be selected for scientific meaning and readability, not merely to match the UI.
-
----
-
-# 6. Header
-
-Every simulator should have the same conceptual header:
+Structure:
 
 ```text
-SIMULATOR NAME                         [VERSION] [LIGHT]
+SIMULATOR NAME                 [VERSION] [LIGHT]
 One-line description
 ```
 
-## Title
+* Title: uppercase, ~12 px, semibold.
+* Subtitle: ~11 px, muted.
+* Header padding: approximately `13px 14px 11px`.
+* Bottom border: 1 px.
+* Header is sticky within the control rail.
 
-The title should be:
+Version button opens About/changelog.
 
-* uppercase
-* approximately 12 px
-* semibold
-* letter-spacing approximately `0.16em`
+Theme button indicates the theme it will switch **to**.
 
 Example:
-
-```text
-FIELD SIM
-```
-
-## Header controls
-
-Place small utility controls on the same line as the title.
-
-Typical controls:
 
 ```text
 [0.9.6] [LIGHT]
 ```
 
-The version control opens the About / credits / changelog dialog.
-
-The theme control switches between light and dark mode.
-
-The theme button should indicate the theme it will switch **to**.
-
-For example:
-
-```text
-LIGHT
-```
-
-means that clicking the button will switch to light mode.
-
-## Subtitle
-
-Immediately below the title, use a short one-line description.
-
-Example:
-
-```text
-Gradient and concomitant Maxwell fields
-```
-
-The subtitle should:
-
-* be approximately 11 px
-* use the muted colour
-* remain concise
-
-Do not place a large descriptive paragraph in the header.
-
-## Sticky header
-
-The header should remain visible when the control rail scrolls.
-
-Recommended approximate padding:
-
-```text
-13px 14px 11px
-```
-
-with a 1 px bottom border.
-
 ---
 
-# 7. Control Sections
+## 6. Sections
 
-Group controls into logical sections.
-
-Use section headings rather than large cards.
-
-Conceptually:
+Prefer flat sections separated by rules:
 
 ```text
 PLAYBACK
@@ -456,35 +203,26 @@ Speed                         1.0×
 ────────────●─────────────────
 
 
-ACQUISITION
+SEQUENCE
 ──────────────
-
-Trajectory
-[ EPI                    ▼ ]
-
-Resolution                    32
-────────────●─────────────────
+...
 ```
 
-Prefer horizontal rules to boxed fieldsets.
+Do not turn every section into a bordered card.
 
-Section headings should be:
+Section heading:
 
+* ~10 px
 * uppercase
-* approximately 10 px
 * semibold
-* letter-spaced
-* dim/muted
-
-Do not visually render every section as a traditional bordered fieldset.
+* `.18em` letter spacing
+* dim color
 
 ---
 
-# 8. Buttons
+## 7. Buttons
 
-Buttons should be compact and technical.
-
-Recommended characteristics:
+Normal button:
 
 ```css
 font-size: 11.5px;
@@ -494,67 +232,25 @@ border-radius: 3px;
 background: var(--btn);
 ```
 
-Use the monospace font.
+Use monospace text.
 
-## Normal button
+Hover: slightly lighter background.
 
-Dark:
+Active/selected: accent border and subtle background change.
 
-```text
-background: #1b2230
-border:     #26303f
-text:       #ccd6e4
-```
-
-Light:
+Primary buttons should remain understated:
 
 ```text
-background: #eef1f5
-border:     #d7dde5
-text:       #1b2430
+normal background + teal border + teal text
 ```
 
-## Hover
-
-Slightly lighten the background and/or strengthen the border.
-
-Do not introduce dramatic hover animations.
-
-## Selected / active
-
-Use:
-
-* accent-coloured border
-* slightly changed background
-* normal or accent text where appropriate
-
-Do not turn the entire button into a large solid teal rectangle.
-
-## Primary buttons
-
-Primary actions should remain understated.
-
-Preferred:
-
-```text
-normal button background
-teal border
-teal text
-```
-
-Avoid:
-
-```text
-large solid teal rectangle
-```
+Avoid large solid-color buttons.
 
 ---
 
-# 9. Utility Buttons
+## 8. Utility Buttons
 
-Version and theme controls should be even more minimal than ordinary buttons.
-
-Recommended:
+For version/theme controls:
 
 ```css
 font-size: 10px;
@@ -565,259 +261,147 @@ border-radius: 2px;
 background: transparent;
 ```
 
-Example:
-
-```text
-[0.9.6] [LIGHT]
-```
-
-These should read as small utility controls, not major actions.
+Keep them visually subtle.
 
 ---
 
-# 10. Sliders
+## 9. Sliders
 
-Use a minimal custom slider.
-
-Recommended appearance:
+Use a minimal custom appearance:
 
 ```text
 ──────────────●──────────────
 ```
 
-Track:
+* Track: 2 px, `--line`
+* Thumb: 12 × 12 px circle, `--ui`
+* Interaction area: ~18 px high
+* Disabled: ~50% opacity
 
-```text
-height: 2px;
-background: var(--line);
-```
-
-Thumb:
-
-```text
-12px × 12px;
-border-radius: 50%;
-background: var(--ui);
-```
-
-The actual interaction area may be approximately 18 px high even though the visual track is only 2 px.
-
-Do not use a bulky browser-default slider appearance.
-
-## Disabled sliders
-
-Disabled sliders should:
-
-* remain visible
-* use approximately 50% opacity
-* use a non-interactive cursor
+Do not use bulky browser-default sliders.
 
 ---
 
-# 11. Labels and Values
+## 10. Inputs
 
-Adjustable controls should generally use a two-level layout:
+Selects and number inputs:
+
+* `--panel2` background
+* 1 px `--line` border
+* ~3 px radius
+* monospace
+* ~12 px text
+* compact padding
+
+Number inputs: generally right-aligned.
+
+Selects: generally left-aligned.
+
+Checkboxes/radios:
+
+```css
+accent-color: var(--ui);
+```
+
+---
+
+## 11. Labels and Values
+
+Use:
 
 ```text
 Parameter name                         VALUE
 ───────────────●────────────────────────────
 ```
 
-Labels:
+Labels use `--muted`.
 
-* muted
-* approximately 12 px
+Values use `--text`.
 
-Current values:
-
-* primary text colour
-* slightly stronger visual hierarchy
-* tabular numerals where useful
-
-Do not make every numerical value teal.
-
-Teal is primarily for interaction and state.
+Do not make every value teal.
 
 ---
 
-# 12. Selects and Number Inputs
+## 12. Separators
 
-Select boxes and number inputs should match the button style.
+Use 1 px rules:
 
-Use:
+```text
+dark:  #26303f
+light: #d7dde5
+```
 
-* panel/secondary-panel background
+Prefer rules over decorative cards.
+
+---
+
+## 13. Scientific Visualization
+
+The visualization should dominate the screen.
+
+Panels may be used to separate distinct scientific views:
+
 * 1 px border
-* approximately 3 px radius
-* monospace font
-* approximately 12 px text
-* compact padding
+* `--panel` background
+* ~3–4 px radius
+* no heavy shadow
 
-Number inputs should generally be right-aligned.
+### Visualization colors
 
-Select menus should generally be left-aligned.
+Use semantic colors for physical quantities.
 
-Avoid browser-default styling where practical.
-
----
-
-# 13. Checkboxes and Radio Buttons
-
-Use native controls where practical.
-
-Set:
-
-```css
-accent-color: var(--ui);
-```
-
-Labels should remain muted.
-
-Selected state should be clear but visually restrained.
-
----
-
-# 14. Separators
-
-Prefer 1 px rules over decorative cards.
-
-Dark:
-
-```text
-#26303f
-```
-
-Light:
-
-```text
-#d7dde5
-```
-
-Use separators to establish hierarchy between control groups.
-
-The UI should feel like a carefully organized instrument panel rather than a collection of floating cards.
-
----
-
-# 15. Visualization Panels
-
-Scientific visualization should be the dominant element of the interface.
-
-Panels may be used when they help separate distinct scientific views.
-
-If using panels:
-
-* use the panel background
-* use a 1 px border
-* use approximately 3–4 px radius
-* avoid heavy shadows
-* avoid decorative framing
-
-Do not let UI chrome visually compete with the scientific visualization.
-
----
-
-# 16. Visualization Overlays and HUDs
-
-For information displayed over a visualization:
-
-* use small monospace text
-* use a panel or semi-transparent background
-* use a thin border
-* use small corner radius
-* use muted text
-* use accent colour only for dynamic/current information
-
-Example:
-
-```text
-┌─────────────────────────┐
-│ Effective k-space       │
-│ Shot       12 / 32      │
-│ Time       43.2 ms      │
-│ k = (...)               │
-└─────────────────────────┘
-```
-
-The overlay should remain compact and should never obscure the important scientific content.
-
----
-
-# 17. Scientific Colour Conventions
-
-Where an established physical convention exists, preserve it.
-
-Possible conventions include:
+Existing conventions should be preserved where applicable, e.g.:
 
 * Mxy: red
 * Mz: blue
-* RF: distinct warm/cool colour depending on visualization
-* gradients: muted neutral colour
 * ADC: amber/yellow
-* current cursor/interaction: teal
-* warning: amber
-* error: red
-* tissue components: distinct but restrained colours
+* gradients: neutral
+* interaction/current state: teal
 
-These are examples rather than mandatory colours.
-
-When introducing a new scientific quantity:
-
-1. Prefer an existing colour convention if one exists.
-2. Avoid introducing unnecessary colours.
-3. Make colours semantically meaningful.
-4. Ensure sufficient contrast in both themes.
-5. Do not confuse visualization colours with UI accent colours.
+Do not force physics colors to match the UI palette.
 
 ---
 
-# 18. About / Version Dialog
+## 14. Visualization Overlays
 
-Every simulator should have an About dialog accessible through the version control.
+For HUDs, legends, and plot labels:
+
+* small monospace text
+* thin border
+* panel/semitransparent background
+* small radius
+* muted text
+* teal only for dynamic/selected information
+
+Keep overlays compact and unobtrusive.
+
+---
+
+## 15. About Dialog
+
+Every simulator should have an About dialog via the version button.
 
 Include:
 
-1. simulator name
-2. author/design attribution
-3. short description
-4. educational simplifications/caveats
-5. changelog
-6. related information where appropriate
-7. Close button
+* simulator name
+* attribution
+* short description
+* educational caveats
+* changelog
 
-The dialog should be:
+Style:
 
 * centered
-* compact
-* panel-coloured
-* thinly bordered
-* approximately 4 px radius
-* backed by a dark translucent overlay
-* monospace
-* consistent with the rest of the application
-
-Use horizontal rules to separate sections.
+* panel background
+* 1 px border
+* ~4 px radius
+* translucent backdrop
+* compact monospace typography
+* horizontal rules
 
 ---
 
-# 19. Credits
-
-Credits should appear near the bottom of the control rail.
-
-Use:
-
-* approximately 10 px
-* dim colour
-* line-height around 1.6
-* subtle letter spacing
-
-Credits should not dominate the UI.
-
----
-
-# 20. Theme Handling
-
-All simulators should share the same theme preference.
+## 16. Theme
 
 Use:
 
@@ -825,31 +409,25 @@ Use:
 localStorage key: mrisim.theme
 ```
 
-Possible values:
+Values:
 
 ```text
 light
 dark
 ```
 
-On first use:
+On startup:
 
-1. use the saved `mrisim.theme` preference if present
-2. otherwise follow `prefers-color-scheme`
+1. use saved preference if present
+2. otherwise use `prefers-color-scheme`
 
-When the user changes the theme:
-
-1. immediately update the current simulator
-2. save the new preference
-3. allow other simulators in the suite to inherit it
-
-This means that choosing dark mode in one simulator should cause another simulator in the suite to start in dark mode.
+Theme changes should be saved so all simulators share the preference.
 
 ---
 
-# 21. Focus and Accessibility
+## 17. Accessibility
 
-All interactive controls must have a visible keyboard focus state.
+All interactive controls need visible keyboard focus.
 
 Recommended:
 
@@ -858,9 +436,7 @@ outline: 2px solid var(--ui);
 outline-offset: 2px;
 ```
 
-Never remove focus indicators.
-
-Controls should have sufficiently large actual hit areas even when their visual appearance is compact.
+Do not remove focus indicators.
 
 Respect:
 
@@ -868,97 +444,27 @@ Respect:
 @media (prefers-reduced-motion: reduce)
 ```
 
-and remove or reduce nonessential animation.
-
 ---
 
-# 22. Responsive Behaviour
+## 18. Educational Tone
 
-At approximately 1000 px:
-
-```text
-desktop:
-
-┌──────────┬──────────────────────┐
-│ controls │ visualization        │
-└──────────┴──────────────────────┘
-```
-
-becomes:
-
-```text
-mobile:
-
-┌─────────────────────────────────┐
-│ controls                        │
-├─────────────────────────────────┤
-│ visualization                   │
-└─────────────────────────────────┘
-```
-
-The visual identity should remain unchanged.
-
-Only the geometry changes.
-
----
-
-# 23. Deployment
-
-The simulators should preferably remain self-contained HTML applications.
-
-Avoid dependencies on:
-
-* build systems
-* external CSS frameworks
-* external fonts
-* CDNs
-* network connectivity
-
-Prefer:
-
-* one self-contained HTML file
-* inline CSS
-* inline JavaScript
-* bundled/inlined libraries when necessary
-* operation from `file://`
-
-A simulator should be usable locally without a development environment.
-
----
-
-# 24. Educational Tone
-
-The simulators are teaching instruments.
-
-UI text should be:
-
-* concise
-* technically accurate
-* physically meaningful
-* explanatory
-* non-marketing
+Use concise, technically accurate, physical language.
 
 Prefer:
 
 > Signal decays as the transverse components lose phase coherence.
 
-Avoid:
+Avoid implementation-oriented wording such as:
 
 > Execute relaxation calculation.
 
-Prefer terminology from MRI physics rather than implementation terminology.
-
-When an important physical simplification has been made, explain it briefly in the UI or About dialog.
-
-The simulator should make the underlying physics understandable rather than merely exposing software parameters.
+Explain important physical simplifications briefly.
 
 ---
 
-# 25. Naming
+## 19. Naming
 
-Use short, functional section names.
-
-Prefer:
+Use short section names:
 
 ```text
 PLAYBACK
@@ -970,15 +476,7 @@ VIEW
 RECORDING
 ```
 
-Avoid unnecessarily verbose headings such as:
-
-```text
-Playback Controls
-Simulation Configuration
-Advanced Visualization Settings
-```
-
-Buttons should also use short functional labels:
+Prefer short button labels:
 
 ```text
 Play
@@ -989,78 +487,70 @@ Next
 Record
 ```
 
-Avoid verbose button text.
+---
+
+## 20. Deployment
+
+Prefer self-contained HTML:
+
+* no build system
+* no external CSS framework
+* no external fonts
+* no CDN dependencies
+* works from `file://`
+* inline CSS/JavaScript
+* bundle required libraries when necessary
 
 ---
 
-# 26. Adding New UI Components
+## 21. Adding New Components
 
-When a new control or component is required, first attempt to construct it using existing primitives:
+First reuse existing patterns:
 
-* section
-* rule
-* label/value pair
-* button
-* slider
-* select
-* numeric input
-* checkbox/radio
-* compact panel
-* HUD/overlay
+* sections
+* rules
+* buttons
+* sliders
+* selects
+* inputs
+* checkboxes
+* panels
+* HUDs
 
-Do not introduce a new visual component unless existing primitives genuinely cannot express the required interaction.
+Do not introduce new colors or visual treatments unless necessary.
 
-When a new component is necessary, derive its:
-
-* typography
-* colours
-* border
-* radius
-* spacing
-* hover state
-* focus state
-
-from the existing house style.
-
-Do not introduce a new colour or visual treatment merely to make the component "stand out."
-
----
-
-# 27. Consistency Rule
-
-When adding something new, ask:
-
-> **Would this look like it belongs in the existing MRI simulator suite?**
-
-If uncertain, prioritize consistency in this order:
+When adding a new component, match the existing:
 
 1. layout
 2. typography
-3. UI colour palette
-4. control dimensions
+3. colors
+4. dimensions
 5. spacing
-6. interaction conventions
-7. simulator-specific styling
-
-Do not redesign the house style for an individual simulator.
+6. interaction states
 
 ---
 
-# 28. LLM Implementation Instructions
+## 22. LLM Instructions
 
-When an LLM is asked to create or modify an MRI simulator:
+When creating or modifying a simulator:
 
-1. Read this `STYLE.md` first.
-2. Treat the values and conventions in this document as the canonical design system.
-3. Do not invent a new UI style.
-4. Do not introduce a CSS framework.
-5. Reuse the existing layout and control patterns.
-6. Keep the UI compact.
-7. Keep scientific visualization colours separate from UI colours.
-8. Preserve the dark/light theme system.
-9. Preserve the shared `mrisim.theme` preference.
-10. Preserve the approximately 1000 px responsive breakpoint.
-11. Preserve the approximately 300 px desktop control rail.
-12. Use monospace typography.
-13. Use teal primarily as an interaction accent.
-14. Prefer horizontal r
+1. Follow this file as the canonical visual specification.
+2. Do not invent a new UI style.
+3. Keep the ~300 px desktop control rail.
+4. Use the ~1000 px responsive breakpoint.
+5. Use the monospace font.
+6. Use the defined color variables.
+7. Use teal primarily for interaction.
+8. Keep controls compact.
+9. Prefer rules over cards.
+10. Keep scientific visualization visually dominant.
+11. Preserve dark/light themes and `mrisim.theme`.
+12. Add visible keyboard focus.
+13. Respect reduced motion.
+14. Keep the application self-contained where possible.
+15. Preserve established scientific color conventions.
+16. If a new visual convention is needed, make it compatible with this guide.
+
+### Final rule
+
+> **When in doubt, make it look like it has always been part of the MRI simulator suite.**
