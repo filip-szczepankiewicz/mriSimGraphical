@@ -195,6 +195,11 @@ select{border-radius:3px; background:var(--panel2, var(--btn))}
         <p class="note">A numerical phantom, transformed and then masked by what has been measured. Everything unmeasured is left at zero, so the image sharpens as the outer lines arrive and gaps in the coverage show up as the aliasing they really cause.</p>
       </div>
       <div class="control">
+        <label for="showKlog"><span>k-space magnitude</span><b id="klogVal">off</b></label>
+        <label class="chkrow"><input id="showKlog" type="checkbox"><span>log |S(k)| of the samples so far</span></label>
+        <p class="note">The measured k-space itself, on a log scale fixed by the fully sampled data so it does not rescale as samples arrive. Black is not measured. The bright centre carries the contrast; the edges, orders of magnitude weaker, carry the detail.</p>
+      </div>
+      <div class="control">
         <label><span>x/y prewinders</span><b id="prewindVal">after 180°</b></label>
         <select id="prewindTiming">
           <option value="after" selected>After the 180° pulse</option>
@@ -264,12 +269,15 @@ select{border-radius:3px; background:var(--panel2, var(--btn))}
 'use strict';
 const BUILD = {
   name: 'Readout sim',
-  version: '0.7.5',
-  date: '2026-09-18',
+  version: '0.8.0',
+  date: '2026-09-20',
   authors: 'Designed by Filip Sz (Lund University) and coded by ChatGPT (OpenAI)',
 };
 const CHANGELOG = [
-  { v: '0.7.5', tag: 'current', items: [
+  { v: '0.8.0', tag: 'current', items: [
+    'Optional k-space inset beside the reconstruction: the log of the magnitude of the samples measured so far, on the same grid, orientation and shot-by-shot accumulation as the image. The grey scale is fixed by the fully sampled k-space of the displayed partition, so a sample keeps its grey level as the rest of k-space arrives; unmeasured cells are black, which is exactly what the zero-filled reconstruction transforms. The bright centre and the two to three orders of magnitude it falls by towards the edges make it plain why the centre sets the contrast and the edges only the detail. In the 3D mode one of the two central kz partitions is shown. (Coded by Claude, Anthropic.)',
+    'On narrow screens the two insets stack vertically instead of sitting side by side.' ] },
+  { v: '0.7.5', items: [
     'Segmentation in ky is four contiguous bands again, one per shot, rather than interleaved lines. The echo still lands where the centre of k-space is measured, which for contiguous bands is near the start of the segment that contains it.' ] },
   { v: '0.7.4', items: [
     'The time axis stops shortly after the last sample instead of running to a fixed 120 ms minimum, so short readouts no longer spend most of the view waiting for nothing. The sequence diagram stretches to fill the space, which makes the short Cartesian readouts much easier to see.' ] },
@@ -420,6 +428,7 @@ let playing = true;
 let speed = 1;
 let prewindTiming = 'after';
 let showRecon = true;
+let showKlog = false;
 let yaw = -0.72;
 let pitch = 0.48;
 let dragging = false;
@@ -446,6 +455,7 @@ const MODE_META = {
 const ui = {
   shotHud:document.getElementById('shotHud'),shotsHud:document.getElementById('shotsHud'),timeHud:document.getElementById('timeHud'),
   reconVal:document.getElementById('reconVal'),
+  klogVal:document.getElementById('klogVal'),
   extentStat:document.getElementById('extentStat'),extentLabel:document.getElementById('extentLabel'),
   kxHud:document.getElementById('kxHud'),kyHud:document.getElementById('kyHud'),kzHud:document.getElementById('kzHud'),eventHud:document.getElementById('eventHud'),
   phaseStat:document.getElementById('phaseStat'),sampleStat:document.getElementById('sampleStat'),shotsVal:document.getElementById('shotsVal'),speedVal:document.getElementById('speedVal'),prewindVal:document.getElementById('prewindVal'),
@@ -1104,7 +1114,8 @@ function sampleListRaw(s){
    the resolution slider and need not be a power of two, and at these sizes the
    cost is a fraction of a frame. */
 const RECON = {key:'', nx:0, ny:0, nz:0, re:null, im:null, tabX:null, tabY:null, tabZ:null,
-               img:null, canvas:null, lastBuild:0, mask:null};
+               img:null, canvas:null, lastBuild:0, mask:null,
+               kimg:null, kcanvas:null, klo:0, khi:1};
 
 function reconDims(){
   const nx=nLines;
@@ -1176,7 +1187,17 @@ function buildPhantomK(){
   RECON.re=K.re; RECON.im=K.im;
   RECON.tabX=dftTable(nx,1); RECON.tabY=dftTable(ny,1); RECON.tabZ=nz>1?dftTable(nz,1):null;
   RECON.mask=new Uint8Array(nx*ny*nz);
-  RECON.img=null;
+  RECON.img=null; RECON.kimg=null;
+  /* Fixed log window for the k-space inset, taken from the fully sampled
+     partition that is displayed, so the grey levels of a sample do not change
+     as more of k-space arrives. */
+  const zc=nz>1?Math.floor(nz/2):0;
+  let lo=Infinity, hi=-Infinity;
+  for(let i=nx*ny*zc;i<nx*ny*(zc+1);i++){
+    const m=Math.hypot(K.re[i],K.im[i]);
+    if(m>0){ const l=Math.log10(m); if(l<lo) lo=l; if(l>hi) hi=l; }
+  }
+  RECON.klo=isFinite(lo)?lo:0; RECON.khi=(isFinite(hi)&&hi>RECON.klo)?hi:RECON.klo+1;
 }
 /* The mask keeps every shot that has already been played, plus the samples
    measured so far in the current one, so a segmented acquisition builds its
@@ -1210,6 +1231,29 @@ function reconstruct(sampleLists){
   }
   ctx.putImageData(img,0,0);
   RECON.img=RECON.canvas;
+
+  /* k-space inset: log|S| of the measured cells in the displayed partition,
+     same orientation as the image (ky up). Measured cells occupy grey levels
+     0.12..1 over the fixed window; unmeasured cells are black, which is what
+     the zero-filled reconstruction actually transforms. */
+  if(!RECON.kcanvas){ RECON.kcanvas=document.createElement('canvas'); }
+  RECON.kcanvas.width=nx; RECON.kcanvas.height=ny;
+  const kc=RECON.kcanvas.getContext('2d');
+  const kim=kc.createImageData(nx,ny);
+  const span=RECON.khi-RECON.klo, base=nx*ny*zc;
+  for(let y=0;y<ny;y++) for(let x=0;x<nx;x++){
+    const i=base+x+nx*y;
+    let v=0;
+    if(mask[i]){
+      const m=Math.hypot(RECON.re[i],RECON.im[i]);
+      const f=m>0 ? clamp((Math.log10(m)-RECON.klo)/span,0,1) : 0;
+      v=Math.round(255*(0.12+0.88*f));
+    }
+    const o=4*(x+nx*(ny-1-y));
+    kim.data[o]=v; kim.data[o+1]=v; kim.data[o+2]=v; kim.data[o+3]=255;
+  }
+  kc.putImageData(kim,0,0);
+  RECON.kimg=RECON.kcanvas;
 }
 
 function resizeCanvas(canvas){
@@ -1398,8 +1442,9 @@ function drawKspace(){
     circle(kctx,cur,11,null,ca('--current-rgb',.38),2,a);
     circle(kctx,cur,5.3,c('--ky'),c('--marker-ring'),1,a);
   }
-  /* Inset: the image as it stands from the samples measured so far. */
-  if(showRecon){
+  /* Insets: the image as it stands from the samples measured so far, and
+     optionally the measured k-space magnitude on a log scale. */
+  if(showRecon || showKlog){
     const now=performance.now();
     if(!RECON.img || now-RECON.lastBuild>90 || reconDims().nx+'x'+reconDims().ny+'x'+reconDims().nz!==RECON.key){
       const lists=[];
@@ -1407,24 +1452,36 @@ function drawKspace(){
       lists.push(completionActive ? sampleListForShot(shot) : doneList);
       reconstruct(lists); RECON.lastBuild=now;
     }
-    if(RECON.img){
-      /* The field of view is the same on both axes — fewer samples along an
-         axis means bigger pixels, not a smaller picture — so the inset stays
-         square whatever the matrix. */
-      const box=Math.min(168,Math.max(110,Math.min(w,h)*0.30));
-      const iw=box, ih=box;
-      const x0=w-iw-16, y0=h-ih-30;
+    /* The field of view is the same on both axes — fewer samples along an
+       axis means bigger pixels, not a smaller picture — so the insets stay
+       square whatever the matrix. Two insets sit side by side at the bottom
+       right, or stacked when the view is too narrow for that. */
+    const insets=[];
+    const part=RECON.nz>1 ? ' '+(Math.floor(RECON.nz/2)+1)+'/'+RECON.nz : '';
+    if(showKlog && RECON.kimg) insets.push({img:RECON.kimg, label:'log|S(k)| · '+RECON.nx+'×'+RECON.ny+(RECON.nz>1?' · kz'+part:'')});
+    if(showRecon && RECON.img) insets.push({img:RECON.img, label:'reconstruction · '+RECON.nx+'×'+RECON.ny+(RECON.nz>1?' · slice'+part:'')});
+    const box=Math.min(168,Math.max(110,Math.min(w,h)*0.30));
+    const gap=26;
+    const sideBySide = insets.length<2 || w >= 2*box+gap+60;
+    insets.forEach((ins,k)=>{
+      const back=insets.length-1-k;          // the last inset takes the corner
+      const x0 = sideBySide ? w-box-16-back*(box+gap) : w-box-16;
+      const y0 = sideBySide ? h-box-30 : h-box-30-back*(box+gap+16);
       kctx.save();
       kctx.fillStyle=c('--panel'); kctx.globalAlpha=.92;
-      kctx.fillRect(x0-6,y0-6,iw+12,ih+12+16);
+      kctx.fillRect(x0-6,y0-6,box+12,box+12+16);
       kctx.globalAlpha=1; kctx.strokeStyle=c('--line'); kctx.lineWidth=1;
-      kctx.strokeRect(x0-6.5,y0-6.5,iw+13,ih+13+16);
+      kctx.strokeRect(x0-6.5,y0-6.5,box+13,box+13+16);
       kctx.imageSmoothingEnabled=false;
-      kctx.drawImage(RECON.img,x0,y0,iw,ih);
-      kctx.fillStyle=c('--mute'); kctx.font='10px ui-monospace, Menlo, Consolas, monospace';
-      kctx.fillText('reconstruction · '+RECON.nx+'×'+RECON.ny+(RECON.nz>1?' · slice '+(Math.floor(RECON.nz/2)+1)+'/'+RECON.nz:''), x0-3, y0+ih+14);
+      kctx.drawImage(ins.img,x0,y0,box,box);
+      kctx.fillStyle=c('--mute');
+      /* Shrink the caption rather than let it run into the neighbouring inset. */
+      let fs=10;
+      do { kctx.font=fs+'px ui-monospace, Menlo, Consolas, monospace'; }
+      while(kctx.measureText(ins.label).width>box+8 && --fs>7);
+      kctx.fillText(ins.label, x0-3, y0+box+14);
       kctx.restore();
-    }
+    });
   }
 
   ui.sampleStat.textContent=acquired+' / '+samples.length;
@@ -1754,6 +1811,9 @@ function resetView(){ const v=defaultView(); yaw=v.yaw; pitch=v.pitch; }
 document.getElementById('viewBtn').addEventListener('click',()=>{resetView();render();});
 document.getElementById('showRecon').addEventListener('change',e=>{
   showRecon=e.target.checked; ui.reconVal.textContent=showRecon?'on':'off'; render();
+});
+document.getElementById('showKlog').addEventListener('change',e=>{
+  showKlog=e.target.checked; ui.klogVal.textContent=showKlog?'on':'off'; render();
 });
 document.getElementById('shots').addEventListener('input',e=>{nLines=Number(e.target.value);ui.shotsVal.textContent=nLines;shot=Math.min(shot,shotCount()-1);t=0;completionActive=false;completionElapsed=0;render();});
 document.getElementById('speed').addEventListener('input',e=>{speed=Number(e.target.value);ui.speedVal.textContent=speed.toFixed(2).replace(/0$/,'')+'×';});
