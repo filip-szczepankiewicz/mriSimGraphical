@@ -134,6 +134,9 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
 select{border-radius:3px; background:var(--panel2, var(--btn))}
 .control b{color:var(--ink)}
 .control label{font-size:12px}
+.chkrow{display:flex; align-items:center; gap:8px; margin-top:6px; cursor:pointer}
+.chkrow input{margin:0; width:13px; height:13px}
+.chkrow span{font-size:12px; color:var(--mute)}
 </style>
 </head>
 <body>
@@ -155,7 +158,7 @@ select{border-radius:3px; background:var(--panel2, var(--btn))}
       </div>
       <div class="control">
         <label><span>Sequence playback</span><b id="speedVal">1.0×</b></label>
-        <input id="speed" type="range" min="0.15" max="3" step="0.05" value="1">
+        <input id="speed" type="range" min="0.05" max="3" step="0.05" value="1">
       </div>
     </fieldset>
 
@@ -173,6 +176,9 @@ select{border-radius:3px; background:var(--panel2, var(--btn))}
             <option value="segPhase">Segmented EPI (in ky)</option>
             <option value="propeller">Segmented EPI (propeller)</option>
           </optgroup>
+          <optgroup label="3D">
+            <option value="evi">3D EPI (echo-volumar)</option>
+          </optgroup>
           <optgroup label="Spiral">
             <option value="spiral">One-shot spiral</option>
             <option value="segSpiral">Segmented spiral</option>
@@ -182,6 +188,11 @@ select{border-radius:3px; background:var(--panel2, var(--btn))}
       <div class="control">
         <label><span>Phase-encoding resolution</span><b id="shotsVal">32</b></label>
         <input id="shots" type="range" min="8" max="64" step="1" value="32">
+      </div>
+      <div class="control">
+        <label for="showRecon"><span>Reconstruction</span><b id="reconVal">on</b></label>
+        <label class="chkrow"><input id="showRecon" type="checkbox" checked><span>Image from the samples so far</span></label>
+        <p class="note">A numerical phantom, transformed and then masked by what has been measured. Everything unmeasured is left at zero, so the image sharpens as the outer lines arrive and gaps in the coverage show up as the aliasing they really cause.</p>
       </div>
       <div class="control">
         <label><span>x/y prewinders</span><b id="prewindVal">after 180°</b></label>
@@ -197,6 +208,8 @@ select{border-radius:3px; background:var(--panel2, var(--btn))}
         <span>Current mode</span><span id="modeTitle">2D spin-echo · one line per shot</span>
         <span>Phase encoding</span><span id="phaseStat">−1.00</span>
         <span id="phaseLabel">target ky</span><span></span>
+        <span>k-space extent</span><span id="extentStat">±16 Δk</span>
+        <span id="extentLabel">Δk fixed, so the FOV is fixed</span><span></span>
         <span>ADC samples</span><span id="sampleStat">0 / 32</span>
         <span id="sampleLabel">acquired this shot</span><span></span>
         <span id="echoLabel">spin-echo center</span><span id="echoStat">TE 80 ms</span>
@@ -217,7 +230,7 @@ select{border-radius:3px; background:var(--panel2, var(--btn))}
         <div class="title">Effective k-space trajectory</div>
         <div>Shot <strong id="shotHud">1</strong> / <strong id="shotsHud">32</strong></div>
         <div>Time <strong id="timeHud">0.0 ms</strong></div>
-        <div>k = (<strong id="kxHud">0.00</strong>, <strong id="kyHud">0.00</strong>, <strong id="kzHud">0.00</strong>)</div>
+        <div>k = (<strong id="kxHud">0.0</strong>, <strong id="kyHud">0.0</strong>, <strong id="kzHud">0.0</strong>) Δk</div>
         <div id="eventHud" class="hud-event">Before excitation</div>
       </div>
       <div class="legend">
@@ -251,12 +264,58 @@ select{border-radius:3px; background:var(--panel2, var(--btn))}
 'use strict';
 const BUILD = {
   name: 'Readout sim',
-  version: '0.2.2',
+  version: '0.7.5',
   date: '2026-09-18',
   authors: 'Designed by Filip Sz (Lund University) and coded by ChatGPT (OpenAI)',
 };
 const CHANGELOG = [
-  { v: '0.2.2', tag: 'current', items: [
+  { v: '0.7.5', tag: 'current', items: [
+    'Segmentation in ky is four contiguous bands again, one per shot, rather than interleaved lines. The echo still lands where the centre of k-space is measured, which for contiguous bands is near the start of the segment that contains it.' ] },
+  { v: '0.7.4', items: [
+    'The time axis stops shortly after the last sample instead of running to a fixed 120 ms minimum, so short readouts no longer spend most of the view waiting for nothing. The sequence diagram stretches to fill the space, which makes the short Cartesian readouts much easier to see.' ] },
+  { v: '0.7.3', items: [
+    'Performance: the timing of a shot depends only on the mode, the matrix and where the prewinders are played, but it was being recomputed from scratch for every vertex of the trajectory — thousands of times a frame, and in the multi-echo mode that included re-sorting the phase-encode table each time. All of it is now memoised and discarded whenever one of those three changes. The multi-echo mode had reached a quarter of a second per frame and is now in line with the rest.',
+    'The trajectory trace no longer caps its step size at a twentieth of a millisecond, which for a long readout forced several thousand vertices where a few hundred draw the same line; the step now follows the readout length as intended.',
+    'Sample lists are cached per shot as well, which also speeds up the reconstruction inset and the completion highlight.' ] },
+  { v: '0.7.2', items: [
+    'With an even matrix two points are equally close to the centre of k-space — the lines either side of ky = 0, or two symmetric partitions. The echo is now put on the first of them rather than midway between the two, so at TE the trajectory is sitting on the centre instead of halfway between two visits to it. At TE every mode is now within half a Δk of the centre, and the spirals are exactly on it.',
+    'The refocusing pulse now moves with TE. A spin echo forms at twice the gap between excitation and refocusing, so with the 180° pulse pinned at a fixed time the echo could not land where the centre of k-space was being measured — the readouts were hung on a TE the pulse timing did not support. The pulse now sits halfway between the excitation and the echo in every mode, the multi-echo train included, and TE is derived from that constraint.' ] },
+  { v: '0.7.1', items: [
+    'The echo is now defined by the measurement rather than by the drawing: the readout is hung on TE at the point where the trajectory passes the centre of k-space, found numerically for each trajectory. That is the middle of a symmetric EPI or Cartesian line, the very first sample of a centre-out spiral, and a little before the middle of the 3D volume, where the partition ordering puts the central partition.',
+    'Segmentation in ky is now interleaved rather than blocked, as it is on a scanner: each shot takes every n-th line, so every shot spans k-space and reads its central line at the echo.',
+    'The multi-echo train reads the most central lines at the first echo, the next band at the second and the edges at the third, so TE1 is the effective echo time of the train and the contrast is set where the centre of k-space is measured. Before this the centre happened to fall on the second echo.' ] },
+  { v: '0.7.0', items: [
+    'Every EPI-type train now has a floor of 1 ms per frequency line, so the echo spacing cannot fall below what ramps, the blip and receiver settling really cost. The segmented modes feel this most: segmenting in kx no longer looks four times cheaper than a full EPI line simply because its lines are shorter.',
+    'The multi-echo train is read at a lower bandwidth still, as a real echo train is, so each of its readouts takes about 8 ms rather than 4.',
+    'Echo times are now as short as the sequence allows instead of being pinned at 80 ms: TE is the 180° pulse, the prewinder and half the readout, and nothing more. Most modes now land between 46 and 60 ms, and the dead time before the readout is gone. The multi-echo spacing follows the same rule, so its three echoes sit far closer together than the old fixed 80 / 160 / 240 ms.' ] },
+  { v: '0.6.2', items: [
+    'The marker now crawls through the slew-limited centre of the spiral and speeds up as the turns open out, and the samples, evenly spaced along the path, are correspondingly dense in time at the start of the readout.',
+    'Spiral readouts are now slew-limited as well as amplitude-limited. Holding a curve of radius r at speed v needs a transverse acceleration v²/r, so the tight inner turns cannot be traversed at full gradient amplitude and the duration is integrated along the path under both limits. The slew constant corresponds to ordinary clinical gradients, which leaves a 32-sample spiral slew-limited nearly all the way out: a fully sampled single-shot spiral now takes 36 ms rather than 24 ms, and 109 ms rather than 96 ms at 64 samples, where only the inner half is slew-limited.' ] },
+  { v: '0.6.1', items: [
+    'Prewinder and blip lobes are now drawn at the amplitude their area demands instead of at a fixed size, and the prewinder lasts as long as the same gradient needs to cover that distance: a short strong lobe before a fast EPI readout, a longer one before a low-bandwidth Cartesian line, and always half the area of the readout lobe it has to balance. They were far too large before, which made the areas unreadable.',
+    'Phase blips are small and partition blips are large, in the proportion their steps actually have, and the trajectory follows the same prewinder timing as the diagram.' ] },
+  { v: '0.6.0', items: [
+    'Readout durations are no longer fixed per mode: every trajectory is drawn at the same gradient amplitude, so the readout lasts as long as the path through k-space takes to travel, with a lower receiver bandwidth for the Cartesian line readouts as on a real scanner. A single Cartesian line takes a few milliseconds, an EPI train about a millisecond per line, a fully sampled single-shot spiral a few tens of milliseconds, and the 3D volume far longer.',
+    'Durations therefore also follow the resolution: doubling the matrix doubles the path and roughly doubles every readout, which is the real cost of the extra k-space extent.',
+    'Playback can now be slowed to 0.05x, since the short Cartesian readouts pass quickly at the schematic playback rate.',
+    'Long readouts push the echo out. TE is no longer fixed at 80 ms but is the larger of 80 ms and what the readout needs, since the centre of a symmetric readout is the spin echo and it cannot fall before the prewinders are finished. The readout panel shows the current TE and readout length.' ] },
+  { v: '0.5.0', items: [
+    'The resolution slider now changes the extent of k-space, not the density of it. The sample spacing Δk is held fixed in the k-space view and the sampled block grows or shrinks inside a fixed grid, which is what the slider physically means: Δk sets the field of view and stays put, while k_max sets the resolution and follows the number of samples.',
+    'The background grid is drawn at that fixed Δk, one line every 4 samples, and spans the largest matrix the slider allows, so the spacing is visibly the same at every setting.',
+    'The readout panel states the extent in units of Δk, and the reconstruction inset is square at every matrix: fewer samples along an axis means bigger pixels over the same field of view, not a smaller picture.',
+    'kz is the exception and keeps its own spacing: a 3D slab is far thinner than the in-plane field of view, so Δkz is genuinely coarser than Δkx.' ] },
+  { v: '0.4.0', items: [
+    'Optional reconstruction inset: a numerical phantom is transformed once per acquisition matrix, each ADC sample marks its nearest cell of that k-space, everything unmeasured stays at zero, and the inverse transform is drawn beside the trajectory. The mask keeps every shot already played, so a segmented acquisition builds its image up shot by shot rather than restarting each time. The image therefore builds up exactly as the data arrive — contrast first from the centre lines, detail as the outer ones land, and visible aliasing wherever the coverage has gaps. In the 3D mode the volume is reconstructed and the middle partition shown.',
+    'The transform is a plain centred DFT rather than an FFT, so the matrix can follow the resolution slider without being a power of two; a full update takes well under a millisecond at these sizes.',
+    'On completion the trajectory trace is now cleared first and the highlight of all measured points fades in after it, instead of the two cues overlapping.' ] },
+  { v: '0.3.1', items: [
+    'The propeller mode now shows the rotation of the gradient stack directly: the physical Gx and Gy are drawn as dashed ghosts on the same rows as the solid blade-frame waveforms, so at blade 1 the two coincide and they separate as the blades turn. A small turned axis badge with the blade angle sits above the rows.' ] },
+  { v: '0.3.0', items: [
+    'New 3D EPI (echo-volumar) trajectory: a slab is excited and one readout walks a whole volume, with kx fastest, a ky blip to the next line and a kz blip to the next partition once a ky plane is done. The ky direction reverses in each new partition so the path runs on without a rewind, and the trajectory finally uses the kz axis the k-space view has always drawn.',
+    'That readout is allowed to run far longer than the others — to 240 ms, against under 100 ms for the 2D modes — which is the honest cost of covering 4 partitions in one shot and the reason T2* decay and off-resonance set the limit on it.',
+    'The sequence diagram grows a fourth row for the partition-encoding gradient in this mode, and labels the slab-select rather than slice-select gradient.',
+    'Sample dots in the k-space view are drawn in batched paths, which keeps the thousands of points in a volume acquisition fast to render.' ] },
+  { v: '0.2.2', items: [
     'Spiral density now follows the phase-encoding resolution instead of fixed numbers. The lap count is N/2 for the one-shot spiral and N/(2·4) per interleaf for the segmented one, because a radial line crosses a spiral twice per lap: 30 samples per EPI line then corresponds to 15 laps, and the spiral and Cartesian modes are directly comparable at any resolution.',
     'ADC spacing along the spiral is set from its arc length to the Cartesian step Δk = 2/(N−1), so the sample density along the trajectory matches too.' ] },
   { v: '0.2.1', items: [
@@ -305,16 +364,53 @@ const sctx = S.getContext('2d');
 const RF90_START = 8;
 const RF90_END = 14;
 const RF90 = 11;
-const RF180 = 37;
-const TE = 80;
-const PHASE_LINES_PER_SHOT = 4;
+/* The refocusing pulse sits halfway between the excitation and the echo, so it
+   moves with TE: a spin echo forms at 2*(t180 - t90) after the excitation, and
+   the centre of k-space has to be measured exactly there. */
+const RF180_MIN = 24;
+function rf180Ms(){ return memo('rf180', ()=>Math.max(RF180_MIN, (RF90+teMs())/2)); }
+const TE_FLOOR = 46;      /* the echo cannot sit on top of the 180° pulse */
+const EPI_MIN_LINE_MS = 1.0;   /* echo spacing floor for every EPI-type train */
+const BW_MULTI = 0.12;    /* multi-echo trains are read at a lower bandwidth still */
+/* Readout durations come from the length of the path through k-space rather
+   than being fixed per mode: every trajectory is drawn at the same gradient
+   amplitude, so time is proportional to distance travelled in k-space. K_PER_MS
+   is that traversal speed in units of the reference extent (a 32-sample
+   acquisition spans +/-1), and BW_SLOW is the lower receiver bandwidth a
+   Cartesian line is normally read at. The result: one Cartesian line takes a
+   few milliseconds, an EPI train about a millisecond per line, a fully sampled
+   single-shot spiral a few tens of milliseconds, and a 3D volume far longer —
+   and all of them stretch when the matrix grows, because the path does. */
+const K_PER_MS = 2.13;
+const BW_SLOW = 0.22;
+/* Slew limit, in the same units per ms^2. A spiral cannot be traversed at full
+   gradient amplitude near the centre: holding a curve of radius r at speed v
+   needs a transverse acceleration v^2/r, so the tight inner turns are limited
+   to v = sqrt(SLEW*r) and only the outer turns reach full amplitude. This is
+   why a real single-shot spiral takes noticeably longer than its path length
+   alone suggests. The value is set so the changeover radius sqrt-matches
+   ordinary clinical hardware — of the order of 40 mT/m with 150 T/m/s, where
+   the slew limit reaches out to about the k_max of a 1 mm matrix, so a
+   32-sample spiral is slew-limited nearly all the way out and a 64-sample one
+   only over its inner half. */
+const SLEW_K = 3.5;
+const PHASE_SEGMENTS = 4;      /* segmented in ky: four contiguous blocks */
+function phaseLinesPerShot(){ return Math.ceil(nLines/PHASE_SEGMENTS); }
 const KX_SEGMENTS = 4;
 const BLADE_LINES = 8;   /* PROPELLER: ky lines per blade */
+const EVI_PARTITIONS = 4;  /* 3D EPI: kz partitions in the volume */
+/* Sample spacing, not extent, is what the k-space view holds fixed: Δk sets the
+   field of view, so it stays the same however many samples are taken, and the
+   extent k_max grows with the number of samples, which is what buys resolution.
+   Coordinates stay normalised to ±1 everywhere in the model; only the drawing
+   multiplies them by the extent below, referred to a 32-sample acquisition. */
+const K_REF_LINES = 32;
+const K_VIEW_MAX = (64-1)/(K_REF_LINES-1);   /* extent at the slider maximum */
 const SPIRAL_SEGMENTS = 4;
-const MULTI_ECHO_CENTERS = [80,160,240];
-const MULTI_RF180_CENTERS = [40,120,200];
-const MULTI_READOUTS = [[68,92],[148,172],[228,252]];
-const COMPLETION_HOLD_SECONDS = 1.25;
+
+
+const COMPLETION_HOLD_SECONDS = 1.55;
+const COMPLETION_TRACE_CLEAR = 0.30;  /* trace is gone this long before the highlight starts */
 
 let nLines = 32;
 let mode = 'line';
@@ -323,6 +419,7 @@ let t = 0;
 let playing = true;
 let speed = 1;
 let prewindTiming = 'after';
+let showRecon = true;
 let yaw = -0.72;
 let pitch = 0.48;
 let dragging = false;
@@ -337,15 +434,19 @@ const MODE_META = {
   multiEcho:{label:'Multi-echo spin echo (3 echoes)', title:'Multi-echo spin echo · three phase-encode lines per shot', desc:'Three different ky lines are sampled in one echo train. Refocusing pulses at 40, 120 and 200 ms generate readouts centered at TE = 80, 160 and 240 ms, with Gy rewinding and a new phase step between echoes.'},
   epi:{label:'One-shot EPI', title:'Spin-echo EPI · all lines in one shot', desc:'A single shot traverses all ky lines with alternating Gx readouts and short Gy blips between lines.'},
   segKx:{label:'Segmented EPI (in kx)', title:'Segmented spin-echo EPI · segments in kx', desc:'Each shot acquires one vertical kx strip across all ky values, as a short EPI train. Four shots combine to fill the Cartesian grid.'},
-  segPhase:{label:'Segmented EPI (in ky)', title:'Segmented spin-echo EPI · segments in ky', desc:'Each shot acquires four complete kx lines as a short EPI train. Successive shots cover the remaining groups of phase-encoding steps.'},
+  segPhase:{label:'Segmented EPI (in ky)', title:'Segmented spin-echo EPI · segments in ky', desc:'k-space is cut into four contiguous bands of ky and each shot reads one of them as a short EPI train: the lowest band first, the highest last. Because the bands are contiguous rather than interleaved, the centre of k-space sits at the edge of a segment instead of in the middle of every one, so the echo falls near the start of the readout — one of the reasons interleaved segmentation is usually preferred in practice.'},
   propeller:{label:'Segmented EPI (propeller)', title:'Segmented spin-echo EPI · rotating propeller blades',
     desc:'Each shot is a short EPI blade: 8 parallel lines through the centre of k-space, read as a small EPI train. Successive blades are rotated by 180°/blades, so the blades cover k-space as a fan and every blade re-samples the centre — the redundancy PROPELLER/BLADE uses to detect and correct motion between shots. The blade count follows π/2·N/L, the number needed to keep the sampling at the edge of k-space at the Nyquist limit.'},
-  spiral:{label:'One-shot spiral', title:'Spin-echo spiral · one-shot center-out readout', desc:'The spin echo forms at k = 0 and a continuous oscillating Gx/Gy readout traces a center-out spiral in one shot. The number of laps is half the phase-encoding resolution: a radial line crosses the spiral twice per lap, so a diameter carries as many crossings as an EPI line carries samples.'},
+  evi:{label:'3D EPI (echo-volumar)', title:'3D spin-echo EPI · one volume per shot',
+    desc:'A slab is excited instead of a slice, and a single readout walks the whole volume: kx oscillates fastest, a ky blip steps to the next line, and when a ky plane is finished a kz blip moves to the next partition. The ky direction reverses in each new partition, so the trajectory runs on without flying back. Covering 4 partitions takes about 4 times as long as the 2D EPI, which is why this readout runs to 240 ms while the others are finished before 100 ms — and why T2* decay, off-resonance and motion are the limits on how much volume one shot can buy.'},
+  spiral:{label:'One-shot spiral', title:'Spin-echo spiral · one-shot center-out readout', desc:'The spin echo forms at k = 0 and a continuous oscillating Gx/Gy readout traces a center-out spiral in one shot. The number of laps is half the phase-encoding resolution: a radial line crosses the spiral twice per lap, so a diameter carries as many crossings as an EPI line carries samples. The readout is slew-limited near the centre, where the turns are tightest, and only reaches full gradient amplitude further out, which is why it takes longer than its path length alone would suggest.'},
   segSpiral:{label:'Segmented spiral', title:'Segmented spin-echo spiral · interleaved spiral shots', desc:'Four rotated center-out spiral interleaves are acquired over four shots. Each shot begins at k = 0 and the interleaves combine to fill k-space. Each interleaf carries an eighth of the phase-encoding resolution in laps, so the four together match the radial density of the one-shot spiral.'}
 };
 
 const ui = {
   shotHud:document.getElementById('shotHud'),shotsHud:document.getElementById('shotsHud'),timeHud:document.getElementById('timeHud'),
+  reconVal:document.getElementById('reconVal'),
+  extentStat:document.getElementById('extentStat'),extentLabel:document.getElementById('extentLabel'),
   kxHud:document.getElementById('kxHud'),kyHud:document.getElementById('kyHud'),kzHud:document.getElementById('kzHud'),eventHud:document.getElementById('eventHud'),
   phaseStat:document.getElementById('phaseStat'),sampleStat:document.getElementById('sampleStat'),shotsVal:document.getElementById('shotsVal'),speedVal:document.getElementById('speedVal'),prewindVal:document.getElementById('prewindVal'),
   modeVal:document.getElementById('modeVal'),modeTitle:document.getElementById('modeTitle'),modeDescription:document.getElementById('modeDescription'),
@@ -357,6 +458,8 @@ function clamp(v,a,b){ return Math.max(a,Math.min(b,v)); }
 function lerp(a,b,u){ return a + (b-a)*clamp(u,0,1); }
 function smoothstep01(u){ u=clamp(u,0,1); return u*u*(3-2*u); }
 function fmt(v){ return (Math.abs(v)<0.0005?0:v).toFixed(2); }
+/* k in units of the sample spacing: position n samples from the centre. */
+function fmtK(v,n){ return ((v||0)*(Math.max(2,n)-1)/2).toFixed(1); }
 function kyForLine(i){ return nLines===1 ? 0 : -1 + 2*i/(nLines-1); }
 function kxForSample(i){ return nLines===1 ? 0 : -1 + 2*i/(nLines-1); }
 function kxIndicesForShot(s){
@@ -365,10 +468,16 @@ function kxIndicesForShot(s){
   const b=Math.max(a,Math.floor((s+1)*nLines/KX_SEGMENTS)-1);
   return Array.from({length:b-a+1},(_,j)=>a+j);
 }
-function multiEchoLineIndicesForShot(s){
-  // Three distinct phase-encode lines per echo train. If nLines is not divisible by 3,
-  // the final train wraps only the surplus echo(s) to the beginning of k-space.
-  return [0,1,2].map(e => (3*s + e) % nLines);
+function multiEchoLineIndicesForShot(s){ return memo('meLines:'+s, ()=>multiEchoLineIndicesRaw(s)); }
+function multiEchoLineIndicesRaw(s){
+  /* Three phase-encode lines per train, ordered so the first echo always reads
+     the most central lines of k-space, the second the next band out and the
+     third the edges. That is what makes TE1 the effective echo time of the
+     train: the contrast is set where the centre of k-space is measured. */
+  const order=memo('meOrder', ()=>Array.from({length:nLines},(_,i)=>i)
+    .sort((a,b)=>Math.abs(kyForLine(a))-Math.abs(kyForLine(b))));
+  const per=Math.ceil(nLines/3);
+  return [0,1,2].map(e => order[Math.min(nLines-1, e*per + (s%per))]);
 }
 
 /* ---------------------------------------------------------------- PROPELLER
@@ -404,23 +513,251 @@ function bladePathAt(u,s=shot){
   return rotateInPlane(local2, bladeAngle(s));
 }
 
+/* ---------------------------------------------------------------- 3D EPI
+   One shot walks a whole volume: kx fastest, then a ky blip to the next line,
+   then a kz blip to the next partition once a ky plane is done. The ky
+   direction reverses in each new partition so the path continues without a
+   rewind. Unit q of the readout is one kx line; there are partitions x lines
+   of them, so the readout is that many times longer than a 2D EPI line. */
+function eviLineCount(){ return Math.max(4, Math.round(nLines/2)); }
+function eviUnits(){ return EVI_PARTITIONS*eviLineCount(); }
+function eviKy(j){ const L=eviLineCount(); return L>1 ? -1+2*j/(L-1) : 0; }
+function eviKz(p){ return EVI_PARTITIONS>1 ? -1+2*p/(EVI_PARTITIONS-1) : 0; }
+function eviUnitIndex(q){
+  const L=eviLineCount(), part=Math.floor(q/L), within=q%L;
+  return {part, line: part%2===0 ? within : L-1-within};
+}
+function eviPathAt(u){
+  const U=eviUnits();
+  u=clamp(u,0,1);
+  const q=Math.min(U-1,Math.floor(u*U));
+  const local=(q===U-1 && u===1) ? 1 : u*U-q;
+  const here=eviUnitIndex(q), next=q<U-1 ? eviUnitIndex(q+1) : here;
+  const y=eviKy(here.line), z=eviKz(here.part);
+  const xA=q%2===0?-1:1, xB=q%2===0?1:-1;
+  const readFrac=q===U-1?1:0.82;
+  if(local<=readFrac)
+    return {x:lerp(xA,xB,local/readFrac), y, z, adc:true,
+            event:'ADC ON — 3D EPI readout · partition '+(here.part+1)+' / '+EVI_PARTITIONS};
+  const f=(local-readFrac)/(1-readFrac);
+  const stepsPartition = next.part!==here.part;
+  return {x:xB, y:lerp(y,eviKy(next.line),f), z:lerp(z,eviKz(next.part),f), adc:false,
+          event: stepsPartition ? 'kz blip — next partition' : 'ky blip — next line in this partition'};
+}
+
+function kExtent(n){ return n>1 ? (n-1)/(K_REF_LINES-1) : 0; }
+function kExtentX(){ return kExtent(nLines); }
+function kExtentY(){ return kExtent(mode==='evi' ? eviLineCount() : nLines); }
+/* kz keeps its own spacing: a 3D slab is far thinner than the in-plane field of
+   view, so Δkz is correspondingly coarser and the partitions are not drawn on
+   the in-plane Δk scale. */
+function kExtentZ(){ return 1; }
+
 function shotCount(){
   if(mode==='line') return nLines;
   if(mode==='propeller') return bladeCount();
   if(mode==='multiEcho') return Math.ceil(nLines/3);
-  if(mode==='segPhase') return Math.ceil(nLines/PHASE_LINES_PER_SHOT);
+  if(mode==='segPhase') return PHASE_SEGMENTS;
   if(mode==='segKx') return KX_SEGMENTS;
   if(mode==='segSpiral') return SPIRAL_SEGMENTS;
   return 1;
 }
 
-function acquisitionTiming(){
-  if(mode==='multiEcho') return {start:68,end:252,holdEnd:257,fadeEnd:264,duration:264};
-  let start=68,end=92;
-  if(mode==='epi' || mode==='segKx' || mode==='propeller'){ start=64; end=96; }
-  if(mode==='segPhase'){ start=66; end=94; }
-  if(mode==='spiral' || mode==='segSpiral'){ start=TE; end=100; }
-  return {start,end,holdEnd:end+5,fadeEnd:end+12,duration:end+12};
+function kSpeed(){
+  if(mode==='multiEcho') return K_PER_MS*BW_MULTI;   /* slow, as a real echo train is */
+  if(mode==='line') return K_PER_MS*BW_SLOW;
+  return K_PER_MS;
+}
+/* Lines in one shot of an EPI-type train; 0 for everything else. */
+function epiLineCount(){
+  if(mode==='epi' || mode==='segKx') return nLines;
+  if(mode==='segPhase') return phaseLinesPerShot();
+  if(mode==='propeller') return bladeLineCount();
+  if(mode==='evi') return eviUnits();
+  return 0;
+}
+function readoutPath(){
+  const ex=kExtentX(), ey=kExtentY(), line=2*ex;
+  if(mode==='line' || mode==='multiEcho') return line;          // per echo
+  if(mode==='epi') return nLines*line + 2*ey;                   // lines plus blips
+  if(mode==='segKx') return nLines*line/KX_SEGMENTS + 2*ey;
+  if(mode==='segPhase') return phaseLinesPerShot()*line;
+  if(mode==='propeller') return bladeLineCount()*line;
+  if(mode==='spiral' || mode==='segSpiral') return spiralArcLength()*ex;
+  if(mode==='evi') return eviUnits()*line;
+  return line;
+}
+/* Cumulative time along the spiral under both limits. The table also gives the
+   mapping between position along the path and time, so the marker crawls
+   through the slew-limited centre and speeds up once the turns open out. */
+const SPIRAL_T = {key:'', cum:null, total:0};
+function spiralTimeTable(){
+  const key=mode+':'+nLines;
+  if(SPIRAL_T.key===key) return SPIRAL_T;
+  const ex=kExtentX(), T=spiralTurns(), a=2*Math.PI*T, vmax=kSpeed();
+  const pitch=T>0 ? ex/(2*Math.PI*T) : ex;   // radius scale of the innermost turn
+  const M=400, cum=new Float64Array(M+1);
+  let t=0;
+  for(let i=0;i<M;i++){
+    const u=(i+0.5)/M;
+    const ds=ex*Math.sqrt(1+(a*u)*(a*u))/M;        // arc length of this step
+    const rho=Math.max(ex*u, pitch);               // radius of curvature
+    const v=Math.min(vmax, Math.sqrt(SLEW_K*rho)); // amplitude or slew limited
+    t+=ds/v; cum[i+1]=t;
+  }
+  SPIRAL_T.key=key; SPIRAL_T.cum=cum; SPIRAL_T.total=t;
+  return SPIRAL_T;
+}
+function spiralDuration(){ return spiralTimeTable().total; }
+/* path fraction -> fraction of the readout time, and its inverse */
+function spiralTimeFrac(u){
+  const T=spiralTimeTable(), M=T.cum.length-1, x=clamp(u,0,1)*M, i=Math.min(M-1,Math.floor(x));
+  return lerp(T.cum[i],T.cum[i+1],x-i)/T.total;
+}
+function spiralPathFrac(f){
+  const T=spiralTimeTable(), M=T.cum.length-1, target=clamp(f,0,1)*T.total;
+  let lo=0, hi=M;
+  while(hi-lo>1){ const mid=(lo+hi)>>1; if(T.cum[mid]<=target) lo=mid; else hi=mid; }
+  const span=T.cum[hi]-T.cum[lo];
+  return (lo+(span>0?(target-T.cum[lo])/span:0))/M;
+}
+function readoutDuration(){ return memo('readoutDuration', readoutDurationRaw); }
+function readoutDurationRaw(){
+  if(mode==='spiral' || mode==='segSpiral') return spiralDuration();
+  const base=readoutPath()/kSpeed();
+  /* No EPI train runs faster than a millisecond per frequency line: ramps, the
+     blip and the receiver settling put a floor under the echo spacing. */
+  const lines=epiLineCount();
+  return lines>0 ? Math.max(base, lines*EPI_MIN_LINE_MS) : base;
+}
+/* Long readouts push the echo out: the centre of a symmetric readout is the
+   spin echo, and it cannot happen before the prewinders are done. */
+/* The echo is when the centre of k-space is measured, so the readout is placed
+   around that moment rather than simply centred. This finds the fraction of the
+   readout at which the trajectory comes closest to k = 0, judged in physical k
+   units so the anisotropic 3D case is treated properly: 0.5 for a symmetric
+   EPI or Cartesian line, 0 for a centre-out spiral, and whatever the structure
+   dictates for the segmented and 3D trains. */
+/* Everything about the timing of a shot depends only on the mode, the matrix
+   and where the prewinders are played, but it is asked for thousands of times
+   per frame — once per vertex of the trajectory. Results are memoised per
+   (mode, matrix, prewinder placement) and thrown away whenever one changes. */
+const MEMO = {key:'', v:new Map()};
+function memoKey(){ return mode+'|'+nLines+'|'+prewindTiming; }
+function memo(name, fn){
+  const k=memoKey();
+  if(MEMO.key!==k){ MEMO.key=k; MEMO.v.clear(); }
+  if(!MEMO.v.has(name)) MEMO.v.set(name, fn());
+  return MEMO.v.get(name);
+}
+function centreFraction(){ return memo('centreFraction', centreFractionRaw); }
+function centreFractionRaw(){
+  const ex=kExtentX(), ey=kExtentY(), ez=kExtentZ();
+  /* fine enough that every readout line is sampled several times */
+  const steps=Math.max(900, 60*Math.max(epiLineCount(), 1));
+  const dist=(u,s)=>{ const p=acquisitionPathAt(u,s); return Math.hypot(p.x*ex,p.y*ey,(p.z||0)*ez); };
+  let best=Infinity, bestShot=0, at=0.5;
+  /* With an even matrix two points are equally close to k = 0 — the lines
+     either side of ky = 0, two symmetric partitions, or the same line in two
+     segments. Ties go to the earlier one, so the choice does not depend on the
+     scan grid and at TE the trajectory is sitting on the centre rather than
+     midway between two visits to it. */
+  const eps=1e-6*Math.max(ex,ey,ez,1);
+  for(let s=0;s<shotCount();s++){
+    for(let i=0;i<=steps;i++){
+      const u=i/steps, r=dist(u,s);
+      if(r<best-eps || (r<=best+eps && u<at-1e-12)){ if(r<best) best=r; bestShot=s; at=u; }
+    }
+  }
+  /* refine within one grid step */
+  const h=1/steps;
+  for(let i=-20;i<=20;i++){
+    const u=clamp(at+i*h/20,0,1);
+    if(dist(u,bestShot)<best-1e-12){ best=dist(u,bestShot); at=u; }
+  }
+  return at;
+}
+
+/* Echo spacing of the multi-echo train: room for the readout, the ky rewind,
+   the refocusing pulse and the next phase encode. The schematic keeps the shape
+   of its original 80 ms spacing and scales every gap inside it by g. */
+function multiEchoSpacing(){ return memo('multiEchoSpacing', ()=>Math.max(40, readoutDuration()+2*prewinderDuration()+30)); }
+function multiEchoGap(){ return multiEchoSpacing()/80; }
+function multiEchoCenters(){ return memo('multiEchoCenters', multiEchoCentersRaw); }
+function multiEchoCentersRaw(){
+  const esp=multiEchoSpacing();
+  const te1=Math.max(esp, RF90+2*(4.5+prewinderDuration()+readoutDuration()/2));
+  return [te1, te1+esp, te1+2*esp];
+}
+function multiRf180Centers(){ return memo('multiRf180', multiRf180CentersRaw); }
+function multiRf180CentersRaw(){
+  const e=multiEchoCenters(), esp=multiEchoSpacing();
+  /* the first pulse halfway between excitation and first echo, the rest halfway
+     between consecutive echoes */
+  return [ (RF90+e[0])/2, e[1]-esp/2, e[2]-esp/2 ];
+}
+function meAt(i,offset){ return multiEchoCenters()[i]+offset*multiEchoGap(); }
+/* The echo sits as early as the 180° pulse, the prewinder and half the readout
+   allow, so no mode waits around longer than it has to. */
+/* TE has to leave room, between the refocusing pulse and the moment the centre
+   of k-space is measured, for the pulse itself and the prewinder. Since the
+   pulse sits at (t90+TE)/2, that works out as TE >= t90 + 2*(4.5 + prewinder +
+   time from the start of the readout to the centre crossing). */
+function teMs(){ return memo('teMs', teMsRaw); }
+function teMsRaw(){
+  if(mode==='multiEcho') return multiEchoCenters()[0];
+  const c=centreFraction()*readoutDuration();
+  return Math.max(TE_FLOOR, RF90+2*(4.5+prewinderDuration()+c));
+}
+/* Prewinders are played at the same gradient amplitude as the readout, so their
+   duration is the k-space distance they cover divided by that traversal speed —
+   a short strong lobe for a fast EPI readout, a longer one for a low-bandwidth
+   Cartesian line. Drawn areas are then directly comparable with the readout
+   lobes, which is the whole point of the diagram. */
+function prewinderDistance(s=shot){
+  const st=acquisitionStart(s);
+  return Math.max(Math.abs(st.x)*kExtentX(), Math.abs(st.y)*kExtentY(), Math.abs(st.z||0)*kExtentZ());
+}
+function prewinderDuration(s=shot){
+  return memo('prewinderDuration:'+s, ()=>{
+    const dist=prewinderDistance(s);
+    return dist<1e-6 ? 0 : clamp(dist/kSpeed(),0.35,10);
+  });
+}
+function prewinderSpan(s=shot){ return memo('prewinderSpan:'+s, ()=>prewinderSpanRaw(s)); }
+function prewinderSpanRaw(s){
+  const dur=prewinderDuration(s);
+  const b=prewindTiming==='before' ? rf180Ms()-4 : Math.max(rf180Ms()+4.5, acquisitionTiming().start-1.5);
+  return {a:b-dur, b, dur};
+}
+/* Amplitude of a lobe that covers kDist in ms, as a fraction of the readout
+   gradient; 1 is the full readout amplitude. */
+function gradAmp(kDist, ms){ return ms<=0 ? 0 : clamp((kDist/ms)/kSpeed(),-1,1); }
+
+function multiReadouts(){
+  return memo('multiReadouts', ()=>{
+    const half=readoutDuration()/2;
+    return multiEchoCenters().map(ms=>[ms-half,ms+half]);
+  });
+}
+
+function acquisitionTiming(){ return memo('acquisitionTiming', acquisitionTimingRaw); }
+function acquisitionTimingRaw(){
+  const dur=readoutDuration();
+  if(mode==='multiEcho'){
+    const r=multiReadouts();
+    const start=r[0][0], end=r[2][1];
+    return {start,end,holdEnd:end+4,fadeEnd:end+9,duration:end+10};
+  }
+  /* The readout is hung on the echo at the point where it crosses the centre of
+     k-space: the middle for a symmetric train, the very start for a centre-out
+     spiral, and a little before the middle for the 3D volume. */
+  const te=teMs();
+  const start=te-centreFraction()*dur;
+  const end=start+dur;
+  /* Only a short tail after the last sample: the wait before the next shot is
+     not the interesting part. */
+  return {start,end,holdEnd:end+4,fadeEnd:end+9,duration:end+10};
 }
 
 function signalAlphaAt(ms){
@@ -437,7 +774,11 @@ function phaseLineIndicesForShot(s){
   if(mode==='multiEcho') return multiEchoLineIndicesForShot(s);
   if(mode==='epi' || mode==='segKx') return Array.from({length:nLines},(_,i)=>i);
   if(mode==='segPhase'){
-    const a=s*PHASE_LINES_PER_SHOT, b=Math.min(nLines,a+PHASE_LINES_PER_SHOT);
+    /* Four contiguous blocks of ky: shot 1 takes the lowest band, shot 4 the
+       highest. The centre of k-space then falls at the start of one segment
+       rather than in the middle of every one — which is exactly why the echo
+       lands near the beginning of the readout here. */
+    const per=phaseLinesPerShot(), a=s*per, b=Math.min(nLines,a+per);
     return Array.from({length:Math.max(0,b-a)},(_,j)=>a+j);
   }
   return [];
@@ -459,6 +800,7 @@ function acquisitionStart(s=shot){
     const p=bladePathAt(0,s);
     return {x:p.x,y:p.y,z:0};
   }
+  if(mode==='evi') return {x:-1,y:eviKy(0),z:eviKz(0)};
   if(mode==='segKx'){
     const [x0]=kxBoundsForShot(s);
     return {x:x0,y:-1,z:0};
@@ -518,8 +860,11 @@ function spiralSampleCount(){
   return Math.max(64, Math.ceil(spiralArcLength()/cartesianStep())+1);
 }
 function spiralRotation(s=shot){ return mode==='segSpiral' ? 2*Math.PI*s/spiralInterleaves() : 0; }
-function spiralPathAt(u,s=shot){
-  u=clamp(u,0,1);
+function spiralPathAt(uTime,s=shot){
+  /* uTime is the fraction of the readout elapsed; convert it to a position
+     along the path, which is not the same thing once the centre is slew
+     limited. */
+  const u=spiralPathFrac(clamp(uTime,0,1));
   const turns=spiralTurns();
   const theta=2*Math.PI*turns*u-Math.PI/2+spiralRotation(s);
   const r=u;
@@ -532,6 +877,7 @@ function acquisitionPathAt(u,s=shot){
   }
   if(mode==='spiral' || mode==='segSpiral') return spiralPathAt(u,s);
   if(mode==='propeller') return bladePathAt(u,s);
+  if(mode==='evi') return eviPathAt(u);
   return snakePathAt(u,s);
 }
 
@@ -542,6 +888,9 @@ function multiEchoStateAt(ms,s=shot){
   const ky1=kyForLine(inds[0]), ky2=kyForLine(inds[1]), ky3=kyForLine(inds[2]);
   const start={x:-1,y:ky1,z:0};
   const tm=acquisitionTiming();
+  const R=multiReadouts();   /* readout windows centred on the three echoes */
+  const RF1=multiRf180Centers(), g=multiEchoGap();
+  const pre=prewinderSpan(s);
   let x=0,y=0,z=0,event='Before excitation',adc=false,visible=true,signalAlpha=signalAlphaAt(ms);
 
   if(ms < RF90){
@@ -550,60 +899,62 @@ function multiEchoStateAt(ms,s=shot){
     z=lerp(0,0.50,(ms-RF90)/(14-RF90)); event='90° sinc RF + slice selection';
   } else if(ms < 17){
     z=lerp(0.50,0,(ms-14)/3); event='Slice-select rephasing';
-  } else if(prewindTiming==='before' && ms < 24){
+  } else if(prewindTiming==='before' && ms < pre.a){
     event='Free evolution';
-  } else if(prewindTiming==='before' && ms < 32){
-    x=lerp(0,-start.x,(ms-24)/8); y=lerp(0,-start.y,(ms-24)/8); event='x/y prewinders before first 180°';
-  } else if(ms < 37){
+  } else if(prewindTiming==='before' && ms < pre.b){
+    const f=pre.dur>0?(ms-pre.a)/pre.dur:1;
+    x=lerp(0,-start.x,f); y=lerp(0,-start.y,f); event='x/y prewinders before first 180°';
+  } else if(ms < RF1[0]-3){
     if(prewindTiming==='before'){x=-start.x;y=-start.y;} event='Free evolution';
-  } else if(ms < 40){
-    if(prewindTiming==='before'){x=-start.x;y=-start.y;} z=lerp(0,0.45,(ms-37)/3); event='First 180° sinc RF + slice selection';
-  } else if(ms < 43){
-    if(prewindTiming==='before'){x=start.x;y=start.y;} z=lerp(-0.45,0,(ms-40)/3); event='180° RF: k → −k';
-  } else if(prewindTiming==='after' && ms < 48){
+  } else if(ms < RF1[0]){
+    if(prewindTiming==='before'){x=-start.x;y=-start.y;} z=lerp(0,0.45,(ms-(RF1[0]-3))/3); event='First 180° sinc RF + slice selection';
+  } else if(ms < RF1[0]+3){
+    if(prewindTiming==='before'){x=start.x;y=start.y;} z=lerp(-0.45,0,(ms-RF1[0])/3); event='180° RF: k → −k';
+  } else if(prewindTiming==='after' && ms < pre.a){
     event='Post-refocusing evolution';
-  } else if(prewindTiming==='after' && ms < 56){
-    x=lerp(0,start.x,(ms-48)/8); y=lerp(0,start.y,(ms-48)/8); event='x/y prewinders after first 180°';
-  } else if(ms < 68){
+  } else if(prewindTiming==='after' && ms < pre.b){
+    const f=pre.dur>0?(ms-pre.a)/pre.dur:1;
+    x=lerp(0,start.x,f); y=lerp(0,start.y,f); event='x/y prewinders after first 180°';
+  } else if(ms < R[0][0]){
     x=start.x;y=start.y;event='At first readout start · ky line '+(inds[0]+1);
-  } else if(ms <= 92){
-    const u=(ms-68)/24;x=lerp(-1,1,u);y=ky1;adc=true;event=Math.abs(ms-80)<0.7?'Echo 1 · ky line '+(inds[0]+1):'ADC 1 ON · ky line '+(inds[0]+1);
-  } else if(ms < 100){
+  } else if(ms <= R[0][1]){
+    const u=(ms-R[0][0])/(R[0][1]-R[0][0]);x=lerp(-1,1,u);y=ky1;adc=true;event=Math.abs(ms-multiEchoCenters()[0])<0.7?'Echo 1 · ky line '+(inds[0]+1):'ADC 1 ON · ky line '+(inds[0]+1);
+  } else if(ms < meAt(0,20)){
     x=1;y=ky1;event='First readout complete';
-  } else if(ms < 108){
-    x=1;y=lerp(ky1,0,(ms-100)/8);event='Gy rewind from line '+(inds[0]+1)+' to ky = 0';
-  } else if(ms < 117){
+  } else if(ms < meAt(0,28)){
+    x=1;y=lerp(ky1,0,(ms-meAt(0,20))/(8*g));event='Gy rewind from line '+(inds[0]+1)+' to ky = 0';
+  } else if(ms < RF1[1]-3){
     x=1;y=0;event='Between echoes';
-  } else if(ms < 120){
-    x=1;y=0;z=lerp(0,0.45,(ms-117)/3);event='Second 180° sinc RF + slice selection';
-  } else if(ms < 123){
-    x=-1;y=0;z=lerp(-0.45,0,(ms-120)/3);event='180° RF: k → −k';
-  } else if(ms < 128){
+  } else if(ms < RF1[1]){
+    x=1;y=0;z=lerp(0,0.45,(ms-(RF1[1]-3))/3);event='Second 180° sinc RF + slice selection';
+  } else if(ms < RF1[1]+3){
+    x=-1;y=0;z=lerp(-0.45,0,(ms-RF1[1])/3);event='180° RF: k → −k';
+  } else if(ms < meAt(1,-32)){
     x=-1;y=0;event='Post-refocusing evolution';
-  } else if(ms < 136){
-    x=-1;y=lerp(0,ky2,(ms-128)/8);event='Gy phase encoding for line '+(inds[1]+1);
-  } else if(ms < 148){
+  } else if(ms < meAt(1,-24)){
+    x=-1;y=lerp(0,ky2,(ms-meAt(1,-32))/(8*g));event='Gy phase encoding for line '+(inds[1]+1);
+  } else if(ms < R[1][0]){
     x=-1;y=ky2;event='At second readout start · ky line '+(inds[1]+1);
-  } else if(ms <= 172){
-    const u=(ms-148)/24;x=lerp(-1,1,u);y=ky2;adc=true;event=Math.abs(ms-160)<0.7?'Echo 2 · ky line '+(inds[1]+1):'ADC 2 ON · ky line '+(inds[1]+1);
-  } else if(ms < 180){
+  } else if(ms <= R[1][1]){
+    const u=(ms-R[1][0])/(R[1][1]-R[1][0]);x=lerp(-1,1,u);y=ky2;adc=true;event=Math.abs(ms-multiEchoCenters()[1])<0.7?'Echo 2 · ky line '+(inds[1]+1):'ADC 2 ON · ky line '+(inds[1]+1);
+  } else if(ms < meAt(1,20)){
     x=1;y=ky2;event='Second readout complete';
-  } else if(ms < 188){
-    x=1;y=lerp(ky2,0,(ms-180)/8);event='Gy rewind from line '+(inds[1]+1)+' to ky = 0';
-  } else if(ms < 197){
+  } else if(ms < meAt(1,28)){
+    x=1;y=lerp(ky2,0,(ms-meAt(1,20))/(8*g));event='Gy rewind from line '+(inds[1]+1)+' to ky = 0';
+  } else if(ms < RF1[2]-3){
     x=1;y=0;event='Between echoes';
-  } else if(ms < 200){
-    x=1;y=0;z=lerp(0,0.45,(ms-197)/3);event='Third 180° sinc RF + slice selection';
-  } else if(ms < 203){
-    x=-1;y=0;z=lerp(-0.45,0,(ms-200)/3);event='180° RF: k → −k';
-  } else if(ms < 208){
+  } else if(ms < RF1[2]){
+    x=1;y=0;z=lerp(0,0.45,(ms-(RF1[2]-3))/3);event='Third 180° sinc RF + slice selection';
+  } else if(ms < RF1[2]+3){
+    x=-1;y=0;z=lerp(-0.45,0,(ms-RF1[2])/3);event='180° RF: k → −k';
+  } else if(ms < meAt(2,-32)){
     x=-1;y=0;event='Post-refocusing evolution';
-  } else if(ms < 216){
-    x=-1;y=lerp(0,ky3,(ms-208)/8);event='Gy phase encoding for line '+(inds[2]+1);
-  } else if(ms < 228){
+  } else if(ms < meAt(2,-24)){
+    x=-1;y=lerp(0,ky3,(ms-meAt(2,-32))/(8*g));event='Gy phase encoding for line '+(inds[2]+1);
+  } else if(ms < R[2][0]){
     x=-1;y=ky3;event='At third readout start · ky line '+(inds[2]+1);
-  } else if(ms <= 252){
-    const u=(ms-228)/24;x=lerp(-1,1,u);y=ky3;adc=true;event=Math.abs(ms-240)<0.7?'Echo 3 · ky line '+(inds[2]+1):'ADC 3 ON · ky line '+(inds[2]+1);
+  } else if(ms <= R[2][1]){
+    const u=(ms-R[2][0])/(R[2][1]-R[2][0]);x=lerp(-1,1,u);y=ky3;adc=true;event=Math.abs(ms-multiEchoCenters()[2])<0.7?'Echo 3 · ky line '+(inds[2]+1):'ADC 3 ON · ky line '+(inds[2]+1);
   } else {
     x=1;y=ky3;visible=signalAlpha>0.001;event=ms<=tm.holdEnd?'Third readout complete — signal lingers':'Signal fading before next shot';
   }
@@ -613,6 +964,8 @@ function stateAt(ms,s=shot){
   if(mode==='multiEcho') return multiEchoStateAt(ms,s);
   const tm=acquisitionTiming();
   const start=acquisitionStart(s);
+  const sz=start.z||0;   // partition prewinder; zero for the 2D trajectories
+  const pre=prewinderSpan(s);
   let x=0,y=0,z=0,event='Before excitation',adc=false,visible=true,signalAlpha=signalAlphaAt(ms);
 
   if(ms < RF90){
@@ -623,51 +976,56 @@ function stateAt(ms,s=shot){
   } else if(ms < 17){
     z=lerp(0.50,0,(ms-14)/3);
     event='Slice-select rephasing';
-  } else if(prewindTiming==='before' && ms < 24){
+  } else if(prewindTiming==='before' && ms < pre.a){
     event='Free evolution';
-  } else if(prewindTiming==='before' && ms < 32){
-    x=lerp(0,-start.x,(ms-24)/8);
-    y=lerp(0,-start.y,(ms-24)/8);
-    event=(Math.abs(start.x)+Math.abs(start.y))<1e-6?'No x/y prewinder needed':'x/y prewinders before 180°';
-  } else if(ms < 34){
-    if(prewindTiming==='before'){ x=-start.x; y=-start.y; }
+  } else if(prewindTiming==='before' && ms < pre.b){
+    const f=pre.dur>0?(ms-pre.a)/pre.dur:1;
+    x=lerp(0,-start.x,f);
+    y=lerp(0,-start.y,f);
+    z=lerp(0,-sz,f);
+    event=(Math.abs(start.x)+Math.abs(start.y)+Math.abs(sz))<1e-6?'No prewinder needed':'Prewinders before 180°';
+  } else if(ms < rf180Ms()-3){
+    if(prewindTiming==='before' && ms>=pre.b){ x=-start.x; y=-start.y; z=-sz; }
     event='Free evolution';
-  } else if(ms < RF180){
+  } else if(ms < rf180Ms()){
     if(prewindTiming==='before'){ x=-start.x; y=-start.y; }
-    z=lerp(0,0.45,(ms-34)/(RF180-34));
+    z=(prewindTiming==='before'?-sz:0)+lerp(0,0.45,(ms-(rf180Ms()-3))/3);
     event='180° sinc RF + slice selection';
-  } else if(ms < 40){
+  } else if(ms < rf180Ms()+3){
     if(prewindTiming==='before'){ x=start.x; y=start.y; }
-    z=lerp(-0.45,0,(ms-RF180)/(40-RF180));
+    z=(prewindTiming==='before'?sz:0)+lerp(-0.45,0,(ms-rf180Ms())/3);
     event='180° RF: k → −k';
-  } else if(prewindTiming==='after' && ms < 48){
+  } else if(prewindTiming==='after' && ms < pre.a){
     event='Post-refocusing evolution';
-  } else if(prewindTiming==='after' && ms < 56){
-    x=lerp(0,start.x,(ms-48)/8);
-    y=lerp(0,start.y,(ms-48)/8);
-    event=(Math.abs(start.x)+Math.abs(start.y))<1e-6?'No x/y prewinder needed':'x/y prewinders after 180°';
+  } else if(prewindTiming==='after' && ms < pre.b){
+    const f=pre.dur>0?(ms-pre.a)/pre.dur:1;
+    x=lerp(0,start.x,f);
+    y=lerp(0,start.y,f);
+    z=lerp(0,sz,f);
+    event=(Math.abs(start.x)+Math.abs(start.y)+Math.abs(sz))<1e-6?'No prewinder needed':'Prewinders after 180°';
   } else if(ms < tm.start){
-    x=start.x; y=start.y;
+    x=start.x; y=start.y; z=sz;
     event=(mode==='spiral' || mode==='segSpiral')?'Waiting for spin echo at k = 0':'At acquisition start';
   } else if(ms <= tm.end){
     const a=acquisitionPathAt((ms-tm.start)/(tm.end-tm.start),s);
-    x=a.x;y=a.y;z=0;adc=a.adc;event=a.event;
-    if(mode==='line' && Math.abs(ms-TE)<0.7) event='Spin echo / kx = 0';
-    if((mode==='spiral' || mode==='segSpiral') && Math.abs(ms-TE)<0.7) event='Spin echo / spiral starts at k = 0';
+    x=a.x;y=a.y;z=a.z||0;adc=a.adc;event=a.event;
+    if(mode==='line' && Math.abs(ms-teMs())<0.7) event='Spin echo / kx = 0';
+    if((mode==='spiral' || mode==='segSpiral') && Math.abs(ms-teMs())<0.7) event='Spin echo / spiral starts at k = 0';
   } else {
     const a=finalAcquisitionPoint(s);
-    x=a.x;y=a.y;z=0;
+    x=a.x;y=a.y;z=a.z||0;
     visible=signalAlpha>0.001;
     event = ms <= tm.holdEnd ? 'Readout complete — signal lingers' : 'Signal fading before next shot';
   }
   return {x,y,z,event,adc,visible,signalAlpha};
 }
 
-function sampleListForShot(s){
+function sampleListForShot(s){ return memo('samples:'+s, ()=>sampleListRaw(s)); }
+function sampleListRaw(s){
   const out=[];
   if(mode==='multiEcho'){
     const inds=multiEchoLineIndicesForShot(s),tm=acquisitionTiming();
-    MULTI_READOUTS.forEach(([a,b],echo)=>{
+    multiReadouts().forEach(([a,b],echo)=>{
       const ky=kyForLine(inds[echo]);
       for(let i=0;i<nLines;i++){
         const v=nLines===1?0:i/(nLines-1),ms=lerp(a,b,v),u=(ms-tm.start)/(tm.end-tm.start);
@@ -686,8 +1044,23 @@ function sampleListForShot(s){
   if(mode==='spiral' || mode==='segSpiral'){
     const N=spiralSampleCount();
     for(let i=0;i<N;i++){
-      const u=i/(N-1),p=spiralPathAt(u,s);
-      out.push({u,x:p.x,y:p.y,z:0});
+      /* samples are evenly spaced along the path, so they are unevenly spaced
+         in time: dense through the slow centre, sparser further out */
+      const up=i/(N-1), p=spiralPathAt(spiralTimeFrac(up),s);
+      out.push({u:spiralTimeFrac(up),x:p.x,y:p.y,z:0});
+    }
+    return out;
+  }
+  if(mode==='evi'){
+    const U=eviUnits();
+    for(let q=0;q<U;q++){
+      const {part,line}=eviUnitIndex(q);
+      const readFrac=q===U-1?1:0.82;
+      for(let i=0;i<nLines;i++){
+        const v=nLines===1?0:i/(nLines-1);
+        const x=q%2===0?kxForSample(i):-kxForSample(i);
+        out.push({u:(q+v*readFrac)/U, x, y:eviKy(line), z:eviKz(part)});
+      }
     }
     return out;
   }
@@ -719,6 +1092,126 @@ function sampleListForShot(s){
   return out;
 }
 
+/* ------------------------------------------------------------ reconstruction
+   A small numerical phantom is transformed once per acquisition matrix. Each
+   ADC sample marks its nearest cell of that k-space, everything unmeasured is
+   left at zero, and the inverse transform of the result is drawn as an inset.
+   That is a deliberately literal picture of zero-filled reconstruction: the
+   centre lines set the contrast, the outer lines the detail, and gaps in the
+   coverage show up as the aliasing they really cause.
+
+   The transform is a plain centred DFT rather than an FFT: the matrix follows
+   the resolution slider and need not be a power of two, and at these sizes the
+   cost is a fraction of a frame. */
+const RECON = {key:'', nx:0, ny:0, nz:0, re:null, im:null, tabX:null, tabY:null, tabZ:null,
+               img:null, canvas:null, lastBuild:0, mask:null};
+
+function reconDims(){
+  const nx=nLines;
+  const ny=mode==='evi' ? eviLineCount() : nLines;
+  const nz=mode==='evi' ? EVI_PARTITIONS : 1;
+  return {nx,ny,nz};
+}
+function dftTable(N,sign){
+  /* T[u*N+x] as cos/sin pairs of exp(sign*2*pi*i*(u-c)(x-c)/N), c=(N-1)/2 */
+  const c=(N-1)/2, cos=new Float64Array(N*N), sin=new Float64Array(N*N);
+  for(let u=0;u<N;u++) for(let x=0;x<N;x++){
+    const ph=sign*2*Math.PI*(u-c)*(x-c)/N;
+    cos[u*N+x]=Math.cos(ph); sin[u*N+x]=Math.sin(ph);
+  }
+  return {cos,sin,N};
+}
+function phantomValue(x,y,z){
+  /* Shepp-Logan-like ellipses in [-1,1]^2; the small inclusion moves with the
+     partition so the third dimension carries real information. */
+  const dz = z*0.10;
+  const E=[[0,0,.70,.90,0,1.00],[0,-.0184,.66,.87,0,-.72],
+           [.22,0,.11,.31,-18,-.30],[-.22,0,.16,.41,18,-.30],
+           [0,.35,.21,.25,0,.28],[0,.10,.046,.046,0,.28],
+           [0,-.10,.046,.046,0,.28],[-.08,-.605,.046,.023,0,.28],
+           [0,-.605,.023,.023,0,.28],[.06,-.605,.023,.046,0,.28],
+           [.35+dz,-.25,.06,.06,0,.55]];
+  let v=0;
+  for(const [cx,cy,a,bb,ang,amp] of E){
+    const th=ang*Math.PI/180, dx=x-cx, dy=y-cy;
+    const u=dx*Math.cos(th)+dy*Math.sin(th), w=-dx*Math.sin(th)+dy*Math.cos(th);
+    if((u*u)/(a*a)+(w*w)/(bb*bb)<=1) v+=amp;
+  }
+  return Math.max(0,v);
+}
+function dft1(reIn,imIn,reOut,imOut,count,N,stride,base,tab){
+  for(let s=0;s<count;s++){
+    const off=base(s);
+    for(let u=0;u<N;u++){
+      let sr=0,si=0;
+      for(let x=0;x<N;x++){
+        const i=off+x*stride, cr=tab.cos[u*N+x], ci=tab.sin[u*N+x];
+        sr+=reIn[i]*cr-imIn[i]*ci; si+=reIn[i]*ci+imIn[i]*cr;
+      }
+      const j=off+u*stride; reOut[j]=sr; imOut[j]=si;
+    }
+  }
+}
+function transform3(re,im,nx,ny,nz,tabX,tabY,tabZ){
+  const n=nx*ny*nz;
+  let ra=re, ia=im, rb=new Float64Array(n), ib=new Float64Array(n);
+  const idx=(x,y,z)=>x+nx*(y+ny*z);
+  dft1(ra,ia,rb,ib,ny*nz,nx,1,s=>idx(0,s%ny,Math.floor(s/ny)),tabX);
+  dft1(rb,ib,ra,ia,nx*nz,ny,nx,s=>idx(s%nx,0,Math.floor(s/nx)),tabY);
+  if(nz>1){ dft1(ra,ia,rb,ib,nx*ny,nz,nx*ny,s=>s,tabZ); return {re:rb,im:ib}; }
+  return {re:ra,im:ia};
+}
+function buildPhantomK(){
+  const {nx,ny,nz}=reconDims();
+  const key=nx+'x'+ny+'x'+nz;
+  if(RECON.key===key) return;
+  const n=nx*ny*nz, re=new Float64Array(n), im=new Float64Array(n);
+  for(let z=0;z<nz;z++) for(let y=0;y<ny;y++) for(let x=0;x<nx;x++){
+    const px=nx>1?-1+2*x/(nx-1):0, py=ny>1?-1+2*y/(ny-1):0, pz=nz>1?-1+2*z/(nz-1):0;
+    re[x+nx*(y+ny*z)]=phantomValue(px*1.05,py*1.05,pz);
+  }
+  const tabX=dftTable(nx,-1), tabY=dftTable(ny,-1), tabZ=nz>1?dftTable(nz,-1):null;
+  const K=transform3(re,im,nx,ny,nz,tabX,tabY,tabZ);
+  RECON.key=key; RECON.nx=nx; RECON.ny=ny; RECON.nz=nz;
+  RECON.re=K.re; RECON.im=K.im;
+  RECON.tabX=dftTable(nx,1); RECON.tabY=dftTable(ny,1); RECON.tabZ=nz>1?dftTable(nz,1):null;
+  RECON.mask=new Uint8Array(nx*ny*nz);
+  RECON.img=null;
+}
+/* The mask keeps every shot that has already been played, plus the samples
+   measured so far in the current one, so a segmented acquisition builds its
+   image up shot by shot exactly as the scanner does. */
+function reconstruct(sampleLists){
+  buildPhantomK();
+  const {nx,ny,nz}=RECON, n=nx*ny*nz;
+  const mask=RECON.mask; mask.fill(0);
+  const gi=(v,N)=>N<2?0:clamp(Math.round((v+1)/2*(N-1)),0,N-1);
+  for(const list of sampleLists)
+    for(const sm of list)
+      mask[gi(sm.x,nx)+nx*(gi(sm.y,ny)+ny*gi(sm.z||0,nz))]=1;
+  const re=new Float64Array(n), im=new Float64Array(n);
+  for(let i=0;i<n;i++) if(mask[i]){ re[i]=RECON.re[i]; im[i]=RECON.im[i]; }
+  const I=transform3(re,im,nx,ny,nz,RECON.tabX,RECON.tabY,RECON.tabZ);
+  const zc=nz>1?Math.floor(nz/2):0;
+  const out=new Float64Array(nx*ny);
+  let max=1e-9;
+  for(let y=0;y<ny;y++) for(let x=0;x<nx;x++){
+    const i=x+nx*(y+ny*zc), m=Math.hypot(I.re[i],I.im[i]);
+    out[x+nx*y]=m; if(m>max) max=m;
+  }
+  if(!RECON.canvas){ RECON.canvas=document.createElement('canvas'); }
+  RECON.canvas.width=nx; RECON.canvas.height=ny;
+  const ctx=RECON.canvas.getContext('2d');
+  const img=ctx.createImageData(nx,ny);
+  for(let y=0;y<ny;y++) for(let x=0;x<nx;x++){
+    const v=Math.round(255*clamp(out[x+nx*y]/max,0,1));
+    const o=4*(x+nx*(ny-1-y));
+    img.data[o]=v; img.data[o+1]=v; img.data[o+2]=v; img.data[o+3]=255;
+  }
+  ctx.putImageData(img,0,0);
+  RECON.img=RECON.canvas;
+}
+
 function resizeCanvas(canvas){
   const r=canvas.getBoundingClientRect();
   const d=Math.min(window.devicePixelRatio||1,2);
@@ -736,7 +1229,9 @@ function rotatePoint(p){
   return {x:x1,y:y1,z:z2};
 }
 function projector(w,h){
-  const scale=Math.min(w,h)*0.28;
+  /* Scaled so the largest acquisition matrix still fits: the frame is fixed and
+     the sampled block grows inside it as samples are added. */
+  const scale=Math.min(w,h)*0.40/K_VIEW_MAX;
   const cx=w*0.52, cy=h*0.53;
   return p=>{ const q=rotatePoint(p); return {x:cx+q.x*scale,y:cy-q.y*scale,z:q.z}; };
 }
@@ -749,27 +1244,42 @@ function drawKspace(){
   const {w,h,d}=resizeCanvas(K); kctx.setTransform(d,0,0,d,0,0); kctx.clearRect(0,0,w,h);
   const proj=projector(w,h);
 
-  for(let i=-4;i<=4;i++){
-    const u=i/4;
-    line3(kctx,proj,{x:-1.15,y:u,z:0},{x:1.15,y:u,z:0},c('--line-strong'),1,i===0?.55:.28);
-    line3(kctx,proj,{x:u,y:-1.15,z:0},{x:u,y:1.15,z:0},c('--line-strong'),1,i===0?.55:.28);
+  /* Data points live in ±1 model coordinates; the view stretches them to the
+     extent the current number of samples buys at fixed Δk. */
+  const ex=kExtentX(), ey=kExtentY(), ez=kExtentZ();
+  const projK=p=>proj({x:p.x*ex, y:p.y*ey, z:(p.z||0)*ez});
+
+  /* Background grid at a FIXED Δk (a line every 4 samples), spanning the
+     largest matrix the slider allows, so the spacing never changes and only the
+     sampled block grows. */
+  const dk=2/(K_REF_LINES-1), step=dk*4, lim=K_VIEW_MAX;
+  for(let v=-lim;v<=lim+1e-9;v+=step){
+    const u=Math.abs(v)<1e-9?0:v;
+    line3(kctx,proj,{x:-lim,y:u,z:0},{x:lim,y:u,z:0},c('--line-strong'),1,Math.abs(u)<1e-9?.5:.22);
+    line3(kctx,proj,{x:u,y:-lim,z:0},{x:u,y:lim,z:0},c('--line-strong'),1,Math.abs(u)<1e-9?.5:.22);
   }
-  line3(kctx,proj,{x:-1.35,y:0,z:0},{x:1.45,y:0,z:0},c('--kx'),1.8,.9);
-  line3(kctx,proj,{x:0,y:-1.35,z:0},{x:0,y:1.45,z:0},c('--ky'),1.8,.9);
+  line3(kctx,proj,{x:-lim-.18,y:0,z:0},{x:lim+.28,y:0,z:0},c('--kx'),1.8,.9);
+  line3(kctx,proj,{x:0,y:-lim-.18,z:0},{x:0,y:lim+.28,z:0},c('--ky'),1.8,.9);
   line3(kctx,proj,{x:0,y:0,z:-1.05},{x:0,y:0,z:1.15},c('--kz'),1.8,.9);
 
   kctx.font='600 12px ui-monospace, Menlo, Consolas, monospace';
-  let p=proj({x:1.52,y:0,z:0});kctx.fillStyle=c('--kx');kctx.fillText('kx',p.x,p.y);
-  p=proj({x:0,y:1.52,z:0});kctx.fillStyle=c('--ky');kctx.fillText('ky',p.x,p.y);
+  let p=proj({x:lim+.36,y:0,z:0});kctx.fillStyle=c('--kx');kctx.fillText('kx',p.x,p.y);
+  p=proj({x:0,y:lim+.36,z:0});kctx.fillStyle=c('--ky');kctx.fillText('ky',p.x,p.y);
   p=proj({x:0,y:0,z:1.22});kctx.fillStyle=c('--kz');kctx.fillText('kz',p.x,p.y);
 
-  for(let s=0;s<shot;s++){
-    const samples=sampleListForShot(s);
-    for(const sm of samples){
-      const q=proj(sm);
-      circle(kctx,q,2.35,ca('--sample-rgb',.13),ca('--sample-rgb',.46),.8,1);
-    }
+  /* Sample dots are drawn as one batched path per style: a 3D volume carries
+     thousands of them, and a save/restore per dot is what would cost. */
+  function dots(list,r,fill,stroke,lw){
+    if(!list.length) return;
+    kctx.save(); kctx.beginPath();
+    for(const sm of list){ const q=projK(sm); kctx.moveTo(q.x+r,q.y); kctx.arc(q.x,q.y,r,0,Math.PI*2); }
+    if(fill){ kctx.fillStyle=fill; kctx.fill(); }
+    if(stroke){ kctx.strokeStyle=stroke; kctx.lineWidth=lw; kctx.stroke(); }
+    kctx.restore();
   }
+
+  for(let s=0;s<shot;s++)
+    dots(sampleListForShot(s),2.35,ca('--sample-rgb',.13),ca('--sample-rgb',.46),.8);
 
   // The visible trajectory is sampled independently of the animation frame rate.
   // Fast readouts need much finer temporal sampling than the slow preparation periods;
@@ -780,11 +1290,15 @@ function drawKspace(){
     if(!inReadout) return 0.12;
     if(mode==='epi' || mode==='segKx'){
       // Aim for ~28 vertices per EPI readout+blip unit even at 64 phase steps.
-      return clamp((tm.end-tm.start)/(Math.max(1,nLines)*28),0.010,0.050);
+      return clamp((tm.end-tm.start)/(Math.max(1,nLines)*28),0.010,0.30);
+    }
+    if(mode==='evi'){
+      // ~24 vertices per kx line so the volume path keeps its corners.
+      return clamp((tm.end-tm.start)/(Math.max(1,eviUnits())*24),0.010,0.30);
     }
     if(mode==='propeller'){
       // ~28 vertices per blade line, as for EPI, so the blade corners stay sharp.
-      return clamp((tm.end-tm.start)/(Math.max(1,bladeLineCount())*28),0.010,0.050);
+      return clamp((tm.end-tm.start)/(Math.max(1,bladeLineCount())*28),0.010,0.30);
     }
     if(mode==='spiral' || mode==='segSpiral'){
       // Keep many vertices around each turn so the spiral stays visually smooth.
@@ -801,26 +1315,31 @@ function drawKspace(){
     kctx.strokeStyle=c('--trace');kctx.lineWidth=2.1;kctx.globalAlpha=.72;
     kctx.lineJoin='round';kctx.lineCap='round';kctx.beginPath();
     while(ms < b-1e-7){
-      const st=stateAt(ms);const q=proj(st);
+      const st=stateAt(ms);const q=projK(st);
       if(first){kctx.moveTo(q.x,q.y);first=false;}else{kctx.lineTo(q.x,q.y);}
       ms=Math.min(b,ms+trajectoryTraceStep(ms));
     }
-    const end=proj(stateAt(b));
+    const end=projK(stateAt(b));
     if(first) kctx.moveTo(end.x,end.y); else kctx.lineTo(end.x,end.y);
     kctx.stroke();kctx.restore();
   }
-  const invTimes = mode==='multiEcho' ? MULTI_RF180_CENTERS : [RF180];
-  let segStart=0;
-  for(const inv of invTimes){
-    if(t<=inv){ drawTrajectorySegment(segStart,t); segStart=null; break; }
-    drawTrajectorySegment(segStart,inv-0.02); segStart=inv+0.02;
+  /* Once the acquisition is complete the trace is taken away first, and the
+     highlight of every measured point fades in after it, so the two cues do
+     not compete for attention. */
+  const invTimes = mode==='multiEcho' ? multiRf180Centers() : [rf180Ms()];
+  if(!completionActive){
+    let segStart=0;
+    for(const inv of invTimes){
+      if(t<=inv){ drawTrajectorySegment(segStart,t); segStart=null; break; }
+      drawTrajectorySegment(segStart,inv-0.02); segStart=inv+0.02;
+    }
+    if(segStart!==null && t>segStart) drawTrajectorySegment(segStart,t);
   }
-  if(segStart!==null && t>segStart) drawTrajectorySegment(segStart,t);
 
   function drawInversionArc(inv){
     if(t<inv) return;
-    const pre=proj(stateAt(inv-0.02));
-    const post=proj(stateAt(inv+0.02));
+    const pre=projK(stateAt(inv-0.02));
+    const post=projK(stateAt(inv+0.02));
     const dx=post.x-pre.x, dy=post.y-pre.y;
     const segLen=Math.max(1,Math.hypot(dx,dy));
     const nx=-dy/segLen, ny=dx/segLen;
@@ -834,32 +1353,29 @@ function drawKspace(){
     kctx.fillStyle=c('--kz');kctx.beginPath();kctx.moveTo(post.x,post.y);kctx.lineTo(post.x-ux*ah+ax*ah*.52,post.y-uy*ah+ay*ah*.52);kctx.lineTo(post.x-ux*ah-ax*ah*.52,post.y-uy*ah-ay*ah*.52);kctx.closePath();kctx.fill();kctx.restore();
     circle(kctx,pre,4,c('--kz'));circle(kctx,post,4,c('--kz'));
   }
-  invTimes.forEach(drawInversionArc);
+  if(!completionActive) invTimes.forEach(drawInversionArc);
 
   const tm=acquisitionTiming();
   const samples=sampleListForShot(shot);
-  let acquired=0;
+  const doneList=[], pendingList=[];
   for(const sm of samples){
     const sampleT=sm.ms ?? (tm.start+sm.u*(tm.end-tm.start));
-    const done=t>=sampleT;
-    if(done) acquired++;
-    const q=proj(sm);
-    circle(kctx,q,done?2.8:1.8,done?ca('--sample-rgb',.17):ca('--mute-rgb',.08),done?ca('--sample-rgb',.72):ca('--mute-rgb',.20),done?1:.55,1);
+    (t>=sampleT ? doneList : pendingList).push(sm);
   }
+  const acquired=doneList.length;
+  dots(pendingList,1.8,ca('--mute-rgb',.08),ca('--mute-rgb',.20),.55);
+  dots(doneList,2.8,ca('--sample-rgb',.17),ca('--sample-rgb',.72),1);
 
   // Completion cue: keep the fully sampled k-space visible and give all measured
   // points a soft, breathing green halo before the acquisition loops back to shot 1.
   if(completionActive){
-    const pulse=0.5+0.5*Math.sin(completionElapsed*Math.PI*4);
+    const fade=clamp((completionElapsed-COMPLETION_TRACE_CLEAR)/0.35,0,1);
+    const pulse=0.5+0.5*Math.sin((completionElapsed-COMPLETION_TRACE_CLEAR)*Math.PI*4);
     const r=4.0+1.8*pulse;
-    const fillA=0.035+0.055*pulse;
-    const strokeA=0.16+0.22*pulse;
-    for(let ss=0;ss<shotCount();ss++){
-      for(const sm of sampleListForShot(ss)){
-        const q=proj(sm);
-        circle(kctx,q,r,ca('--sample-rgb',fillA),ca('--sample-rgb',strokeA),1.1,1);
-      }
-    }
+    const fillA=(0.035+0.055*pulse)*fade;
+    const strokeA=(0.16+0.22*pulse)*fade;
+    for(let ss=0;ss<shotCount();ss++)
+      dots(sampleListForShot(ss),r,ca('--sample-rgb',fillA),ca('--sample-rgb',strokeA),1.1);
   }
 
   // Outline of the blade being acquired, so the rotation between shots is visible.
@@ -870,7 +1386,7 @@ function drawKspace(){
     const corners=[{x:-1,y:yLo,z:0},{x:1,y:yLo,z:0},{x:1,y:yHi,z:0},{x:-1,y:yHi,z:0}]
       .map(p=>rotateInPlane(p,th));
     for(let i=0;i<4;i++)
-      line3(kctx,proj,corners[i],corners[(i+1)%4],c('--sample'),1.2,.5,[4,4]);
+      line3(kctx,projK,corners[i],corners[(i+1)%4],c('--sample'),1.2,.5,[4,4]);
   }
 
   const center=proj({x:0,y:0,z:0});
@@ -878,10 +1394,39 @@ function drawKspace(){
 
   const st=stateAt(t);
   if(st.visible && st.signalAlpha>0){
-    const cur=proj(st),a=st.signalAlpha;
+    const cur=projK(st),a=st.signalAlpha;
     circle(kctx,cur,11,null,ca('--current-rgb',.38),2,a);
     circle(kctx,cur,5.3,c('--ky'),c('--marker-ring'),1,a);
   }
+  /* Inset: the image as it stands from the samples measured so far. */
+  if(showRecon){
+    const now=performance.now();
+    if(!RECON.img || now-RECON.lastBuild>90 || reconDims().nx+'x'+reconDims().ny+'x'+reconDims().nz!==RECON.key){
+      const lists=[];
+      for(let s=0;s<shot;s++) lists.push(sampleListForShot(s));   // shots already played
+      lists.push(completionActive ? sampleListForShot(shot) : doneList);
+      reconstruct(lists); RECON.lastBuild=now;
+    }
+    if(RECON.img){
+      /* The field of view is the same on both axes — fewer samples along an
+         axis means bigger pixels, not a smaller picture — so the inset stays
+         square whatever the matrix. */
+      const box=Math.min(168,Math.max(110,Math.min(w,h)*0.30));
+      const iw=box, ih=box;
+      const x0=w-iw-16, y0=h-ih-30;
+      kctx.save();
+      kctx.fillStyle=c('--panel'); kctx.globalAlpha=.92;
+      kctx.fillRect(x0-6,y0-6,iw+12,ih+12+16);
+      kctx.globalAlpha=1; kctx.strokeStyle=c('--line'); kctx.lineWidth=1;
+      kctx.strokeRect(x0-6.5,y0-6.5,iw+13,ih+13+16);
+      kctx.imageSmoothingEnabled=false;
+      kctx.drawImage(RECON.img,x0,y0,iw,ih);
+      kctx.fillStyle=c('--mute'); kctx.font='10px ui-monospace, Menlo, Consolas, monospace';
+      kctx.fillText('reconstruction · '+RECON.nx+'×'+RECON.ny+(RECON.nz>1?' · slice '+(Math.floor(RECON.nz/2)+1)+'/'+RECON.nz:''), x0-3, y0+ih+14);
+      kctx.restore();
+    }
+  }
+
   ui.sampleStat.textContent=acquired+' / '+samples.length;
 }
 
@@ -889,11 +1434,14 @@ function drawSequence(){
   const {w,h,d}=resizeCanvas(S); sctx.setTransform(d,0,0,d,0,0); sctx.clearRect(0,0,w,h);
   const tm=acquisitionTiming();
   const DURATION=tm.duration;
-  const left=92,right=w-18,top=34,bottom=h-28,rowH=(bottom-top)/3;
+  const left=92,right=w-18,top=34,bottom=h-28;
   const X=ms=>left+(ms/DURATION)*(right-left);
   const rows = mode==='propeller'
     ? ['RF / Gslice / ADC',"Gy'  blade phase","Gx'  blade read"]
+    : mode==='evi'
+    ? ['RF / Gslab / ADC','Gy  phase','Gx  frequency','Gz  partition']
     : ['RF / Gslice / ADC','Gy  phase','Gx  frequency'];
+  const rowH=(bottom-top)/rows.length;
   sctx.font='11px ui-monospace, Menlo, Consolas, monospace';
   rows.forEach((name,i)=>{const y=top+i*rowH+rowH/2;sctx.fillStyle=c('--mute');sctx.fillText(name,10,y+4);sctx.strokeStyle=c('--line');sctx.lineWidth=1;sctx.beginPath();sctx.moveTo(left,y+.5);sctx.lineTo(right,y+.5);sctx.stroke();});
 
@@ -925,35 +1473,45 @@ function drawSequence(){
   rectLobe(0,8,14,1,c('--kz'),.24);
   rectLobe(0,14,17,-1,c('--kz'),.24);
   if(mode==='multiEcho'){
-    MULTI_RF180_CENTERS.forEach((center,i)=>{rfSinc(center,center-3,center+3,1.10,'180°');rectLobe(0,center-3,center+3,1,c('--kz'),.24);});
+    multiRf180Centers().forEach((center,i)=>{rfSinc(center,center-3,center+3,1.10,'180°');rectLobe(0,center-3,center+3,1,c('--kz'),.24);});
   }else{
-    rfSinc(RF180,34,40,1.10,'180°');
-    rectLobe(0,34,40,1,c('--kz'),.24);
+    rfSinc(rf180Ms(),rf180Ms()-3,rf180Ms()+3,1.10,'180°');
+    rectLobe(0,rf180Ms()-3,rf180Ms()+3,1,c('--kz'),.24);
   }
 
-  const preA=prewindTiming==='before'?24:48;
-  const preB=prewindTiming==='before'?32:56;
+  /* PROPELLER: the blade-frame waveforms are collected as they are drawn, so
+     the physical Gx and Gy can be shown underneath as the rotated mix. */
+  const bladeSegs={read:[],phase:[]};
+
+  const pre=prewinderSpan(shot);
+  const preA=pre.a, preB=pre.b;
+  const ex=kExtentX(), ey=kExtentY();
+  /* Every prewinder lobe is drawn at the amplitude its area demands, so it can
+     be compared with the readout lobes by eye. */
+  const preAmp=(kNorm,extent)=>gradAmp(Math.abs(kNorm)*extent,pre.dur)*Math.sign(kNorm||1);
   const sign=prewindTiming==='before'?-1:1;
   const start=acquisitionStart(shot);
 
   if(mode==='multiEcho'){
     const meLines=multiEchoLineIndicesForShot(shot);
     const meKy=meLines.map(kyForLine);
-    for(let s=0;s<nLines;s++) rectLobe(1,preA,preB,sign*kyForLine(s),c('--phase-ghost'),.34,.48);
-    rectLobe(1,preA,preB,sign*meKy[0],c('--ky'),.34,1);
-    rectLobe(2,preA,preB,sign*start.x,c('--kx'),.34,1);
-    MULTI_READOUTS.forEach(([a,b])=>{rectLobe(2,a,b,1,c('--kx'),.34,1);adcBar(a,b);});
+    for(let s=0;s<nLines;s++) rectLobe(1,preA,preB,sign*preAmp(kyForLine(s),ey),c('--phase-ghost'),.34,.48);
+    rectLobe(1,preA,preB,sign*preAmp(meKy[0],ey),c('--ky'),.34,1);
+    rectLobe(2,preA,preB,sign*preAmp(start.x,ex),c('--kx'),.34,1);
+    multiReadouts().forEach(([a,b])=>{rectLobe(2,a,b,1,c('--kx'),.34,1);adcBar(a,b);});
     // Rewind each phase step to ky = 0, then apply a different phase encode for the next echo.
-    rectLobe(1,100,108,-meKy[0],c('--ky'),.34,1);
-    rectLobe(1,180,188,-meKy[1],c('--ky'),.34,1);
-    [[128,meKy[1]],[208,meKy[2]]].forEach(([a,activeKy])=>{
-      for(let s=0;s<nLines;s++) rectLobe(1,a,a+8,kyForLine(s),c('--phase-ghost'),.34,.40);
-      rectLobe(1,a,a+8,activeKy,c('--ky'),.34,1);
+    const reAmp=k=>gradAmp(Math.abs(k)*ey,8)*Math.sign(k||1);
+    const g=multiEchoGap();
+    rectLobe(1,meAt(0,20),meAt(0,28),reAmp(-meKy[0]),c('--ky'),.34,1);
+    rectLobe(1,meAt(1,20),meAt(1,28),reAmp(-meKy[1]),c('--ky'),.34,1);
+    [[meAt(1,-32),meKy[1]],[meAt(2,-32),meKy[2]]].forEach(([a,activeKy])=>{
+      for(let s=0;s<nLines;s++) rectLobe(1,a,a+8*g,reAmp(kyForLine(s)),c('--phase-ghost'),.34,.40);
+      rectLobe(1,a,a+8*g,reAmp(activeKy),c('--ky'),.34,1);
     });
   } else if(mode==='line'){
-    for(let s=0;s<nLines;s++) rectLobe(1,preA,preB,sign*kyForLine(s),c('--phase-ghost'),.34,.48);
-    rectLobe(1,preA,preB,sign*start.y,c('--ky'),.34,1);
-    rectLobe(2,preA,preB,sign*start.x,c('--kx'),.34,1);
+    for(let s=0;s<nLines;s++) rectLobe(1,preA,preB,sign*preAmp(kyForLine(s),ey),c('--phase-ghost'),.34,.48);
+    rectLobe(1,preA,preB,sign*preAmp(start.y,ey),c('--ky'),.34,1);
+    rectLobe(2,preA,preB,sign*preAmp(start.x,ex),c('--kx'),.34,1);
     rectLobe(2,tm.start,tm.end,1,c('--kx'),.34,1);
     adcBar(tm.start,tm.end);
   } else if(mode==='spiral' || mode==='segSpiral'){
@@ -972,27 +1530,35 @@ function drawSequence(){
   } else {
     if(mode==='segPhase'){
       for(let s=0;s<shotCount();s++){
-        const st=acquisitionStart(s);rectLobe(1,preA,preB,sign*st.y,c('--phase-ghost'),.34,.42);
+        const st=acquisitionStart(s);rectLobe(1,preA,preB,sign*preAmp(st.y,ey),c('--phase-ghost'),.34,.42);
       }
-      rectLobe(1,preA,preB,sign*start.y,c('--ky'),.34,1);
-      rectLobe(2,preA,preB,sign*start.x,c('--kx'),.34,1);
+      rectLobe(1,preA,preB,sign*preAmp(start.y,ey),c('--ky'),.34,1);
+      rectLobe(2,preA,preB,sign*preAmp(start.x,ex),c('--kx'),.34,1);
     } else if(mode==='epi'){
-      rectLobe(1,preA,preB,sign*start.y,c('--ky'),.34,1);
-      rectLobe(2,preA,preB,sign*start.x,c('--kx'),.34,1);
+      rectLobe(1,preA,preB,sign*preAmp(start.y,ey),c('--ky'),.34,1);
+      rectLobe(2,preA,preB,sign*preAmp(start.x,ex),c('--kx'),.34,1);
     } else if(mode==='propeller'){
       /* Drawn in the blade frame: the physical Gx and Gy are these two
-         waveforms rotated by the blade angle. */
+         waveforms rotated by the blade angle, drawn as ghosts further down. */
       const off=bladeKyOffsets();
-      rectLobe(1,preA,preB,sign*off[0],c('--ky'),.34,1);
-      rectLobe(2,preA,preB,sign*-1,c('--kx'),.34,1);
+      rectLobe(1,preA,preB,sign*preAmp(off[0],ey),c('--ky'),.34,1);
+      rectLobe(2,preA,preB,sign*preAmp(-1,ex),c('--kx'),.34,1);
+      bladeSegs.phase.push([preA,preB,sign*preAmp(off[0],ey)]);
+      bladeSegs.read.push([preA,preB,sign*preAmp(-1,ex)]);
+    } else if(mode==='evi'){
+      rectLobe(1,preA,preB,sign*preAmp(start.y,ey),c('--ky'),.34,1);
+      rectLobe(2,preA,preB,sign*preAmp(start.x,ex),c('--kx'),.34,1);
+      rectLobe(3,preA,preB,sign*preAmp(start.z,kExtentZ()),c('--kz'),.34,1);
     } else if(mode==='segKx'){
-      rectLobe(1,preA,preB,sign*start.y,c('--ky'),.34,1);
-      for(let s=0;s<KX_SEGMENTS;s++) rectLobe(2,preA,preB,sign*acquisitionStart(s).x,c('--kx-muted'),.34,.32);
-      rectLobe(2,preA,preB,sign*start.x,c('--kx'),.34,1);
+      rectLobe(1,preA,preB,sign*preAmp(start.y,ey),c('--ky'),.34,1);
+      for(let s=0;s<KX_SEGMENTS;s++) rectLobe(2,preA,preB,sign*preAmp(acquisitionStart(s).x,ex),c('--kx-muted'),.34,.32);
+      rectLobe(2,preA,preB,sign*preAmp(start.x,ex),c('--kx'),.34,1);
     }
 
     const inds=phaseLineIndicesForShot(shot);
-    const n=mode==='propeller' ? bladeLineCount() : Math.max(1,inds.length);
+    const n=mode==='propeller' ? bladeLineCount()
+          : mode==='evi' ? eviUnits()
+          : Math.max(1,inds.length);
     const block=(tm.end-tm.start)/n;
     const gScale=mode==='segKx'?0.42:1;
     for(let j=0;j<n;j++){
@@ -1002,8 +1568,67 @@ function drawSequence(){
       const dir=j%2===0?1:-1;
       rectLobe(2,a,rb,dir*gScale,c('--kx'),.34,1);
       adcBar(a,rb);
-      if(j<n-1) rectLobe(1,rb,a+block,.72,c('--ky'),.34,1);
+      const blipMs=block*(1-readFrac);
+      const blipAmp=gradAmp(2*ey/Math.max(1,(mode==='propeller'?nLines:nLines)-1),blipMs);
+      if(mode==='propeller'){
+        bladeSegs.read.push([a,rb,dir*gScale]);
+        if(j<n-1) bladeSegs.phase.push([rb,a+block,Math.max(blipAmp,.12)]);
+      }
+      if(j<n-1){
+        if(mode==='evi'){
+          /* A ky blip between lines, a kz blip when the next unit starts a new
+             partition; the ky blip then flips sign because ky reverses. */
+          const here=eviUnitIndex(j), next=eviUnitIndex(j+1);
+          if(next.part!==here.part)
+            rectLobe(3,rb,a+block,gradAmp(2*kExtentZ()/(EVI_PARTITIONS-1),blipMs),c('--kz'),.34,1);
+          else
+            rectLobe(1,rb,a+block,(next.line>here.line?1:-1)*Math.max(gradAmp(2*ey/Math.max(1,eviLineCount()-1),blipMs),.12),c('--ky'),.34,1);
+        } else {
+          rectLobe(1,rb,a+block,Math.max(blipAmp,.12),c('--ky'),.34,1);
+        }
+      }
     }
+  }
+
+  if(mode==='propeller'){
+    /* Physical gradients: the blade frame turned by the blade angle.
+         Gx = cos th * Gread - sin th * Gphase
+         Gy = sin th * Gread + cos th * Gphase
+       Drawn faint on the same rows, so the rotation of the whole gradient
+       stack between shots is visible: at blade 1 (0 deg) the ghosts sit
+       exactly on the solid blade-frame waveforms, and they separate as the
+       blades turn. */
+    const th=bladeAngle(shot), ct=Math.cos(th), st2=Math.sin(th);
+    const value=(segs,ms)=>{ for(const [a,b,amp] of segs) if(ms>=a && ms<b) return amp; return 0; };
+    const ghost=(row,fn,color)=>{
+      const y=baselineY(row), a=Math.min(preA,tm.start)-2, b=tm.end+2;
+      sctx.save(); sctx.strokeStyle=color; sctx.lineWidth=1.3; sctx.globalAlpha=.75;
+      sctx.setLineDash([3,2]); sctx.beginPath();
+      const steps=Math.max(400,Math.round((b-a)*14));
+      for(let i=0;i<=steps;i++){
+        const ms=a+(b-a)*i/steps, xx=X(ms), yy=y-fn(ms)*rowH*.34;
+        if(i===0) sctx.moveTo(xx,yy); else { sctx.lineTo(xx,yy); }
+      }
+      sctx.stroke(); sctx.restore();
+    };
+    const gr=ms=>value(bladeSegs.read,ms), gp=ms=>value(bladeSegs.phase,ms);
+    ghost(1, ms=>st2*gr(ms)+ct*gp(ms), c('--ky'));
+    ghost(2, ms=>ct*gr(ms)-st2*gp(ms), c('--kx'));
+
+    /* Small axis badge in the label gutter: the blade frame turned by th. */
+    (function(){
+      const cx=46, cy=top-14, r=9;
+      sctx.save(); sctx.translate(cx,cy); sctx.rotate(-th);
+      sctx.strokeStyle=c('--kx'); sctx.lineWidth=1.4;
+      sctx.beginPath(); sctx.moveTo(-r,0); sctx.lineTo(r,0); sctx.stroke();
+      sctx.strokeStyle=c('--ky');
+      sctx.beginPath(); sctx.moveTo(0,r); sctx.lineTo(0,-r); sctx.stroke();
+      sctx.restore();
+      sctx.save(); sctx.strokeStyle=ca('--mute-rgb',.55); sctx.lineWidth=1;
+      sctx.beginPath(); sctx.arc(cx,cy,r+3.5,-th-0.9,-th+0.9); sctx.stroke(); sctx.restore();
+      sctx.fillStyle=c('--mute'); sctx.font='10px ui-monospace, Menlo, Consolas, monospace';
+      sctx.fillText('θ = '+Math.round(th*180/Math.PI)+'°', cx+16, cy+4);
+    })();
   }
 
   const samples=sampleListForShot(shot);
@@ -1016,24 +1641,25 @@ function drawSequence(){
 
   const refLines=[];
   if(mode==='multiEcho'){
-    MULTI_RF180_CENTERS.forEach(ms=>refLines.push([ms,c('--kz'),'rf']));
-    MULTI_ECHO_CENTERS.forEach(ms=>refLines.push([ms,c('--echo'),'echo']));
+    multiRf180Centers().forEach(ms=>refLines.push([ms,c('--kz'),'rf']));
+    multiEchoCenters().forEach(ms=>refLines.push([ms,c('--echo'),'echo']));
     refLines.push([tm.start,c('--line-strong'),'edge'],[tm.end,c('--line-strong'),'edge']);
   }else{
-    refLines.push([RF180,c('--kz'),'rf'],[TE,c('--echo'),'echo'],[tm.start,c('--line-strong'),'edge'],[tm.end,c('--line-strong'),'edge']);
+    refLines.push([rf180Ms(),c('--kz'),'rf'],[teMs(),c('--echo'),'echo'],[tm.start,c('--line-strong'),'edge'],[tm.end,c('--line-strong'),'edge']);
   }
   refLines.forEach(([ms,c,kind])=>{
     sctx.strokeStyle=c;sctx.lineWidth=1;sctx.setLineDash(kind==='rf'?[4,4]:[]);sctx.beginPath();sctx.moveTo(X(ms),top-4);sctx.lineTo(X(ms),bottom);sctx.stroke();
   });sctx.setLineDash([]);
   sctx.fillStyle=c('--echo');sctx.font='600 10px ui-monospace, Menlo, Consolas, monospace';
-  if(mode==='multiEcho') MULTI_ECHO_CENTERS.forEach((ms,i)=>sctx.fillText('TE'+(i+1)+' = '+ms+' ms',X(ms)-27,top-9));
-  else sctx.fillText('TE = 80 ms',X(TE)-25,top-9);
+  if(mode==='multiEcho') multiEchoCenters().forEach((ms,i)=>sctx.fillText('TE'+(i+1)+' = '+ms.toFixed(0)+' ms',X(ms)-27,top-9));
+  else sctx.fillText('TE = '+teMs().toFixed(0)+' ms',X(teMs())-25,top-9);
 
   const st=stateAt(t),px=X(t);
   sctx.strokeStyle=c('--ky');sctx.lineWidth=2;sctx.beginPath();sctx.moveTo(px,top-16);sctx.lineTo(px,bottom+3);sctx.stroke();
   sctx.fillStyle=c('--ky');sctx.font='700 11px ui-monospace, Menlo, Consolas, monospace';
   sctx.fillText(t.toFixed(1)+' ms',clamp(px+5,left,right-52),h-7);
-  sctx.fillText('k = ('+fmt(st.x)+', '+fmt(st.y)+', '+fmt(st.z)+')',left+4,h-7);
+  sctx.fillText('k = ('+fmtK(st.x,nLines)+', '+fmtK(st.y,mode==='evi'?eviLineCount():nLines)+', '
+    +fmtK(st.z,mode==='evi'?EVI_PARTITIONS:nLines)+') Δk',left+4,h-7);
   sctx.textAlign='right';sctx.fillStyle=c('--ink');sctx.fillText(completionActive?'K-space complete':st.event,right,18);sctx.textAlign='left';
 }
 
@@ -1044,13 +1670,16 @@ function phaseSummary(){
     return {value:inds.map(i=>i+1).join(' / '),label:'ky lines at echoes 1 / 2 / 3'};
   }
   if(mode==='epi') return {value:nLines+' lines',label:'ky lines in this shot'};
+  if(mode==='evi') return {value:eviLineCount()+' ky × '+EVI_PARTITIONS+' kz',
+    label:'volume encoded in one readout'};
   if(mode==='propeller') return {value:'blade '+(shot+1)+' / '+bladeCount()+' · '+Math.round(bladeAngle()*180/Math.PI)+'\u00b0',
     label:bladeLineCount()+' lines per blade, rotated between shots'};
   if(mode==='spiral') return {value:'center-out',label:'spiral trajectory'};
   if(mode==='segSpiral') return {value:(shot+1)+' / '+SPIRAL_SEGMENTS,label:'spiral interleave'};
   if(mode==='segPhase'){
     const inds=phaseLineIndicesForShot(shot);
-    return {value:(inds[0]+1)+'–'+(inds[inds.length-1]+1),label:'phase lines this shot'};
+    return {value:(inds[0]+1)+'–'+(inds[inds.length-1]+1),
+            label:inds.length+' contiguous phase lines this shot'};
   }
   const [a,b]=kxBoundsForShot(shot);
   return {value:fmt(a)+'…'+fmt(b),label:'kx strip this shot'};
@@ -1059,16 +1688,29 @@ function phaseSummary(){
 function updateUI(){
   const st=stateAt(t),shots=shotCount(),meta=MODE_META[mode],ph=phaseSummary();
   ui.shotHud.textContent=shot+1;ui.shotsHud.textContent=shots;ui.timeHud.textContent=t.toFixed(1)+' ms';
-  ui.kxHud.textContent=fmt(st.x);ui.kyHud.textContent=fmt(st.y);ui.kzHud.textContent=fmt(st.z);ui.eventHud.textContent=completionActive?'K-space complete — acquisition finished':st.event;
+  ui.kxHud.textContent=fmtK(st.x,nLines);
+  ui.kyHud.textContent=fmtK(st.y,mode==='evi'?eviLineCount():nLines);
+  ui.kzHud.textContent=fmtK(st.z,mode==='evi'?EVI_PARTITIONS:nLines);ui.eventHud.textContent=completionActive?'K-space complete — acquisition finished':st.event;
   ui.phaseStat.textContent=ph.value;if(ui.phaseLabel)ui.phaseLabel.textContent=ph.label;
+  if(ui.extentStat){
+    const ny=mode==='evi' ? eviLineCount() : nLines;
+    ui.extentStat.textContent = nLines===ny
+      ? '±'+(nLines/2).toFixed(0)+' Δk'
+      : '±'+(nLines/2).toFixed(0)+' / ±'+(ny/2).toFixed(0)+' Δk';
+    ui.extentLabel.textContent = nLines===ny
+      ? 'Δk fixed, so the FOV is fixed'
+      : 'kx / ky — Δk fixed, so the FOV is fixed';
+  }
   if(ui.sampleLabel)ui.sampleLabel.textContent=mode==='multiEcho'?'ADC samples acquired across 3 ky lines':'ADC samples acquired this shot';
   ui.prewindVal.textContent=prewindTiming==='before'?'before 180°':'after 180°';
   ui.modeVal.textContent=meta.label;ui.modeTitle.textContent=meta.title;ui.modeDescription.textContent=meta.desc;
-  if(ui.echoStat) ui.echoStat.textContent=mode==='multiEcho'?'TE 80 / 160 / 240 ms':'TE 80 ms';
+  if(ui.echoStat) ui.echoStat.textContent=mode==='multiEcho'
+    ? 'TE 80 / 160 / 240 ms'
+    : 'TE '+teMs().toFixed(0)+' ms · readout '+readoutDuration().toFixed(1)+' ms';
   if(ui.echoLabel) ui.echoLabel.textContent=mode==='multiEcho'?'three spin-echo centers':'spin-echo center';
   if(ui.pulseSub) ui.pulseSub.textContent=
-    mode==='multiEcho' ? 'First 264 ms shown; long TR recovery delay omitted'
-    : mode==='propeller' ? 'Gradients shown in the blade frame; physical Gx and Gy are their rotation by the blade angle'
+    mode==='multiEcho' ? 'Echo train shown; long TR recovery delay omitted'
+    : mode==='propeller' ? 'Solid: blade frame. Dashed: the physical Gx and Gy, the whole gradient stack rotated by the blade angle θ'
     : 'Sequence timing shown; long TR recovery delay omitted';
 }
 
@@ -1105,11 +1747,18 @@ K.addEventListener('pointerup',()=>{dragging=false;});K.addEventListener('pointe
 document.getElementById('playBtn').addEventListener('click',e=>{playing=!playing;e.currentTarget.textContent=playing?'Pause':'Play';});
 document.getElementById('stepBtn').addEventListener('click',()=>{playing=false;completionActive=false;completionElapsed=0;document.getElementById('playBtn').textContent='Play';shot=(shot+1)%shotCount();t=0;render();});
 document.getElementById('resetBtn').addEventListener('click',()=>{shot=0;t=0;completionActive=false;completionElapsed=0;playing=true;document.getElementById('playBtn').textContent='Pause';render();});
-document.getElementById('viewBtn').addEventListener('click',()=>{yaw=-.72;pitch=.48;render();});
+/* The 3D trajectory needs a more oblique view than the planar ones, or the
+   partitions stack up behind each other. */
+function defaultView(){ return mode==='evi' ? {yaw:-1.02,pitch:.62} : {yaw:-.72,pitch:.48}; }
+function resetView(){ const v=defaultView(); yaw=v.yaw; pitch=v.pitch; }
+document.getElementById('viewBtn').addEventListener('click',()=>{resetView();render();});
+document.getElementById('showRecon').addEventListener('change',e=>{
+  showRecon=e.target.checked; ui.reconVal.textContent=showRecon?'on':'off'; render();
+});
 document.getElementById('shots').addEventListener('input',e=>{nLines=Number(e.target.value);ui.shotsVal.textContent=nLines;shot=Math.min(shot,shotCount()-1);t=0;completionActive=false;completionElapsed=0;render();});
 document.getElementById('speed').addEventListener('input',e=>{speed=Number(e.target.value);ui.speedVal.textContent=speed.toFixed(2).replace(/0$/,'')+'×';});
 document.getElementById('prewindTiming').addEventListener('change',e=>{prewindTiming=e.target.value;t=0;completionActive=false;completionElapsed=0;render();});
-document.getElementById('acquisitionMode').addEventListener('change',e=>{mode=e.target.value;shot=0;t=0;completionActive=false;completionElapsed=0;render();});
+document.getElementById('acquisitionMode').addEventListener('change',e=>{mode=e.target.value;shot=0;t=0;resetView();completionActive=false;completionElapsed=0;render();});
 
 function syncThemeBtn(){ document.getElementById('theme').textContent = document.documentElement.dataset.theme === 'dark' ? 'Light' : 'Dark'; }
 document.documentElement.dataset.theme = 'dark';
