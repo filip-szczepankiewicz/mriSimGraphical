@@ -13,6 +13,7 @@ Claude (Anthropic)
 - Generated code and revisions for the Spin packets / relaxation sim.
 - Generated code and revisions for several versions of the Induction bench.
 - Generated code and revisions for the Slice sim.
+- Generated code and revisions for the Artifact sim.
 - Harmonised the interface style across all six simulators (header, control rail,
   palette, controls and dialog), including in the Readout sim (formerly K-space sim).
 
