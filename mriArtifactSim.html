@@ -222,6 +222,8 @@ h2{font-weight:400; letter-spacing:.18em; margin-bottom:9px}
         <option value="gibbs">Gibbs ringing — truncation</option>
         <option value="susc">Susceptibility — metal and air</option>
         <option value="eddy">Eddy currents and gradient delay</option>
+        <option value="flow">Flow — pulsatile ghosts</option>
+        <option value="spike">Spike and RF interference</option>
       </select>
       <p class="sub" id="subSimple">All physics stays on in every artifact; the artifact chooses what is highlighted, which plot is shown and what the notes say. Pick an example, or switch to Advanced to change anything yourself.</p>
       <p class="sub" id="subAdv">Each artifact loads a preset. All physics stays on in every one; the artifact chooses what is highlighted, the plot and the notes. The controls that matter most are marked ●.</p>
@@ -398,6 +400,52 @@ h2{font-weight:400; letter-spacing:.18em; margin-bottom:9px}
   </section>
 
   <section class="fold">
+    <h2 tabindex="0" role="button" aria-expanded="true" data-modes="flow">Flow<span class="chev"></span></h2>
+    <div class="body">
+    <div class="ctl" data-hot="flow">
+      <div class="lab"><span>Mean blood velocity</span><span class="val" id="vVel"></span></div>
+      <input type="range" id="sVel" min="0" max="600" step="5" value="150">
+      <div class="lab" style="margin-top:6px"><span>Pulsatility</span><span class="val" id="vPuls"></span></div>
+      <input type="range" id="sPuls" min="0" max="100" step="1" value="40">
+      <div class="lab" style="margin-top:6px"><span>Heart rate</span><span class="val" id="vHr"></span></div>
+      <input type="range" id="sHr" min="40" max="140" step="1" value="70">
+      <p class="sub">Velocity perpendicular to the slice, v(t) = v̄·(1 + p·sin 2πt/T<sub>c</sub>).</p>
+    </div>
+    <div class="ctl" data-hot="flow">
+      <div class="lab"><span>Repetition time TR</span><span class="val" id="vTR"></span></div>
+      <input type="range" id="sTR" min="0" max="1000" step="1" value="700">
+      <p class="sub" id="subTR"></p>
+    </div>
+    <div class="ctl" data-hot="flow">
+      <label class="chk"><input type="checkbox" id="flowComp"> Flow compensation (M₁ = 0)</label>
+      <label class="chk"><input type="checkbox" id="satBand"> Saturation band upstream</label>
+    </div>
+    </div>
+  </section>
+
+  <section class="fold">
+    <h2 tabindex="0" role="button" aria-expanded="true" data-modes="spike">Data corruption<span class="chev"></span></h2>
+    <div class="body">
+    <div class="ctl" data-hot="spike">
+      <div class="lab"><span>Spike amplitude</span><span class="val" id="vSpA"></span></div>
+      <input type="range" id="sSpA" min="0" max="1000" step="1" value="700">
+      <div class="lab" style="margin-top:6px"><span>Spike at k<sub>RO</sub></span><span class="val" id="vSpRO"></span></div>
+      <input type="range" id="sSpRO" min="-1" max="0.99" step="0.01" value="0.08">
+      <div class="lab" style="margin-top:6px"><span>Spike at k<sub>PE</sub></span><span class="val" id="vSpPE"></span></div>
+      <input type="range" id="sSpPE" min="-1" max="0.99" step="0.01" value="0.05">
+      <p class="sub">Or click in the k-space panel to place the spike. Amplitude relative to the largest sample (the centre of k-space); real spikes can exceed it.</p>
+    </div>
+    <div class="ctl" data-hot="spike">
+      <label class="chk"><input type="checkbox" id="rfi"> RF interference (external tone)</label>
+      <div class="lab" style="margin-top:6px"><span>Tone offset along readout</span><span class="val" id="vRfiPx"></span></div>
+      <input type="range" id="sRfiPx" min="-120" max="120" step="1" value="40">
+      <div class="lab" style="margin-top:6px"><span>Tone amplitude</span><span class="val" id="vRfiA"></span></div>
+      <input type="range" id="sRfiA" min="0" max="1000" step="1" value="600">
+    </div>
+    </div>
+  </section>
+
+  <section class="fold">
     <h2 tabindex="0" role="button" aria-expanded="true" data-modes="susc eddy">Distortion countermeasures<span class="chev"></span></h2>
     <div class="body">
     <div class="ctl" data-hot="susc" id="ctlVat">
@@ -536,7 +584,9 @@ h2{font-weight:400; letter-spacing:.18em; margin-bottom:9px}
       echo train, with no g-factor. Eddy currents are linear fields, one exponential per axis, with no
       cross-terms or higher spatial orders and no B₀ term apart from the slice offset. Diffusion lobes
       drive eddy currents but do not attenuate the signal. The Nyquist correction uses the ideal
-      odd–even difference at the centre of the echo train.
+      odd–even difference at the centre of the echo train. Flow is plug flow through the slice in a
+      single disk-shaped vessel, with no velocity profile, in-plane flow or turbulence. Blood T1 (1.8 s)
+      and a 30° flip enter only the inflow effect. RF interference has a random phase per excitation.
       Readout aliasing, shown when readout oversampling is off, is normally
       prevented on a scanner by oversampling and the receiver’s low-pass filter.
     </p>
@@ -659,7 +709,9 @@ const PHANTOMS = {
         [E(0.046,0.023,-0.08,-0.605,0), 0.20,  0.00],
         [E(0.023,0.023,0,-0.606,0),     0.20,  0.00],
         [E(0.023,0.046,0.06,-0.605,0),  0.20,  0.00]
-      ]);
+      ]).concat(fromAdditive([
+        [Ell(0,-90,4,4),                0.40,  0.00]   // superior sagittal sinus, posterior segment (blood 1.0)
+      ]).map(q => Object.assign(q, {vessel:1.0})));
     }
   },
   grid:{
@@ -759,6 +811,7 @@ function geometry(P){
 function kspaceObject(shapes, G, roAxis, dk){
   const NR = G.NacqRO, NP = G.NacqPE, n = NR*NP;
   const Wr = new Float64Array(n), Wi = new Float64Array(n), Fr = new Float64Array(n), Fi = new Float64Array(n);
+  const hasV = shapes.some(q => q.vessel), Vr = hasV ? new Float64Array(n) : null, Vi = hasV ? new Float64Array(n) : null;
   const kx = new Float64Array(n), ky = new Float64Array(n);
   for(let m=0;m<NP;m++){
     const kpe = (m-NP/2)/G.FOVaPE;
@@ -783,9 +836,10 @@ function kspaceObject(shapes, G, roAxis, dk){
       const ph = -TWO_PI*(kx[i]*x0 + ky[i]*y0), cr = Math.cos(ph)*A, ci = Math.sin(ph)*A;
       if(s.dw){ Wr[i] += s.dw*cr; Wi[i] += s.dw*ci; }
       if(s.df){ Fr[i] += s.df*cr; Fi[i] += s.df*ci; }
+      if(s.vessel){ Vr[i] += s.vessel*cr; Vi[i] += s.vessel*ci; }
     }
   }
-  return {Wr, Wi, Fr, Fi};
+  return {Wr, Wi, Fr, Fi, Vr, Vi};
 }
 
 // deterministic hash → uniform (0,1), so the noise pattern is frozen for a given grid
@@ -798,7 +852,7 @@ function hashU(i){
 
 // Time since excitation (gre, epi) or since the echo (se, epise) of every sample,
 // and the resulting acquired signal.
-function acquire(P, G, K, Corr, Ed){
+function acquire(P, G, K, Corr, Ed, Fl){
   const NR = G.NacqRO, NP = G.NacqPE, n = NR*NP;
   const Sr = new Float64Array(n), Si = new Float64Array(n), T = new Float32Array(n);
   const fm = FAT_MODELS[P.fatModel], np = fm.ppm.length;
@@ -819,6 +873,13 @@ function acquire(P, G, K, Corr, Ed){
     }
     const C = Corr ? Corr[par] : null;
     parity[m] = par;
+    // vessel amplitude for this line, minus the static amplitude already in K
+    let fr = 0, fi = 0;
+    if(Fl && K.Vr && wS){
+      const l = G.isEPI ? NP/2 + q*jpe : m, tl = G.isEPI ? l*G.ESPeff : l*Fl.TR;
+      const v = Fl.vel(tl), M = Fl.mag(v), ph = Fl.phase(v);
+      fr = M*Math.cos(ph) - 1; fi = M*Math.sin(ph);
+    }
     for(let r=0;r<NR;r++){
       const i = m*NR+r, tau = sgn*p*(r-NR/2)*G.dwell, t = base + tLine + tau;
       T[i] = t; if(t < tmin) tmin = t; if(t > tmax) tmax = t;
@@ -830,6 +891,7 @@ function acquire(P, G, K, Corr, Ed){
       let re = wS*K.Wr[i] + fS*(K.Fr[i]*pr - K.Fi[i]*pi);
       let im = wS*K.Wi[i] + fS*(K.Fr[i]*pi + K.Fi[i]*pr);
       if(C){ re += C.r[i]; im += C.i[i]; }
+      if(fr !== 0 || fi !== 0){ re += fr*K.Vr[i] - fi*K.Vi[i]; im += fr*K.Vi[i] + fi*K.Vr[i]; }
       re *= wv; im *= wv;
       if(Ed){ const c = Math.cos(Ed.ph[i]), sn = Math.sin(Ed.ph[i]), t2 = re*c - im*sn; im = re*sn + im*c; re = t2; }
       if(sig > 0){
@@ -837,6 +899,28 @@ function acquire(P, G, K, Corr, Ed){
         re += R*Math.cos(2*Math.PI*u2); im += R*Math.sin(2*Math.PI*u2);
       }
       Sr[i] = re; Si[i] = im;
+    }
+  }
+  // hardware corruption, relative to the largest sample of this acquisition
+  if(P.spAmp > 0 || (P.rfi && P.rfiAmp > 0)){
+    let mx = 0; for(let i=0;i<n;i++){ const v = Sr[i]*Sr[i] + Si[i]*Si[i]; if(v > mx) mx = v; }
+    mx = Math.sqrt(mx);
+    if(P.spAmp > 0){
+      const r = Math.round(NR/2 + P.spRO*NR/2), m = Math.round(NP/2 + P.spPE*NP/2);
+      if(r >= 0 && r < NR && m >= 0 && m < NP){ Sr[m*NR+r] += P.spAmp*mx; }
+    }
+    if(P.rfi && P.rfiAmp > 0){
+      const f = P.rfiPx*P.bw, a = P.rfiAmp*mx;           // offset of rfiPx image pixels along readout
+      for(let m=0;m<NP;m++){
+        const jpe = m - NP/2;
+        let psi, tl = 0, sgn = 1;
+        if(G.isEPI){ const l = NP/2 + q*jpe; tl = (l - NP/2)*G.ESPeff; sgn = (l % 2 === 0) ? 1 : -1; psi = 0; }
+        else psi = 2*Math.PI*hash01(m, 3);                // not phase-locked to the excitation
+        for(let r=0;r<NR;r++){
+          const i = m*NR+r, t = tl + sgn*p*(r - NR/2)*G.dwell, ph = psi - 2*Math.PI*f*t;
+          Sr[i] += a*Math.cos(ph); Si[i] += a*Math.sin(ph);
+        }
+      }
     }
   }
   return {Sr, Si, T, tmin, tmax, sigma:sig, parity, nyq: Ed ? Ed.nyq : null};
@@ -1115,6 +1199,64 @@ function eddyErrors(P, G){
   return {ro, pe, ph, nyq, trace:tr, TE, t180, D, gMean, adc};
 }
 
+/* ---------- flow in a vessel perpendicular to the slice
+ *
+ *  The vessel's k-space V(k) is exact. Each phase-encoding line gets the vessel's complex
+ *  amplitude at the moment the line was acquired, A(t) = M(v)·exp(i·2π·M₁·v(t)), added as
+ *  [A(t) − 1]·V(k). Line n of a line-by-line scan is acquired at n·TR; in EPI all lines lie
+ *  within one shot. v(t) is pulsatile at the heart rate. M₁ is the first moment of the
+ *  through-slice gradients at the echo (slice select, refocusing lobe, and in spin echoes the
+ *  refocusing pulse's slice gradient and crushers), with the 180° inverting earlier phase.
+ *  M(v): spin-echo washout, (1 − v·TE/2/Δz), and gradient-echo inflow of unsaturated blood,
+ *  relative to stationary blood. A saturation band upstream removes the inflowing signal.
+ */
+const T1_BLOOD = 1.8, FLIP_GRE = 30*Math.PI/180;
+function flowM1(P, G){
+  if(P.flowComp) return 0;                               // ideal gradient-moment nulling
+  const isSE = P.seq === "se" || P.seq === "epise";
+  const TE = (P.seq === "gre" || P.seq === "epi") ? G.TE : Math.max(P.TE, 8e-3), t180 = TE/2;
+  const ssA = RF_BW/SLICE, lobes = [];                   // [t0, rise, flat, fall, amplitude], (1/mm)/s
+  lobes.push([-1.1e-3, 0.1e-3, 2e-3, 0.1e-3, ssA]);
+  lobes.push([1.0e-3, 0.1e-3, 0.8e-3, 0.1e-3, -ssA*1.05e-3/0.9e-3]);
+  if(isSE){
+    const cA = (4/SLICE)/0.9e-3;                         // crushers: 4 cycles across the slice each
+    lobes.push([t180 - 2.1e-3, 0.1e-3, 0.8e-3, 0.1e-3, cA]);
+    lobes.push([t180 - 1.1e-3, 0.1e-3, 2e-3, 0.1e-3, ssA]);
+    lobes.push([t180 + 1.1e-3, 0.1e-3, 0.8e-3, 0.1e-3, cA]);
+  }
+  const g = t => { let v = 0; for(const [a, ru, fl, rd, A] of lobes){ const u = t - a; if(u <= 0) continue;
+    if(u < ru) v += A*u/ru; else if(u < ru+fl) v += A; else if(u < ru+fl+rd) v += A*(1 - (u-ru-fl)/rd); } return v; };
+  const dt = 1e-6; let m1 = 0;
+  for(let t=0; t<TE; t+=dt){                             // magnetisation exists from the RF centre on
+    if(isSE && t < t180 && t + dt >= t180) m1 = -m1;
+    m1 += g(t + dt/2)*(t + dt/2)*dt;
+  }
+  return m1;                                              // phase = 2π·M₁·v, v in mm/s
+}
+function flowModel(P, G){
+  const M1 = flowM1(P, G), TR = P.TRms*1e-3, Tc = 60/P.hr, dz = SLICE;
+  const isSE = P.seq === "se" || P.seq === "epise";
+  const TE = (P.seq === "gre" || P.seq === "epi") ? G.TE : Math.max(P.TE, 8e-3);
+  const E1 = Math.exp(-TR/T1_BLOOD);
+  const Rfresh = isSE ? 1 : (1 - Math.cos(FLIP_GRE)*E1)/(1 - E1);   // fresh / steady-state blood (GRE)
+  const vel = t => Math.max(0, P.vmean*(1 + P.puls/100*Math.sin(2*Math.PI*t/Tc)));
+  const mag = v => {
+    const f = Math.min(1, v*TR/dz), R = P.satBand ? 0 : Rfresh;
+    const w = isSE ? Math.max(0, 1 - v*(TE/2)/dz) : 1;
+    return w*((1 - f) + f*R);
+  };
+  return {M1, TR, Tc, vel, mag, phase:v => 2*Math.PI*M1*v, Rfresh};
+}
+
+/* ---------- corrupted data: a k-space spike, and RF interference
+ *  Spike: one sample gets an extra a·max|s|. Its image is a plane wave exp(i2πk₀·r), so stripes of
+ *  wavelength 1/|k₀| run across the whole image, perpendicular to k₀.
+ *  RF interference: a tone at offset f is added to every sample, exp(−i2πf·t) in real time. It is
+ *  not phase-locked to the excitation, so each line-by-line excitation sees a random start phase
+ *  (a line along phase, the "zipper"); within one EPI shot it stays coherent.
+ */
+function hash01(i, seed){ return hashU(i*7919 + seed*104729); }
+
 // k-space apodisation as a function of u = k/kmax in [−1, 1)
 function windowAt(type, u){
   const a = Math.abs(u);
@@ -1262,9 +1404,19 @@ function edgeMetrics(N, filter){
 
 
 /* ---------------------------------------------------------- version */
-const VERSION = "0.3.3";
+const VERSION = "0.4.0";
 const AUTHORS = "Designed by Filip Sz (Lund University) and coded by Claude (Anthropic)";
 const CHANGELOG = [
+  ["0.4.0", "2026-09-21",
+   "Two new artifacts. Flow: the head phantom has a superior sagittal sinus whose k-space is kept " +
+   "separately, and every phase-encoding line gets the vessel's complex amplitude at the time it was " +
+   "acquired, A = M(v)·exp(i2πM₁v), with pulsatile through-plane velocity. M₁ is computed from the " +
+   "through-slice gradients (slice select, refocusing lobe, and in spin echoes the refocusing pulse's slice " +
+   "gradient and crushers). M(v) covers spin-echo washout and gradient-echo inflow. Ghosts emerge along " +
+   "phase at multiples of N·TR/T_c, with flow compensation and a saturation band as remedies. Spike and " +
+   "RF interference: a single corrupted k-space sample, placed by clicking the k-space panel, gives stripes " +
+   "of wavelength 1/|k₀|. An external tone that is not phase-locked to the excitations gives the zipper " +
+   "along phase at f/BW_px. Each mode has three examples and its own plot."],
   ["0.3.3", "2026-09-20",
    "Guide texts corrected. \"Cartesian\" was used where \"line by line\" was meant; EPI is Cartesian " +
    "too. The chemical-shift and susceptibility notes now explain that displacement appears along the " +
@@ -1332,7 +1484,9 @@ const BASE = {seq:"se", B0:1.5, TE:15e-3, bw:250, fov:400, pePct:75, nRO:256, nP
   roAxis:"x", roPol:false, pePol:false, fatModel:"single", fatSat:false, osRO:true, osPE:0,
   filter:"none", zf:false, noise:0.5, species:"both", view:"mag", win:1.1, kview:"magtime",
   diag:"physics", profY:0, mat:"none", sr:8, sx:0, sy:0, b0dir:"z", vat:false, rfbw:1500,
-  accel:1, objView:"rho", ecAmp:0, ecTau:30, delay:0, diff:"none", bval:1000, gd:45, z0:0, nyq:false};
+  accel:1, objView:"rho", ecAmp:0, ecTau:30, delay:0, diff:"none", bval:1000, gd:45, z0:0, nyq:false,
+  TRms:500, hr:70, vmean:0, puls:40, flowComp:false, satBand:false,
+  spAmp:0, spRO:0.08, spPE:0.05, rfi:false, rfiPx:40, rfiAmp:3e-4};
 const PRESETS = {
   fat1:Object.assign({}, BASE, {phantom:"abdomen", B0:3, bw:130, profY:-40}),
   fat2:Object.assign({}, BASE, {phantom:"abdomen", seq:"gre", TE:2.30e-3, bw:500, profY:-40}),
@@ -1342,7 +1496,11 @@ const PRESETS = {
   susc:Object.assign({}, BASE, {phantom:"grid", fov:240, pePct:100, nRO:192, nPE:192, bw:250,
         mat:"ti", sr:6, sx:0, sy:0, b0dir:"y", objView:"field", noise:0.3, win:1.1, profY:10}),
   eddy:Object.assign({}, BASE, {phantom:"head", seq:"epi", B0:3, TE:30e-3, bw:1500, fov:240, pePct:100,
-        nRO:128, nPE:128, fatSat:true, noise:0.2, ecAmp:0.3, ecTau:0.5, delay:1.5, diff:"none", nyq:false})
+        nRO:128, nPE:128, fatSat:true, noise:0.2, ecAmp:0.3, ecTau:0.5, delay:1.5, diff:"none", nyq:false}),
+  flow:Object.assign({}, BASE, {phantom:"head", B0:3, bw:250, fov:240, pePct:100, nRO:192, nPE:192,
+        TRms:500, hr:70, vmean:150, puls:40, noise:0.2, win:1.2, profY:-90}),
+  spike:Object.assign({}, BASE, {phantom:"head", B0:3, bw:250, fov:240, pePct:100, nRO:256, nPE:256,
+        spAmp:1, spRO:0.08, spPE:0.05, noise:0.2, win:1.2, rfiAmp:3e-4})
 };
 // Worked examples per artifact: [label, overrides of that artifact's preset]. The first one
 // is always the preset itself. These are what the simple view offers instead of controls.
@@ -1365,7 +1523,13 @@ const EXAMPLES = {
                       mat:"air", sr:8, sx:0, sy:72, b0dir:"z", accel:2, profY:0}]],
   eddy:[["Nyquist ghost", {}],
         ["Ghost corrected", {nyq:true}],
-        ["Diffusion along phase", {seq:"epise", ecAmp:0.15, ecTau:40, delay:0, diff:"pe", bval:1000, nyq:true}]]
+        ["Diffusion along phase", {seq:"epise", ecAmp:0.15, ecTau:40, delay:0, diff:"pe", bval:1000, nyq:true}]],
+  flow:[["Pulsatile sinus", {}],
+        ["Flow compensation", {flowComp:true}],
+        ["Saturation band", {satBand:true}]],
+  spike:[["Spike near the centre", {}],
+        ["Spike far out", {spRO:0.55, spPE:-0.4, spAmp:1}],
+        ["RF interference", {spAmp:0, rfi:true}]]
 };
 
 const NRO_OPTS = [32,48,64,96,128,160,192,256,320,384];
@@ -1377,6 +1541,7 @@ let CUR = null;                 // latest computed result
 
 /* ---------------------------------------------------------- slider maps */
 const TE_LO = 0.5e-3, TE_HI = 200e-3, BW_LO = 30, BW_HI = 4000, TAU_LO = 0.1, TAU_HI = 1000;
+const TR_LO = 10, TR_HI = 3000, SP_LO = 1e-3, SP_HI = 10, RFI_LO = 1e-5, RFI_HI = 1e-2;
 const logTo = (s, lo, hi) => lo*Math.pow(hi/lo, s/1000);
 const logFrom = (v, lo, hi) => Math.round(1000*Math.log(v/lo)/Math.log(hi/lo));
 
@@ -1407,7 +1572,9 @@ function compute(preview){
     if(NCACHE.key !== key){ NCACHE.N = buildNodes(shapes, G, P.roAxis, PHANTOMS[P.phantom].extent + 2); NCACHE.key = key; }
     Corr = susceptibilityCorrection(P, G, NCACHE.N, preview);
   }
-  const A = acquire(P, G, K, Corr, edOn ? Ed : null);
+  const Fl = P.vmean > 0 ? flowModel(P, G) : null;
+  const A = acquire(P, G, K, Corr, edOn ? Ed : null, Fl);
+  A.flow = Fl;
   A.corr = Corr; A.eddy = Ed;
   const I = reconstruct(P, G, A);
   CUR = {G, A, I, shapes, disp:toDisplay(I)};
@@ -1517,7 +1684,7 @@ function axes(ctx, bx, by, bw, bh, xr, yr, xlab, ylab, opt){
 
 /* ---------------------------------------------------------- object panel */
 const OBJCACHE = {key:"", cv:null, W:null, F:null, R:0};
-let OBJVIEW = null;
+let OBJVIEW = null, KVIEW = null;
 function objectExtent(){ const e = PHANTOMS[P.phantom].extent; const G = CUR.G;
   return Math.max(e*1.15, 0.5*Math.max(G.fovRO, G.fovPE)*1.08); }
 function drawObject(){
@@ -1612,6 +1779,11 @@ function drawObject(){
     const f1px = CUR.G.isEPI ? CUR.G.bwPE : P.bw;
     legendRow(ctx, w - 12, h - 24, [["#4678eb", "Δf < 0"], ["#eb5a4b", "Δf > 0"], [document.documentElement.dataset.theme === "light" ? C.text : "#ffffff", `|Δf| = ${fmtHz(f1px)}: 1 px shift`]]);
   } else legendRow(ctx, w - 12, h - 24, [["#c8ccd2", "water"], [C.fat, "fat"]]);
+  if(P.mode === "flow") for(const q of CUR.shapes) if(q.vessel){
+    ctx.strokeStyle = C.accent; ctx.lineWidth = 1.2;
+    ctx.beginPath(); ctx.arc(V.X(q.x0), V.Y(q.y0), q.a*V.s + 3, 0, 2*Math.PI); ctx.stroke();
+    label(ctx, "sinus", V.X(q.x0) + q.a*V.s + 6, V.Y(q.y0) + 4, C.accent);
+  }
   if(hasSource(P)){
     ctx.strokeStyle = C.accent; ctx.lineWidth = 1.2;
     ctx.beginPath(); ctx.arc(V.X(P.sx), V.Y(P.sy), P.sr*V.s, 0, 2*Math.PI); ctx.stroke();
@@ -1661,6 +1833,8 @@ function drawK(){
   const kxE = 1/dxm, kyE = 1/dym;
   const showBar = P.kview !== "mag";
   const V = viewFit(w, h, -kxE/2, -kyE/2, kxE, kyE, 40, showBar ? 46 : 26, 16);
+  KVIEW = {V, kxE, kyE, roX};
+
   ctx.imageSmoothingEnabled = false;
   ctx.drawImage(KCV, V.X(-kxE/2), V.Y(kyE/2), kxE*V.s, kyE*V.s);
   // axes through the centre
@@ -1678,6 +1852,11 @@ function drawK(){
     label(ctx, flatT ? "t = const" : fmtSignedMs(A.tmin), bx, by + 18, C.muted, "left");
     label(ctx, "t: " + unit, bx + bw/2, by + 18, C.dim, "center");
     if(!flatT) label(ctx, fmtSignedMs(A.tmax), bx + bw, by + 18, C.muted, "right");
+  }
+  if(P.mode === "spike" && P.spAmp > 0){                  // the spike is one sample: ring it
+    const X = V.X(roX ? P.spRO*kxE/2 : P.spPE*kxE/2), Y = V.Y(roX ? P.spPE*kyE/2 : P.spRO*kyE/2);
+    ctx.strokeStyle = C.fat; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(X, Y, 7, 0, 2*Math.PI); ctx.stroke();
+    label(ctx, "spike", X + 10, Y - 6, C.fat);
   }
 }
 function fmtSignedMs(t){ return (t < 0 ? "−" : "") + fmtMs(t); }
@@ -1748,6 +1927,8 @@ function drawDiag(){
   else if(P.mode === "alias"){ $("diagTag").textContent = "Projection along phase encoding"; drawAliasPlot(ctx, w, h); }
   else if(P.mode === "susc"){ drawDisplacement(ctx, w, h); }
   else if(P.mode === "eddy"){ drawEddy(ctx, w, h); }
+  else if(P.mode === "flow"){ drawFlow(ctx, w, h); }
+  else if(P.mode === "spike"){ drawSpike(ctx, w, h); }
   else { $("diagTag").textContent = "Edge response of the acquisition"; drawEdge(ctx, w, h); }
 }
 
@@ -1990,6 +2171,59 @@ function drawEddy(ctx, w, h){
   legendRow(ctx, bx + bw, 28, names.map((n,i) => [cols[i], n]).concat([[C.panel2, "readout window"]]));
 }
 
+// spacing of flow ghosts along phase, in pixels, wrapped into [−N/2, N/2)
+function ghostSpacing(G, Fl){
+  const N = G.NacqPE, dtLine = G.isEPI ? G.ESPeff : Fl.TR;
+  let d = (N*dtLine/Fl.Tc) % N; if(d >= N/2) d -= N;
+  return d;
+}
+function drawFlow(ctx, w, h){
+  const Fl = CUR.A.flow, G = CUR.G;
+  $("diagTag").textContent = "Vessel signal along the phase-encoding lines";
+  if(!Fl || P.phantom !== "head"){ label(ctx, P.phantom !== "head" ? "Flow needs the head phantom (it has the sinus)." : "No flow: raise the velocity.", w/2, h/2, C.muted, "center"); return; }
+  const N = G.NacqPE, q = P.pePol ? -1 : 1, mags = [], phs = [], ks = [];
+  for(let m=0;m<N;m++){
+    const jpe = m - N/2, l = G.isEPI ? N/2 + q*jpe : m, t = G.isEPI ? l*G.ESPeff : l*Fl.TR, v = Fl.vel(t);
+    ks.push(jpe); mags.push(Fl.mag(v)); let ph = Fl.phase(v); ph = Math.atan2(Math.sin(ph), Math.cos(ph)); phs.push(ph);
+  }
+  const bx = 52, bw = w - bx - 18, top = 44, mid = top + (h - top - 36)*0.5, bh1 = mid - top - 6, by2 = mid + 18, bh2 = h - 36 - by2;
+  const mmax = Math.max(1.2, ...mags)*1.1;
+  const A1 = axes(ctx, bx, top, bw, bh1, [-N/2, N/2], [0, mmax], null, "|A|, relative to stationary blood", {nx:6, noXLab:true});
+  ctx.strokeStyle = C.dim; ctx.setLineDash([3,3]); ctx.beginPath(); ctx.moveTo(bx, A1.Y(1)); ctx.lineTo(bx+bw, A1.Y(1)); ctx.stroke(); ctx.setLineDash([]);
+  ctx.strokeStyle = C.accent; ctx.lineWidth = 1.4; ctx.beginPath(); ks.forEach((k,i) => i ? ctx.lineTo(A1.X(k), A1.Y(mags[i])) : ctx.moveTo(A1.X(k), A1.Y(mags[i]))); ctx.stroke();
+  const A2 = axes(ctx, bx, by2, bw, bh2, [-N/2, N/2], [-Math.PI, Math.PI], "phase-encoding line (k_PE index)", "phase (rad)", {nx:6});
+  ctx.fillStyle = C.water; ks.forEach((k,i) => ctx.fillRect(A2.X(k)-1, A2.Y(phs[i])-1, 2, 2));
+  const d = ghostSpacing(G, Fl);
+  legendRow(ctx, bx + bw, 28, [[C.accent, "magnitude"], [C.water, "phase"]]);
+  label(ctx, `ghost spacing N·Δt/T_c = ${fmtSigned(d, 1)} px`, bx + 6, top + 12, C.text);
+}
+function drawSpike(ctx, w, h){
+  const G = CUR.G, A = CUR.A, NR = G.NacqRO, NP = G.NacqPE;
+  const bx = 52, by = 44, bw = w - bx - 18, bh = h - by - 40;
+  if(P.spAmp > 0){
+    $("diagTag").textContent = "log |s| along the k-space line that holds the spike";
+    const m = Math.max(0, Math.min(NP-1, Math.round(NP/2 + P.spPE*NP/2)));
+    const vals = []; let mx = 0;
+    for(let r=0;r<NR;r++){ const v = Math.hypot(A.Sr[m*NR+r], A.Si[m*NR+r]); vals.push(v); mx = Math.max(mx, v); }
+    let gm = 0; for(let i=0;i<A.Sr.length;i++) gm = Math.max(gm, Math.hypot(A.Sr[i], A.Si[i]));
+    const lo = Math.log10(gm) - 6, hi = Math.log10(gm) + 0.3;
+    const {X, Y} = axes(ctx, bx, by, bw, bh, [-1, 1], [lo, hi], "k_RO / k_max", "log₁₀ |s|", {nx:6});
+    ctx.strokeStyle = C.accent; ctx.lineWidth = 1.2; ctx.beginPath();
+    vals.forEach((v,r) => { const x = X((r - NR/2)/(NR/2)), y = Y(Math.max(lo, Math.log10(v + 1e-30))); r ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }); ctx.stroke();
+    label(ctx, `k_PE = ${fmtSigned(P.spPE, 2)} k_max; the spike stands ${f1(Math.log10((P.spAmp*gm)/Math.max(1e-30, vals[Math.max(0, Math.min(NR-1, Math.round(NR/2 + P.spRO*NR/2) + 2))])))} decades above its neighbours`, bx + 6, by + 12, C.text);
+  } else {
+    $("diagTag").textContent = "Mean |image| per readout position";
+    const d = CUR.disp, roX = P.roAxis === "x", n = roX ? d.W : d.H, vals = new Float64Array(n);
+    for(let iy=0;iy<d.H;iy++) for(let ix=0;ix<d.W;ix++){ const v = Math.hypot(d.re[iy*d.W+ix], d.im[iy*d.W+ix]); vals[roX ? ix : d.H-1-iy] += v/(roX ? d.H : d.W); }
+    const pix = roX ? d.px : d.py, x0 = -n/2*pix, mx = Math.max(...vals)*1.1;
+    const {X, Y} = axes(ctx, bx, by, bw, bh, [x0, x0 + n*pix], [0, mx], "position along readout (mm)", "mean |image|", {nx:6});
+    ctx.strokeStyle = C.accent; ctx.lineWidth = 1.4; ctx.beginPath();
+    vals.forEach((v,i) => { const x = X(x0 + (i+0.5)*pix); i ? ctx.lineTo(x, Y(v)) : ctx.moveTo(x, Y(v)); }); ctx.stroke();
+    if(P.rfi){ const xr = P.rfiPx*G.dro*(P.roPol ? -1 : 1); ctx.strokeStyle = C.fat; ctx.setLineDash([3,3]); ctx.beginPath(); ctx.moveTo(X(xr), by); ctx.lineTo(X(xr), by+bh); ctx.stroke(); ctx.setLineDash([]);
+      label(ctx, `tone at f/BW_px = ${fmtSigned(P.rfiPx, 0)} px`, X(xr) + 5, by + 12, C.fat); }
+  }
+}
+
 function drawEdge(ctx, w, h){
   const N = P.nRO, bx = 46, by = 44, bw = w - bx - 18, bh = h - by - 40;
   const xr = [-6, 6];
@@ -2020,7 +2254,9 @@ const MODE_TITLE = {
   alias:"Aliasing: discrete k-space sampling makes the image periodic",
   gibbs:"Gibbs ringing: k-space ends at k<sub>max</sub>",
   susc:"Susceptibility: a field offset moves signal along the low-bandwidth direction",
-  eddy:"Eddy currents: the gradients that were played are not the ones that were asked for"
+  eddy:"Eddy currents: the gradients that were played are not the ones that were asked for",
+  flow:"Flow: pulsation changes the vessel's signal from line to line",
+  spike:"Spike and RF interference: one bad sample is felt in every pixel"
 };
 function physHTML(){
   const G = CUR.G, A = CUR.A, m = P.mode, hl = on => on ? ' class="hl"' : "";
@@ -2037,6 +2273,8 @@ function physHTML(){
   eq += `k = (<span${hl(m==="alias")}>j/FOV<sub>RO</sub>, m/FOV<sub>PE</sub></span>),&nbsp; <span${hl(m==="gibbs")}>−N/2 ≤ j, m &lt; N/2</span><br>`;
   if(susc) eq += `<span class="hl">Δf(r) = γ̄B₀·(Δχ/3)·(a/r)³·(3cos²θ − 1)</span>` + (P.b0dir === "z" ? ",&nbsp; θ = 90° in an axial slice" : "") + `<br>`;
   if(G.vat) eq += `VAT: off-resonance cancelled during readout, s(k) × sinc(BW<sub>RF</sub>·τ)<br>`;
+  if(m === "flow") eq += `<span class="hl">s(k) → s(k) + [A(t<sub>n</sub>) − 1]·V(k),&nbsp; A = M(v)·e<sup>i2πM₁v</sup>,&nbsp; v = v(t<sub>n</sub>)</span><br>`;
+  if(m === "spike") eq += `<span class="hl">s(k) → s(k) + a·δ(k − k₀)` + (P.rfi ? ` + b·e<sup>−i2πf·t</sup>` : ``) + `</span><br>`;
   if(m === "eddy" || eddyActive(P)) eq += `<span${hl(m==="eddy")}>k is really k(t) + γ̄∫[G(t′−δt) − G(t′) + g<sub>ec</sub>(t′)]dt′,&nbsp; g<sub>ec</sub> = −(dG/dt) ⊗ a·e<sup>−t/τ</sup></span><br>`;
   const rows = []; const r = (a, b, hi) => rows.push(`<tr${hi ? ' class="hi"' : ""}><td>${a}</td><td>${b}</td></tr>`);
   const p = P.roPol ? -1 : 1, q = P.pePol ? -1 : 1;
@@ -2076,6 +2314,38 @@ function physHTML(){
     r("Phase lines acquired (∝ scan time)", `${G.NacqPE}`);
     r("Readout samples per line", `${G.NacqRO}` + (P.osRO ? " (×2 oversampled)" : ""));
     r("Image SNR for ρ = 1, unfiltered", snrText());
+  } else if(m === "flow"){
+    const Fl = A.flow;
+    if(!Fl || P.phantom !== "head"){ r("Flow", P.phantom !== "head" ? "use the head phantom" : "velocity is zero", true); }
+    else {
+      const d = ghostSpacing(G, Fl), vmin = Math.max(0, P.vmean*(1 - P.puls/100)), vmax = P.vmean*(1 + P.puls/100);
+      eq += `<span class="res">ghosts along phase at multiples of N<sub>PE</sub>·${G.isEPI ? "ESP" : "TR"}/T<sub>c</sub> = ${fmtSigned(d, 1)} px (mod N)</span>`;
+      r("Heart period T<sub>c</sub>", fmtMs(Fl.Tc));
+      r(G.isEPI ? "Time per line (ESP)" : "Time per line (TR)", fmtMs(G.isEPI ? G.ESPeff : Fl.TR));
+      r("Ghost spacing along phase", `${fmtSigned(d, 1)} px = ${fmtSigned(d*G.dpe, 0)} mm`, true);
+      r("Flow phase per cm/s (2π·M₁)", P.flowComp ? "0 (compensated)" : `${(2*Math.PI*Fl.M1*10).toFixed(3)} rad`);
+      r("Phase swing over the cycle", `${f2(Math.abs(2*Math.PI*Fl.M1*(vmax - vmin)))} rad`, true);
+      r("|A| over the cycle", `${f2(Fl.mag(vmin))} – ${f2(Fl.mag(vmax))}`, true);
+      r("Scan time", G.isEPI ? fmtMs(G.NacqPE*G.ESPeff) + " (one shot)" : `${(G.NacqPE*Fl.TR).toFixed(0)} s`);
+    }
+  } else if(m === "spike"){
+    const kro = P.spRO/(2*G.dro), kpe = P.spPE/(2*G.dpe), k0 = Math.hypot(kro, kpe);
+    if(P.spAmp > 0){
+      let mx = 0; for(let i=0;i<A.Sr.length;i++) mx = Math.max(mx, Math.hypot(A.Sr[i], A.Si[i]));
+      const amp = P.spAmp*mx/(G.FOVaRO*G.FOVaPE);
+      const kx = P.roAxis === "x" ? kro : kpe, ky = P.roAxis === "x" ? kpe : kro;
+      eq += `<span class="res">⇒ ρ̂(r) + a·Δk<sub>RO</sub>Δk<sub>PE</sub>·e<sup>i2πk₀·r</sup>: stripes of wavelength 1/|k₀|</span>`;
+      r("Spike position k₀", `(${(kx*1000).toFixed(0)}, ${(ky*1000).toFixed(0)}) m⁻¹ in (x, y)`);
+      r("Stripe wavelength 1/|k₀|", k0 > 0 ? `${f1(1/k0)} mm` : "∞ (at the centre: a uniform offset)", true);
+      r("Stripes run at", k0 > 0 ? `${(Math.atan2(ky, kx)*180/Math.PI + 90).toFixed(0)}° from x` : "—");
+      r("Stripe amplitude in the image", `${f2(amp)} (tissue ≈ 0.6–1)`, true);
+    }
+    if(P.rfi){
+      r("Tone offset f", fmtHz(P.rfiPx*P.bw));
+      r("Zipper position, f/BW<sub>px</sub>", `${fmtSigned(P.rfiPx, 0)} px along readout`, true);
+      r("Spread along phase", G.isEPI ? "coherent within the shot" : "random phase per excitation");
+    }
+    if(!(P.spAmp > 0) && !P.rfi) r("Corruption", "none: raise the spike or enable interference", true);
   } else if(m === "eddy"){
     const Ed = A.eddy;
     if(Ed){
@@ -2170,7 +2440,14 @@ const NOTES = {
   eddy:`<p>Switching a gradient induces currents in the magnet's conducting structures. Their field opposes the change and decays with the time constants of those structures. To first order the field is a gradient, and an error in the gradient is an <b>error in k-space</b>. The object is sampled where k really was, then reconstructed as if k had been where it was asked to be. The same holds for a small timing delay δt between gradients and ADC.</p>
 <p><b>Nyquist ghost.</b> EPI traverses readout in alternating directions. A delay, or eddy fields from the readout ramps, shifts the echo one way on even lines and the other way on odd lines. The difference is modulated at the Nyquist frequency in k<sub>PE</sub>, which puts a ghost at FOV/2. Scanners measure the odd–even difference with a reference scan without phase blips and remove it: tick the correction. The part that varies along the train, from short time constants, remains.</p>
 <p><b>Diffusion weighting.</b> The large diffusion lobes leave fields that are still present during the readout. In EPI any field is a displacement along phase: an eddy gradient along phase <b>scales</b> the image, one along readout <b>shears</b> it, and one along slice at a slice offset z₀ <b>shifts</b> it. Freeze the b = 0 reference, choose a direction and compare with the split view. This is the misregistration that eddy-current correction (e.g. FSL eddy) must undo. Long time constants hurt the most, because the field survives into the readout. Twice-refocused spin echoes are designed to null a chosen τ.</p>
-<p>Line-by-line sequences are robust. Every line is played with the same gradients and sees the same small error at the same time after excitation. There is no alternation to make a ghost and no error that builds up along phase, so there is hardly any distortion. Spatially higher-order eddy fields and cross-terms between axes are not modelled.</p>`
+<p>Line-by-line sequences are robust. Every line is played with the same gradients and sees the same small error at the same time after excitation. There is no alternation to make a ghost and no error that builds up along phase, so there is hardly any distortion. Spatially higher-order eddy fields and cross-terms between axes are not modelled.</p>`,
+  flow:`<p>Blood in the superior sagittal sinus flows through the slice, and its velocity pulses with the heart. A moving spin's signal carries a phase 2π·M₁·v, set by the first moment M₁ of the gradients it has experienced. Most of M₁ comes from the slice gradient and, in spin echoes, the crushers around the refocusing pulse. The magnitude changes too. In spin echo, fast blood leaves the slice between the 90° and 180° pulses (washout). In gradient echo, unsaturated blood flowing in brightens the vessel (inflow).</p>
+<p>Line-by-line imaging acquires one phase-encoding line per TR, so the vessel's signal is modulated from line to line at the heart rate, sampled every TR. A modulation along k<sub>PE</sub> produces <b>ghosts along the phase direction only</b>, at multiples of N<sub>PE</sub>·TR/T<sub>c</sub> pixels, wrapped into the FOV. They run across the brain wherever the vessel is. Readout sees a fixed velocity, because each line takes only milliseconds. Change the heart rate or TR and the ghosts move. In Advanced, swap the phase direction and they turn with it.</p>
+<p>Remedies: <b>flow compensation</b> nulls M₁, which removes the phase modulation. Any ghosts that remain come from the magnitude changes. A <b>saturation band</b> upstream saturates the inflowing blood, so the vessel has little signal left to modulate. EPI acquires all lines within one heartbeat, so it barely ghosts. Cardiac gating is the other standard remedy.</p>
+<p>The vessel is a disk with plug flow at one velocity. Velocity profiles, in-plane flow and turbulent dephasing are not modelled. The relaxation of blood only enters the inflow effect (T1 = 1.8 s, 30° gradient-echo flip). All other contrast is proton density.</p>`,
+  spike:`<p>A <b>spike</b> is a single corrupted k-space sample, for example from an electrostatic discharge in the bore or a faulty receiver. Every k-space sample contributes to every pixel, so one bad sample becomes a plane wave e<sup>i2πk₀·r</sup> across the whole image: stripes (herringbone or corduroy) perpendicular to k₀, with wavelength 1/|k₀|. A spike near the centre of k-space gives broad bands, and one far out gives fine stripes. In the k-space panel it is a single bright dot. Click there to move it.</p>
+<p><b>RF interference</b> is an external signal at a fixed frequency picked up by the receiver. Frequency means position along readout, so it lands at one readout position, f/BW<sub>px</sub> pixels from the centre. It is not phase-locked to the excitations, so each line-by-line excitation sees it with a different phase. The result is a bright, noisy line along the whole phase direction: the <b>zipper</b>. Within one EPI shot the tone stays coherent.</p>
+<p>Remedies: find and remove the source, keep the RF-shielded room closed, and detect and replace the corrupted data before reconstruction.</p>`
 };
 
 /* ---------------------------------------------------------- UI sync */
@@ -2194,6 +2471,10 @@ function pushControls(){
   $("sRf").value = P.rfbw; $("sAcc").value = P.accel; $("objView").value = P.objView;
   $("sEc").value = P.ecAmp; $("sTau").value = logFrom(P.ecTau, TAU_LO, TAU_HI); $("sDelay").value = P.delay;
   $("diff").value = P.diff; $("sB").value = P.bval; $("sGd").value = P.gd; $("sZ0").value = P.z0; $("nyq").checked = P.nyq;
+  $("sVel").value = P.vmean; $("sPuls").value = P.puls; $("sHr").value = P.hr; $("sTR").value = logFrom(P.TRms, TR_LO, TR_HI);
+  $("flowComp").checked = P.flowComp; $("satBand").checked = P.satBand;
+  $("sSpA").value = P.spAmp > 0 ? logFrom(P.spAmp, SP_LO, SP_HI) : 0; $("sSpRO").value = P.spRO; $("sSpPE").value = P.spPE;
+  $("rfi").checked = P.rfi; $("sRfiPx").value = P.rfiPx; $("sRfiA").value = logFrom(P.rfiAmp, RFI_LO, RFI_HI);
   renderExamples();
   schedule();
 }
@@ -2210,6 +2491,10 @@ function pullControls(){
   P.rfbw = +$("sRf").value; P.accel = +$("sAcc").value; P.objView = $("objView").value;
   P.ecAmp = +$("sEc").value; P.ecTau = logTo(+$("sTau").value, TAU_LO, TAU_HI); P.delay = +$("sDelay").value;
   P.diff = $("diff").value; P.bval = +$("sB").value; P.gd = +$("sGd").value; P.z0 = +$("sZ0").value; P.nyq = $("nyq").checked;
+  P.vmean = +$("sVel").value; P.puls = +$("sPuls").value; P.hr = +$("sHr").value; P.TRms = logTo(+$("sTR").value, TR_LO, TR_HI);
+  P.flowComp = $("flowComp").checked; P.satBand = $("satBand").checked;
+  P.spAmp = +$("sSpA").value > 0 ? logTo(+$("sSpA").value, SP_LO, SP_HI) : 0; P.spRO = +$("sSpRO").value; P.spPE = +$("sSpPE").value;
+  P.rfi = $("rfi").checked; P.rfiPx = +$("sRfiPx").value; P.rfiAmp = logTo(+$("sRfiA").value, RFI_LO, RFI_HI);
 }
 let exampleIdx = 0;
 function renderExamples(){
@@ -2255,6 +2540,14 @@ function syncLabels(){
   $("ctlDiff").classList.toggle("off", !seSeq); $("diff").disabled = !seSeq;
   $("vB").textContent = P.bval + " s/mm²"; $("vGd").textContent = P.gd + " mT/m"; $("vZ0").textContent = P.z0 + " mm";
   $("freezeB0").disabled = !seSeq || P.diff === "none";
+  $("vVel").textContent = (P.vmean/10).toFixed(1) + " cm/s"; $("vPuls").textContent = P.puls + " %";
+  $("vHr").textContent = P.hr + " /min"; $("vTR").textContent = P.TRms < 100 ? f1(P.TRms) + " ms" : P.TRms.toFixed(0) + " ms";
+  $("subTR").textContent = G.isEPI ? "EPI: all lines within one shot, so TR only sets inflow." :
+    `Scan time ${(G.NacqPE*P.TRms/1000).toFixed(0)} s: one phase line per TR.`;
+  $("vSpA").textContent = P.spAmp > 0 ? (P.spAmp < 0.1 ? P.spAmp.toFixed(3) : P.spAmp.toFixed(2)) + " × peak" : "off";
+  $("vSpRO").textContent = fmtSigned(P.spRO, 2) + " k_max"; $("vSpPE").textContent = fmtSigned(P.spPE, 2) + " k_max";
+  $("vRfiPx").textContent = fmtSigned(P.rfiPx, 0) + " px = " + fmtHz(P.rfiPx*P.bw);
+  $("vRfiA").textContent = (P.rfiAmp*100).toExponential(0) + " %";
   document.querySelectorAll(".ctl[data-hot]").forEach(el => el.classList.toggle("hot", el.dataset.hot.split(" ").includes(P.mode)));
   $("phys").innerHTML = physHTML();
   $("note").innerHTML = NOTES[P.mode];
@@ -2370,6 +2663,18 @@ $("freezeB0").addEventListener("click", () => {
   const stop = () => { dragging = null; };
   cv.addEventListener("pointerup", stop); cv.addEventListener("pointercancel", stop);
 }
+
+// click in k-space to place the spike
+$("cvK").addEventListener("pointerdown", e => {
+  if(P.mode !== "spike" || !KVIEW) return;
+  const r = $("cvK").getBoundingClientRect(), {V, kxE, kyE, roX} = KVIEW;
+  const kx = (e.clientX - r.left - V.ox)/V.s - kxE/2, ky = kyE/2 - (e.clientY - r.top - V.oy)/V.s;
+  const fx = Math.max(-1, Math.min(0.99, kx/(kxE/2))), fy = Math.max(-1, Math.min(0.99, ky/(kyE/2)));
+  P.spRO = roX ? fx : fy; P.spPE = roX ? fy : fx;
+  if(!(P.spAmp > 0)) P.spAmp = 1;
+  $("sSpRO").value = P.spRO; $("sSpPE").value = P.spPE; $("sSpA").value = logFrom(P.spAmp, SP_LO, SP_HI);
+  schedule();
+});
 
 // drag the susceptibility source in the object panel
 {
