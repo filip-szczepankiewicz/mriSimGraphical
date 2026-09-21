@@ -1,0 +1,2468 @@
+<!doctype html>
+<!--
+  Artifact sim — image artifacts from one signal equation.
+  Designed by Filip Sz (Lund University) and coded by Claude (Anthropic).
+
+  Single self-contained file: no build step, no network, no dependencies.
+  Every artifact comes from the same forward model: an analytic phantom with
+  closed-form Fourier transforms (water and fat as separate species), sampled on
+  the acquired k-space grid with the acquisition time of every sample, then
+  reconstructed with a plain inverse DFT. Nothing is painted on.
+  Version history lives in the CHANGELOG constant in the script below and is
+  shown in the version dialog; bump VERSION whenever you change the physics or the UI.
+  The file name carries no version (mriArtifactSim.html); git tracks the history.
+-->
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Artifact sim — MRI image artifacts from the signal equation</title>
+<meta name="author" content="Filip Sz (Lund University); Claude (Anthropic)">
+<meta name="description" content="Interactive MRI artifact simulator: chemical shift, aliasing and truncation from one signal equation.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23151b24'/%3E%3Ccircle cx='14' cy='16' r='8' fill='none' stroke='%232fb6b0' stroke-width='2.4'/%3E%3Ccircle cx='18' cy='16' r='8' fill='none' stroke='%23e3a53c' stroke-width='1.6'/%3E%3C/svg%3E">
+<style>
+:root{
+  --bg:#0e1219; --panel:#151b24; --panel2:#1b2230; --rule:#26303f;
+  --text:#ccd6e4; --muted:#7c8a9d; --dim:#4d5a6b;
+  --axis:#5c6b7e; --grid:#1f2836;
+  --accent:#2fb6b0;
+  --water:#6f9bff; --fat:#e3a53c; --imgbg:#000000;
+  --btn:#1b2230; --btnh:#232c3c; --btna:#2a3547;
+}
+html[data-theme="light"]{
+  --bg:#f2f4f7; --panel:#ffffff; --panel2:#f7f9fb; --rule:#d7dde5;
+  --text:#1b2430; --muted:#5f6c7d; --dim:#9aa5b3;
+  --axis:#8b96a4; --grid:#e6eaf0;
+  --accent:#0f8f8a;
+  --water:#1a4bd6; --fat:#a86a00; --imgbg:#000000;
+  --btn:#eef1f5; --btnh:#e4e9f0; --btna:#d9e0ea;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0; background:var(--bg); color:var(--text);
+  font:12.5px/1.45 ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
+  -webkit-font-smoothing:antialiased;
+  display:grid; grid-template-columns:300px 1fr; height:100vh; overflow:hidden;
+}
+/* ------------------------------------------------------------- rail */
+#rail{background:var(--panel); border-right:1px solid var(--rule); overflow-y:auto; padding:0 0 24px}
+#rail::-webkit-scrollbar{width:9px}
+#rail::-webkit-scrollbar-thumb{background:var(--rule)}
+section{border-bottom:1px solid var(--rule); padding:11px 14px 13px}
+h2{font-size:10px; font-weight:600; letter-spacing:.14em; text-transform:uppercase; color:var(--dim); margin:0 0 9px}
+.row{display:flex; gap:6px; flex-wrap:wrap}
+button{
+  font:inherit; font-size:11.5px; color:var(--text); background:var(--btn);
+  border:1px solid var(--rule); border-radius:3px; padding:5px 9px; cursor:pointer;
+}
+button:hover{background:var(--btnh)}
+button:active{background:var(--btna)}
+button[aria-pressed="true"]{border-color:var(--accent); color:var(--accent)}
+button:disabled{opacity:.45; cursor:default}
+button:focus-visible,input:focus-visible{outline:2px solid var(--accent); outline-offset:2px}
+.ctl{margin:0 0 11px}
+.ctl:last-child{margin-bottom:0}
+.lab{display:flex; justify-content:space-between; align-items:baseline; gap:8px; margin-bottom:3px}
+.val{font-variant-numeric:tabular-nums}
+.sub{color:var(--dim); font-size:10.5px; line-height:1.35; margin:3px 0 0}
+label.chk{display:flex; align-items:center; gap:7px; padding:2.5px 0; cursor:pointer; font-size:11.5px}
+input[type=checkbox]{margin:0; cursor:pointer}
+select{
+  font:inherit; font-size:11.5px; color:var(--text); background:var(--btn);
+  border:1px solid var(--rule); padding:4px 6px; width:100%; cursor:pointer;
+}
+select:focus-visible{outline:2px solid var(--accent); outline-offset:2px}
+.two{display:grid; grid-template-columns:1fr 1fr; gap:8px}
+.mini{padding:2px 7px; font-size:11px}
+.ctl.hot .lab span:first-child{color:var(--accent)}
+.ctl.hot .lab span:first-child::before{content:"● "; font-size:8px; vertical-align:2px}
+.ctl.off{opacity:.45}
+section.fold h2{display:flex; align-items:center; gap:6px; cursor:pointer; user-select:none; margin:0}
+section.fold h2:hover{color:var(--muted)}
+section.fold h2 .chev{margin-left:auto; width:7px; height:7px; border-right:1px solid currentColor; border-bottom:1px solid currentColor; transform:rotate(45deg); transition:transform .12s; position:relative; top:-2px}
+section.fold.closed h2 .chev{transform:rotate(-45deg); top:1px}
+section.fold .body{margin-top:9px}
+section.fold.closed .body{display:none}
+.seg{display:grid; grid-template-columns:1fr 1fr; margin-top:11px}
+.seg button{border-radius:0; padding:5px 0}
+.seg button:first-child{border-radius:3px 0 0 3px}
+.seg button:last-child{border-radius:0 3px 3px 0; margin-left:-1px}
+.seg button[aria-pressed="true"]{background:var(--btna); border-color:var(--accent); color:var(--accent)}
+#exRow button{flex:1 1 auto}
+body[data-level="simple"] section.fold:not(#secArtifact):not(#secNote){display:none}
+body[data-level="simple"] #advRow{display:none}
+body[data-level="advanced"] #examples, body[data-level="advanced"] #subSimple{display:none}
+body[data-level="simple"] #subAdv{display:none}
+body[data-level="advanced"] section.fold.aside{display:none}
+body[data-level="advanced"] .ctl.off{display:none}
+#note{color:var(--muted); font-size:11px; line-height:1.55}
+#note b{color:var(--text); font-weight:600}
+#note p{margin:0 0 7px}
+#note p:last-child{margin:0}
+/* ------------------------------------------------------------- views */
+main{display:grid; grid-template-rows:minmax(0,1fr) clamp(230px,31vh,320px); min-width:0; overflow:hidden}
+#top{display:grid; grid-template-columns:1fr 1fr 1.25fr; min-height:0; border-bottom:1px solid var(--rule)}
+#bot{display:grid; grid-template-columns:minmax(0,1.05fr) minmax(0,1fr); min-height:0}
+.pane{position:relative; min-width:0; min-height:0}
+.pane+.pane{border-left:1px solid var(--rule)}
+.pane canvas{position:absolute; inset:0; width:100%; height:100%; display:block}
+.tag{
+  position:absolute; top:9px; left:12px; z-index:2; pointer-events:none;
+  font-size:10px; letter-spacing:.13em; text-transform:uppercase; color:var(--dim);
+}
+.hint{position:absolute; bottom:8px; right:12px; z-index:2; pointer-events:none; font-size:10px; color:var(--dim)}
+#cvImg{cursor:crosshair; touch-action:none}
+#cvObj{touch-action:none}
+#phys{position:absolute; inset:0; overflow-y:auto; padding:30px 16px 14px}
+#phys h3{margin:0 0 8px; font-size:12px; font-weight:600; color:var(--text)}
+.eq{font-size:12px; line-height:1.95; color:var(--muted); margin:0 0 10px; overflow-x:auto; white-space:nowrap}
+.eq .hl{color:var(--accent); border-bottom:1px solid var(--accent)}
+.eq .res{color:var(--text)}
+.eq sub,.eq sup{font-size:9.5px}
+table.read{width:100%; border-collapse:collapse; font-size:11.5px; font-variant-numeric:tabular-nums}
+table.read td{padding:1.5px 0; vertical-align:top}
+table.read td:last-child{text-align:right; color:var(--muted); padding-left:10px}
+table.read tr.hi td:last-child{color:var(--accent)}
+.cols{display:grid; grid-template-columns:1fr 1fr; gap:0 20px}
+@media (max-width:1000px){
+  body{grid-template-columns:1fr; grid-template-rows:auto auto; overflow:auto; height:auto}
+  #rail{border-right:none; border-bottom:1px solid var(--rule); overflow:visible}
+  main{grid-template-rows:auto auto; overflow:visible}
+  #top{grid-template-columns:1fr; border-bottom:none}
+  #top .pane{height:88vw; max-height:560px}
+  #bot{grid-template-columns:1fr}
+  #bot #physPane{height:auto}
+  #phys{position:static; overflow:visible}
+  #diagPane{height:280px}
+  .pane+.pane{border-left:none; border-top:1px solid var(--rule)}
+  #bot{border-top:1px solid var(--rule)}
+  .cols{grid-template-columns:1fr}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+
+/* =====================================================================
+   HOUSE STYLE — shared by all MRI simulators in this suite (header, rail,
+   controls, dialog). Keep this block identical in spirit across files;
+   only the variable names differ. Appended last so it takes precedence.
+   ===================================================================== */
+html,body{font-family:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace}
+body{font-size:13px}
+#rail .brand{
+  position:sticky; top:0; z-index:3; background:var(--panel);
+  border-bottom:1px solid var(--rule); padding:13px 14px 11px; margin:0;
+  display:flex; flex-wrap:wrap; align-items:baseline; gap:0 5px;
+}
+#rail .brand h1{
+  margin:0 auto 0 0; font-size:12px; font-weight:600; line-height:1.45;
+  letter-spacing:.16em; text-transform:uppercase; white-space:nowrap; color:var(--text);
+}
+#rail .brand .themebtn{margin:0}
+#rail .brand .brand-sub{flex:1 0 100%; margin:6px 0 0; font-size:11px; line-height:1.4; color:var(--muted)}
+.themebtn,button.themebtn{
+  appearance:none; background:transparent; border:1px solid var(--rule); color:var(--muted);
+  font:inherit; font-size:10px; line-height:1.45; letter-spacing:.1em; text-transform:uppercase;
+  padding:3px 7px; cursor:pointer; border-radius:2px;
+}
+.themebtn:hover,button.themebtn:hover{background:transparent; color:var(--text); border-color:var(--muted)}
+input[type=range]{
+  -webkit-appearance:none; appearance:none; width:100%; height:18px; margin:0;
+  background:transparent; cursor:pointer;
+}
+input[type=range]::-webkit-slider-runnable-track{height:2px; background:var(--rule); border-radius:0}
+input[type=range]::-moz-range-track{height:2px; background:var(--rule); border-radius:0}
+input[type=range]::-webkit-slider-thumb{
+  -webkit-appearance:none; width:12px; height:12px; margin-top:-5px; border:0; border-radius:50%;
+  background:var(--accent);
+}
+input[type=range]::-moz-range-thumb{width:12px; height:12px; border:0; border-radius:50%; background:var(--accent)}
+input[type=range]:disabled{cursor:default; opacity:.5}
+input[type=checkbox],input[type=radio]{accent-color:var(--accent)}
+select,input[type=number]{border-radius:3px}
+button{border-radius:3px}
+button.primary,button.primary:hover{background:var(--btn); color:var(--accent); border-color:var(--accent)}
+:focus-visible{outline-color:var(--accent)}
+.credit{margin:14px 14px 0; font-size:10px; line-height:1.6; color:var(--dim); letter-spacing:.02em}
+#about .sheet{border-radius:4px}
+#about h3{margin:0 0 3px; font-size:13px; letter-spacing:.16em; text-transform:uppercase}
+#about .by{margin:0 0 12px; color:var(--accent); font-size:12px}
+#about .rel h5{margin:0 0 5px; font-size:11px; letter-spacing:.1em; font-weight:600; color:var(--text)}
+#about .rel h5 em{color:var(--dim); font-style:normal; font-weight:400; letter-spacing:0}
+h2{font-weight:400; letter-spacing:.18em; margin-bottom:9px}
+.lab span:first-child{color:var(--muted)}
+.val{color:var(--text)}
+.lab span:first-child,.lab .val{font-size:12px}
+#about[hidden]{display:none}
+#about{position:fixed; inset:0; z-index:40; display:grid; place-items:center; background:rgba(0,0,0,.5); padding:20px}
+#about .sheet{background:var(--panel); border:1px solid var(--rule); padding:20px 22px; max-width:560px; width:100%; max-height:82vh; overflow-y:auto}
+#about .note{margin:0 0 16px; color:var(--muted); font-size:11.5px; line-height:1.6}
+#about .rel{border-top:1px solid var(--rule); padding-top:9px; margin-top:9px}
+#about .rel p{margin:0; color:var(--muted); font-size:11.5px; line-height:1.6}
+#about #aboutClose{margin-top:18px}
+</style>
+</head>
+<body>
+
+<div id="rail">
+  <div id="head" class="brand">
+    <h1>Artifact sim</h1>
+    <button class="themebtn" id="ver" type="button" title="Version, credits and changelog"></button>
+    <button class="themebtn" id="theme" type="button" title="Switch colour theme">Light</button>
+    <p class="brand-sub">Image artifacts that fall out of one signal equation</p>
+  </div>
+
+  <section class="fold" id="secArtifact">
+    <h2 tabindex="0" role="button" aria-expanded="true">Artifact<span class="chev"></span></h2>
+    <div class="body">
+    <div class="ctl">
+      <select id="mode" aria-label="Artifact">
+        <option value="fat1">Chemical shift — displacement (1st kind)</option>
+        <option value="fat2">Chemical shift — phase cancellation (2nd kind)</option>
+        <option value="alias">Aliasing — wrap-around</option>
+        <option value="gibbs">Gibbs ringing — truncation</option>
+        <option value="susc">Susceptibility — metal and air</option>
+        <option value="eddy">Eddy currents and gradient delay</option>
+      </select>
+      <p class="sub" id="subSimple">All physics stays on in every artifact; the artifact chooses what is highlighted, which plot is shown and what the notes say. Pick an example, or switch to Advanced to change anything yourself.</p>
+      <p class="sub" id="subAdv">Each artifact loads a preset. All physics stays on in every one; the artifact chooses what is highlighted, the plot and the notes. The controls that matter most are marked ●.</p>
+    </div>
+    <div class="seg" role="group" aria-label="Level of control">
+      <button id="lvlSimple" type="button" aria-pressed="true">Simple</button><button id="lvlAdv" type="button" aria-pressed="false">Advanced</button>
+    </div>
+    <div id="examples" class="ctl" style="margin-top:11px">
+      <div class="lab"><span>Examples</span></div>
+      <div class="row" id="exRow"></div>
+    </div>
+    <div class="row" id="advRow" style="margin-top:9px"><button id="preset">Reload preset</button></div>
+  </div>
+  </section>
+
+  <section class="fold">
+    <h2 tabindex="0" role="button" aria-expanded="true">Object<span class="chev"></span></h2>
+    <div class="body">
+    <div class="ctl">
+      <select id="phantom" aria-label="Phantom">
+        <option value="abdomen">Abdomen — water and fat tissues</option>
+        <option value="head">Head — Shepp–Logan with a fat ring</option>
+        <option value="qa">QA phantom — oil and water vials, bars</option>
+        <option value="grid">Grid phantom — 20 mm grid in water</option>
+      </select>
+    </div>
+  </div>
+  </section>
+
+  <section class="fold">
+    <h2 tabindex="0" role="button" aria-expanded="true" data-modes="susc">Susceptibility source<span class="chev"></span></h2>
+    <div class="body">
+    <div class="ctl" data-hot="susc">
+      <select id="mat" aria-label="Source material">
+        <option value="none">None</option>
+        <option value="air">Air sphere (Δχ ≈ +9.4 ppm)</option>
+        <option value="ti">Titanium sphere (Δχ ≈ +190 ppm)</option>
+        <option value="cocr">Co–Cr alloy sphere (Δχ ≈ +900 ppm)</option>
+        <option value="steel">Austenitic steel sphere (Δχ ≈ +3500 ppm)</option>
+      </select>
+      <p class="sub">Δχ relative to tissue. Metal values depend strongly on the alloy. Drag in the object panel to move the source.</p>
+    </div>
+    <div class="ctl" data-hot="susc" id="ctlSrc">
+      <div class="lab"><span>Radius</span><span class="val" id="vSr"></span></div>
+      <input type="range" id="sSr" min="2" max="30" step="0.5" value="8">
+      <div class="lab" style="margin-top:6px"><span>B₀ direction</span></div>
+      <select id="b0dir" aria-label="B0 direction">
+        <option value="z">Through the slice (axial slice)</option>
+        <option value="y">Vertical, in the slice (coronal or sagittal)</option>
+      </select>
+    </div>
+  </div>
+  </section>
+
+  <section class="fold">
+    <h2 tabindex="0" role="button" aria-expanded="true">Sequence<span class="chev"></span></h2>
+    <div class="body">
+    <div class="ctl">
+      <select id="seq" aria-label="Sequence">
+        <option value="se">Spin echo, line by line (spin-warp)</option>
+        <option value="gre">Gradient echo, line by line (spin-warp)</option>
+        <option value="epi">EPI, single shot, gradient echo</option>
+        <option value="epise">EPI, single shot, spin echo</option>
+      </select>
+    </div>
+    <div class="ctl" data-hot="fat1 fat2">
+      <div class="lab"><span>B₀</span><span class="val" id="vB0"></span></div>
+      <input type="range" id="sB0" min="0.2" max="7" step="0.05" value="3">
+      <div class="row" style="margin-top:4px">
+        <button class="mini" data-b0="0.55">0.55 T</button><button class="mini" data-b0="1.5">1.5 T</button>
+        <button class="mini" data-b0="3">3 T</button><button class="mini" data-b0="7">7 T</button>
+      </div>
+    </div>
+    <div class="ctl" data-hot="fat2" id="ctlTE">
+      <div class="lab"><span>Echo time TE</span><span class="val" id="vTE"></span></div>
+      <input type="range" id="sTE" min="0" max="1000" step="1" value="300">
+      <div class="row" style="margin-top:4px">
+        <button class="mini" id="teOP" title="Nearest opposed-phase TE">Opposed</button>
+        <button class="mini" id="teIP" title="Nearest in-phase TE">In phase</button>
+      </div>
+      <p class="sub" id="subTE"></p>
+    </div>
+    <div class="ctl" data-hot="fat1">
+      <div class="lab"><span>Readout bandwidth</span><span class="val" id="vBW"></span></div>
+      <input type="range" id="sBW" min="0" max="1000" step="1" value="400">
+      <p class="sub" id="subBW"></p>
+    </div>
+  </div>
+  </section>
+
+  <section class="fold">
+    <h2 tabindex="0" role="button" aria-expanded="true" data-modes="alias gibbs">Geometry<span class="chev"></span></h2>
+    <div class="body">
+    <div class="ctl" data-hot="alias">
+      <div class="lab"><span>FOV (readout)</span><span class="val" id="vFOV"></span></div>
+      <input type="range" id="sFOV" min="100" max="500" step="5" value="400">
+    </div>
+    <div class="ctl" data-hot="alias">
+      <div class="lab"><span>Phase FOV</span><span class="val" id="vPE"></span></div>
+      <input type="range" id="sPE" min="30" max="100" step="1" value="75">
+    </div>
+    <div class="ctl two" data-hot="gibbs">
+      <div><div class="lab"><span>N readout</span></div>
+        <select id="nRO" aria-label="Readout matrix"></select></div>
+      <div><div class="lab"><span>N phase</span></div>
+        <select id="nPE" aria-label="Phase matrix"></select></div>
+    </div>
+    <div class="ctl" data-hot="fat1 alias">
+      <div class="lab"><span>Frequency encoding</span></div>
+      <select id="roAxis" aria-label="Readout direction">
+        <option value="x">Readout along x (left–right)</option>
+        <option value="y">Readout along y (up–down)</option>
+      </select>
+    </div>
+    <div class="ctl" data-hot="fat1 alias">
+      <label class="chk"><input type="checkbox" id="roPol"> Reverse readout polarity</label>
+      <label class="chk" id="lblPePol"><input type="checkbox" id="pePol"> Reverse phase blips (EPI)</label>
+    </div>
+  </div>
+  </section>
+
+  <section class="fold">
+    <h2 tabindex="0" role="button" aria-expanded="true" data-modes="fat1 fat2">Fat<span class="chev"></span></h2>
+    <div class="body">
+    <div class="ctl" data-hot="fat2">
+      <select id="fatModel" aria-label="Fat spectrum">
+        <option value="single">Single peak at −3.4 ppm</option>
+        <option value="six">Six-peak spectrum (liver model)</option>
+      </select>
+    </div>
+    <div class="ctl" data-hot="fat1">
+      <label class="chk"><input type="checkbox" id="fatSat"> Fat saturation (97 % suppression)</label>
+    </div>
+  </div>
+  </section>
+
+  <section class="fold">
+    <h2 tabindex="0" role="button" aria-expanded="true" data-modes="eddy">Eddy currents and gradient timing<span class="chev"></span></h2>
+    <div class="body">
+    <div class="ctl" data-hot="eddy">
+      <div class="lab"><span>Eddy current amplitude a</span><span class="val" id="vEc"></span></div>
+      <input type="range" id="sEc" min="0" max="1" step="0.01" value="0">
+      <div class="lab" style="margin-top:6px"><span>Time constant τ</span><span class="val" id="vTau"></span></div>
+      <input type="range" id="sTau" min="0" max="1000" step="1" value="500">
+      <p class="sub">g<sub>ec</sub> = −(dG/dt) ⊗ a·e<sup>−t/τ</sup> on each axis: a gradient step of ΔG leaves a field −a·ΔG that decays with τ. Residual amplitudes after pre-emphasis are typically well below 1 %.</p>
+    </div>
+    <div class="ctl" data-hot="eddy">
+      <div class="lab"><span>Gradient delay δt</span><span class="val" id="vDelay"></span></div>
+      <input type="range" id="sDelay" min="-5" max="5" step="0.1" value="0">
+    </div>
+    <div class="ctl" data-hot="eddy" id="ctlDiff">
+      <div class="lab"><span>Diffusion encoding (spin echo)</span></div>
+      <select id="diff" aria-label="Diffusion direction">
+        <option value="none">None (b = 0)</option>
+        <option value="ro">Along readout</option>
+        <option value="pe">Along phase</option>
+        <option value="ss">Along slice</option>
+      </select>
+      <div class="lab" style="margin-top:6px"><span>b-value</span><span class="val" id="vB"></span></div>
+      <input type="range" id="sB" min="0" max="3000" step="50" value="1000">
+      <p class="sub">The lobes only drive eddy currents here; diffusion attenuation itself is not modelled.</p>
+    </div>
+    <div class="ctl" data-hot="eddy" id="ctlDiff2">
+      <div class="lab"><span>Diffusion gradient</span><span class="val" id="vGd"></span></div>
+      <input type="range" id="sGd" min="10" max="80" step="1" value="45">
+      <div class="lab" style="margin-top:6px"><span>Slice offset z₀</span><span class="val" id="vZ0"></span></div>
+      <input type="range" id="sZ0" min="-80" max="80" step="1" value="0">
+    </div>
+    <div class="ctl" data-hot="eddy">
+      <label class="chk"><input type="checkbox" id="nyq"> Nyquist ghost correction (reference scan)</label>
+      <div class="row" style="margin-top:6px"><button id="freezeB0" title="Freeze the image without diffusion lobes as the reference">Freeze b = 0 reference</button></div>
+    </div>
+  </div>
+  </section>
+
+  <section class="fold">
+    <h2 tabindex="0" role="button" aria-expanded="true" data-modes="susc eddy">Distortion countermeasures<span class="chev"></span></h2>
+    <div class="body">
+    <div class="ctl" data-hot="susc" id="ctlVat">
+      <label class="chk"><input type="checkbox" id="vat"> View-angle tilting (spin echo)</label>
+      <div class="lab" style="margin-top:4px"><span>Excitation bandwidth</span><span class="val" id="vRf"></span></div>
+      <input type="range" id="sRf" min="300" max="5000" step="50" value="1500">
+      <p class="sub">VAT plays the slice gradient again during readout. Off-resonant spins were excited at a shifted slice position, so the extra gradient exactly cancels their readout shift. The price is a blur of about BW<sub>RF</sub>/BW<sub>px</sub> pixels, from weighting the readout by sinc(BW<sub>RF</sub>·τ), so VAT needs a high readout bandwidth.</p>
+    </div>
+    <div class="ctl" data-hot="susc" id="ctlAcc">
+      <div class="lab"><span>EPI acceleration R</span><span class="val" id="vAcc"></span></div>
+      <input type="range" id="sAcc" min="1" max="4" step="1" value="1">
+      <p class="sub">Idealised parallel imaging: only the echo train shortens (ESP/R per k-space line) and SNR drops by √R. No g-factor or unfolding errors.</p>
+    </div>
+  </div>
+  </section>
+
+  <section class="fold">
+    <h2 tabindex="0" role="button" aria-expanded="true" data-modes="alias gibbs">Sampling and reconstruction<span class="chev"></span></h2>
+    <div class="body">
+    <div class="ctl" data-hot="alias">
+      <label class="chk"><input type="checkbox" id="osRO" checked> Readout oversampling ×2</label>
+      <div class="lab" style="margin-top:6px"><span>Phase oversampling</span><span class="val" id="vOsPE"></span></div>
+      <input type="range" id="sOsPE" min="0" max="100" step="1" value="0">
+    </div>
+    <div class="ctl" data-hot="gibbs">
+      <div class="lab"><span>k-space filter</span></div>
+      <select id="filter" aria-label="k-space filter">
+        <option value="none">None (rectangular window)</option>
+        <option value="tukey">Tukey, 50 % taper</option>
+        <option value="hann">Hann</option>
+        <option value="hamming">Hamming</option>
+      </select>
+      <label class="chk"><input type="checkbox" id="zf"> Zero-fill ×2 (interpolation only)</label>
+    </div>
+    <div class="ctl">
+      <div class="lab"><span>Noise</span><span class="val" id="vNoise"></span></div>
+      <input type="range" id="sNoise" min="0" max="4" step="0.05" value="0.5">
+      <p class="sub">Thermal noise per k-space sample grows as √(total bandwidth), so image SNR scales as voxel area × √(N<sub>PE</sub>/BW<sub>px</sub>).</p>
+    </div>
+  </div>
+  </section>
+
+  <section class="fold">
+    <h2 tabindex="0" role="button" aria-expanded="true">Display<span class="chev"></span></h2>
+    <div class="body">
+    <div class="ctl two">
+      <div><div class="lab"><span>Image</span></div>
+        <select id="view" aria-label="Image display"><option value="mag">Magnitude</option><option value="phase">Phase</option></select></div>
+      <div><div class="lab"><span>Signal from</span></div>
+        <select id="species" aria-label="Species"><option value="both">Water + fat</option><option value="water">Water only</option><option value="fat">Fat only</option></select></div>
+    </div>
+    <div class="ctl">
+      <div class="lab"><span>Window (white level)</span><span class="val" id="vWin"></span></div>
+      <input type="range" id="sWin" min="0.2" max="2" step="0.01" value="1.1">
+    </div>
+    <div class="ctl">
+      <div class="lab"><span>Object panel</span></div>
+      <select id="objView" aria-label="Object panel">
+        <option value="rho">Densities, water and fat</option>
+        <option value="field">Field offset Δf with the 1-pixel contour</option>
+      </select>
+    </div>
+    <div class="ctl two">
+      <div><div class="lab"><span>k-space</span></div>
+        <select id="kview" aria-label="k-space display">
+          <option value="magtime">|s| and time</option>
+          <option value="time">Time only</option>
+          <option value="mag">|s| only</option>
+        </select></div>
+      <div><div class="lab"><span>Plot</span></div>
+        <select id="diag" aria-label="Plot"><option value="physics">Physics</option><option value="profile">Line profile</option></select></div>
+    </div>
+    <div class="row">
+      <button id="freeze" aria-pressed="false" title="Keep the current image for side-by-side comparison (F)">Freeze reference</button>
+      <button id="png" title="Save the three top panels and the plot as a PNG">Save PNG</button>
+    </div>
+    <p class="sub">Click or drag on the image to move the profile line. With a reference frozen, drag the divider to compare.</p>
+  </div>
+  </section>
+
+  <section class="fold" id="secNote">
+    <h2 tabindex="0" role="button" aria-expanded="true">What to look for<span class="chev"></span></h2>
+    <div class="body">
+    <div id="note"></div>
+  </div>
+  </section>
+
+  <p class="credit" id="credit"></p>
+</div>
+
+<main>
+  <div id="top">
+    <div class="pane" id="objPane">
+      <div class="tag">Object — true ρ<sub>W</sub> and ρ<sub>F</sub></div>
+      <canvas id="cvObj"></canvas>
+    </div>
+    <div class="pane" id="kPane">
+      <div class="tag">k-space — as acquired</div>
+      <canvas id="cvK"></canvas>
+    </div>
+    <div class="pane" id="imgPane">
+      <div class="tag">Image — reconstructed</div>
+      <canvas id="cvImg"></canvas>
+    </div>
+  </div>
+  <div id="bot">
+    <div class="pane" id="physPane"><div id="phys"></div></div>
+    <div class="pane" id="diagPane">
+      <div class="tag" id="diagTag">Plot</div>
+      <canvas id="cvDiag"></canvas>
+    </div>
+  </div>
+</main>
+
+<div id="about" hidden>
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="aboutTitle">
+    <h3 id="aboutTitle">Artifact sim</h3>
+    <p class="by"></p>
+    <p class="note">
+      A teaching aid, not a quantitative simulator. The object is an analytic 2D
+      phantom whose Fourier transform is known exactly, with water and fat as two
+      species. It is sampled on the acquired k-space grid, each sample carrying the
+      time since excitation at which it was measured, and reconstructed by an
+      inverse DFT. The artifacts are therefore not drawn: they follow from sampling,
+      truncation and chemical-shift phase.
+      Simplifications in this version: proton density only (no T1, T2 or T2*
+      weighting, so no T2* blurring along the EPI echo train); a perfectly
+      homogeneous B₀; ideal gradients, with a fixed 0.12 ms ramp overhead per EPI
+      line; a symmetric echo; a single 2D slice with no through-plane effects;
+      white Gaussian noise; fat saturation modelled as uniform 97 % suppression.
+      Susceptibility sources are spheres centred in the slice, with a field that is linear in Δχ
+      (ferromagnetic behaviour is ignored). Through-plane effects of the field (slice bending) are not
+      modelled. Dephasing within a voxel is sampled with up to 4 × 4 points per pixel, which
+      underestimates it where the field changes by more than a cycle between points. View-angle
+      tilting assumes a rectangular slice profile. EPI acceleration is idealised: it shortens the
+      echo train, with no g-factor. Eddy currents are linear fields, one exponential per axis, with no
+      cross-terms or higher spatial orders and no B₀ term apart from the slice offset. Diffusion lobes
+      drive eddy currents but do not attenuate the signal. The Nyquist correction uses the ideal
+      odd–even difference at the centre of the echo train.
+      Readout aliasing, shown when readout oversampling is off, is normally
+      prevented on a scanner by oversampling and the receiver’s low-pass filter.
+    </p>
+    <div id="changelog"></div>
+    <button class="themebtn" id="aboutClose" type="button">Close</button>
+  </div>
+</div>
+
+<script>
+"use strict";
+/* ==================== PHYSICS CORE (pure, no DOM) ==================== */
+/*  Units: lengths in mm, spatial frequency in 1/mm, time in s, frequency in Hz.
+ *
+ *  Signal equation (demodulated, water on resonance):
+ *
+ *    s(k) = ∬ [ ρW(r) + ρF(r) Σp αp exp(−i2π fp t(k)) ] exp(−i2π Δf(r) t(k)) exp(−i2π k·r) d²r
+ *
+ *  Δf(r) is the field offset from a susceptibility source (a sphere). Without it the
+ *  integral is evaluated exactly from closed-form transforms. With it, a correction is
+ *  added that is computed on a fine node grid (see susceptibilityCorrection).
+ *
+ *  ρW and ρF are sums of ellipses and rectangles, whose Fourier transforms are
+ *  closed-form (Bessel J1 and sinc), so s(k) is exact at every sampled k.
+ *  t(k) is the time since excitation (GRE) or since the echo (SE) at which the
+ *  sample was acquired. Everything that looks like an artifact — fat
+ *  displacement, water–fat phase cancellation, wrap-around, ringing — comes
+ *  from the fat phase term, the discrete sampling Δk = 1/FOV, or the finite
+ *  k-space extent, and nothing else.
+ */
+
+const GBAR = 42.577478e6;          // Hz/T, 1H
+const EPI_RAMP = 0.12e-3;          // s, gradient ramp overhead per EPI line
+const GRE_OVH = 0.3e-3;            // s, excitation + prephaser before the readout
+const FATSAT_RESID = 0.03;         // fraction of fat left after fat saturation
+const NOISE_C = 0.05524;
+// Susceptibility difference to tissue (χ_tissue ≈ −9.05 ppm, SI volume units).
+// Metal values are typical and alloy-dependent; the field model is linear in Δχ.
+const MATERIALS = {
+  none:{dchi:0},
+  air:{dchi:9.4},
+  ti:{dchi:190},
+  cocr:{dchi:900},
+  steel:{dchi:3500}
+};           // noise=1 gives σ_img = 0.02 at 200 Hz/px, 256², 400 mm
+
+// Fat spectra. The six-peak model uses the frequencies (ppm relative to water)
+// and relative amplitudes of the ISMRM Fat–Water Toolbox liver model.
+const FAT_MODELS = {
+  single:{ppm:[-3.40], amp:[1]},
+  six:{ppm:[-3.80,-3.40,-2.60,-1.94,-0.39,0.60], amp:[0.087,0.693,0.128,0.004,0.039,0.048]}
+};
+{ const a = FAT_MODELS.six.amp, s = a.reduce((p,q)=>p+q,0); for(let i=0;i<a.length;i++) a[i] /= s; }
+
+// Bessel J1 — rational approximations (Numerical Recipes), |error| < 1e-7.
+function bessj1(x){
+  const ax = Math.abs(x);
+  if(ax < 8){
+    const y = x*x;
+    const a1 = x*(72362614232.0+y*(-7895059235.0+y*(242396853.1+y*(-2972611.439+y*(15704.48260+y*(-30.16036606))))));
+    const a2 = 144725228442.0+y*(2300535178.0+y*(18583304.74+y*(99447.43394+y*(376.9991397+y))));
+    return a1/a2;
+  }
+  const z = 8/ax, y = z*z, xx = ax-2.356194491;
+  const b1 = 1.0+y*(0.183105e-2+y*(-0.3516396496e-4+y*(0.2457520174e-5+y*(-0.240337019e-6))));
+  const b2 = 0.04687499995+y*(-0.2002690873e-3+y*(0.8449199096e-5+y*(-0.88228987e-6+y*0.105787412e-6)));
+  const r = Math.sqrt(0.636619772/ax)*(Math.cos(xx)*b1-z*Math.sin(xx)*b2);
+  return x < 0 ? -r : r;
+}
+function sinc(x){ if(Math.abs(x) < 1e-12) return 1; const p = Math.PI*x; return Math.sin(p)/p; }
+
+// shapes: ellipse (semi-axes a, b) or rectangle (full width a, height b), rotated by th
+function Ell(x0,y0,a,b,deg){ return {type:"ell",x0,y0,a,b,th:(deg||0)*Math.PI/180}; }
+function Rect(x0,y0,w,h,deg){ return {type:"rect",x0,y0,a:w,b:h,th:(deg||0)*Math.PI/180}; }
+function finish(s){ s.c = Math.cos(s.th); s.s = Math.sin(s.th); return s; }
+
+// Regions painted in order: each region replaces the content of its parent, so its
+// additive contribution is (own − parent). A region must lie inside its parent and
+// siblings must not overlap.
+function fromRegions(list){
+  return list.map(([shape,w,f,p]) => {
+    const pw = p >= 0 ? list[p][1] : 0, pf = p >= 0 ? list[p][2] : 0;
+    return finish(Object.assign({}, shape, {dw:w-pw, df:f-pf}));
+  });
+}
+function fromAdditive(list){ return list.map(([shape,dw,df]) => finish(Object.assign({}, shape, {dw, df}))); }
+
+const PHANTOMS = {
+  abdomen:{
+    extent:175,
+    build(){
+      return fromRegions([
+        [Ell(0,0,170,120),        0.10, 0.90, -1],  // 0 body: subcutaneous fat
+        [Ell(0,-2,157,107),       0.70, 0.00,  0],  // 1 muscle / viscera
+        [Ell(-60,45,70,40,15),    0.73, 0.10,  1],  // 2 liver, ~12 % fat
+        [Ell(-48,38,10,14,20),    1.00, 0.00,  2],  // 3 gallbladder
+        [Ell(58,48,34,24,-10),    0.95, 0.00,  1],  // 4 stomach, fluid
+        [Ell(75,-40,34,42,-20),   0.10, 0.90,  1],  // 5 perirenal fat, left
+        [Ell(75,-40,22,32,-20),   0.85, 0.00,  5],  // 6 kidney, left
+        [Ell(-75,-40,34,42,20),   0.10, 0.90,  1],  // 7 perirenal fat, right
+        [Ell(-75,-40,22,32,20),   0.85, 0.00,  7],  // 8 kidney, right
+        [Ell(0,-72,20,15),        0.35, 0.55,  1],  // 9 vertebral body, marrow
+        [Ell(0,-96,8,6),          1.00, 0.00,  1],  // 10 spinal canal, CSF
+        [Ell(-22,-48,9,9),        0.90, 0.00,  1]   // 11 aorta
+      ]);
+    }
+  },
+  head:{
+    extent:120,
+    build(){
+      const s = 110;                                  // modified Shepp–Logan (Toft), scaled
+      const E = (a,b,x,y,d) => Ell(x*s,y*s,a*s,b*s,d);
+      return fromAdditive([
+        [E(0.69,0.92,0,0,0),            0.00,  0.90],  // scalp fat ring (outer)
+        [E(0.6624,0.874,0,-0.0184,0),   0.60, -0.90],  // brain
+        [E(0.11,0.31,0.22,0,-18),       0.30,  0.00],  // ventricles (CSF brighter)
+        [E(0.16,0.41,-0.22,0,18),       0.30,  0.00],
+        [E(0.21,0.25,0,0.35,0),         0.12,  0.00],
+        [E(0.046,0.046,0,0.1,0),        0.15,  0.00],
+        [E(0.046,0.046,0,-0.1,0),       0.15,  0.00],
+        [E(0.046,0.023,-0.08,-0.605,0), 0.20,  0.00],
+        [E(0.023,0.023,0,-0.606,0),     0.20,  0.00],
+        [E(0.023,0.046,0.06,-0.605,0),  0.20,  0.00]
+      ]);
+    }
+  },
+  grid:{
+    extent:105,
+    build(){
+      // water block with a 20 mm grid of 2 mm low-signal lines (additive: crossings added back)
+      const L = [[Rect(0,0,200,200), 0.90, 0]];
+      const pos = []; for(let i=-4;i<=4;i++) pos.push(i*20);
+      for(const c of pos){ L.push([Rect(c,0,2,200), -0.75, 0]); L.push([Rect(0,c,200,2), -0.75, 0]); }
+      for(const x of pos) for(const y of pos) L.push([Rect(x,y,2,2), 0.75, 0]);
+      return fromAdditive(L);
+    }
+  },
+  qa:{
+    extent:100,
+    build(){
+      const L = [
+        [Rect(0,0,190,190),  0.50, 0.00, -1],        // 0 water-doped block
+        [Ell(-50,50,28,28),  1.00, 0.00,  0],        // 1 water vial
+        [Ell(50,50,28,28),   0.00, 1.00,  0],        // 2 oil vial
+        [Rect(75,-45,30,50), 1.00, 0.00,  0]         // 3 edge block
+      ];
+      // bar groups, 5 bars each, bar width = gap = 1, 1.5, 2, 3 mm
+      [[1,-70],[1.5,-40],[2,-8],[3,35]].forEach(([w,xc]) => {
+        for(let i=0;i<5;i++) L.push([Rect(xc+(i-2)*2*w,-45,w,40), 1.00, 0.00, 0]);
+      });
+      [[1,-60],[2,-30],[3,0],[5,30]].forEach(([r,x]) => L.push([Ell(x,-12,r,r), 1.00, 0.00, 0]));
+      return fromRegions(L);
+    }
+  }
+};
+
+function insideShape(s,x,y){
+  const dx = x-s.x0, dy = y-s.y0, u = dx*s.c+dy*s.s, v = -dx*s.s+dy*s.c;
+  if(s.type === "ell") return (u*u)/(s.a*s.a)+(v*v)/(s.b*s.b) <= 1;
+  return Math.abs(u) <= s.a/2 && Math.abs(v) <= s.b/2;
+}
+function truthAt(shapes,x,y){
+  let w = 0, f = 0;
+  for(const s of shapes) if(insideShape(s,x,y)){ w += s.dw; f += s.df; }
+  return [w,f];
+}
+
+// Paint the additive shapes onto a lattice of nodes x = (ix0+i)·dx, y = (iy0+j)·dy.
+// Each shape only visits the nodes inside its bounding box.
+function rasterize(shapes, ix0, nx, dx, iy0, ny, dy){
+  const W = new Float32Array(nx*ny), F = new Float32Array(nx*ny);
+  for(const s of shapes){
+    const hx = s.type === "ell" ? Math.hypot(s.a*s.c, s.b*s.s) : Math.abs(s.a/2*s.c) + Math.abs(s.b/2*s.s);
+    const hy = s.type === "ell" ? Math.hypot(s.a*s.s, s.b*s.c) : Math.abs(s.a/2*s.s) + Math.abs(s.b/2*s.c);
+    const i0 = Math.max(0, Math.ceil((s.x0-hx)/dx) - ix0), i1 = Math.min(nx-1, Math.floor((s.x0+hx)/dx) - ix0);
+    const j0 = Math.max(0, Math.ceil((s.y0-hy)/dy) - iy0), j1 = Math.min(ny-1, Math.floor((s.y0+hy)/dy) - iy0);
+    for(let j=j0;j<=j1;j++){
+      const y = (iy0+j)*dy;
+      for(let i=i0;i<=i1;i++) if(insideShape(s, (ix0+i)*dx, y)){ W[j*nx+i] += s.dw; F[j*nx+i] += s.df; }
+    }
+  }
+  return {W, F};
+}
+
+// Field offset (Hz) of a sphere of radius a and susceptibility difference Δχ whose centre
+// lies in the slice. Outside: Δf = γ̄B₀ (Δχ/3)(a/r)³(3cos²θ − 1), θ from B₀. With B₀ through
+// the slice (axial) θ = 90° everywhere in the plane. Inside the sphere there is no signal.
+function fieldHz(P, x, y){
+  const dx = x-P.sx, dy = y-P.sy, r2 = dx*dx + dy*dy, a2 = P.sr*P.sr;
+  if(r2 < a2) return NaN;
+  const c2 = P.b0dir === "y" ? dy*dy/r2 : 0;
+  return GBAR*P.B0*(MATERIALS[P.mat].dchi*1e-6/3)*Math.pow(a2/r2, 1.5)*(3*c2 - 1);
+}
+function hasSource(P){ return P.mat !== "none"; }
+
+// Acquisition geometry and timing, derived from the parameter set P.
+function geometry(P){
+  const fovRO = P.fov, fovPE = P.fov*P.pePct/100;
+  const dro = fovRO/P.nRO, dpe = fovPE/P.nPE;
+  const NacqRO = P.nRO*(P.osRO ? 2 : 1);
+  let NacqPE = Math.round(P.nPE*(1+P.osPE)); NacqPE += NacqPE % 2;
+  const Tacq = 1/P.bw;                                 // readout duration of one line
+  const isEPI = P.seq === "epi" || P.seq === "epise";
+  const ESP = Tacq + EPI_RAMP;
+  const accel = isEPI && !eddyActive(P) ? Math.max(1, P.accel || 1) : 1;   // the eddy timeline needs real lines
+  const ESPeff = ESP/accel;                             // idealised parallel imaging: shorter train only
+  const vat = !!P.vat && P.seq === "se";
+  let TEmin = 0;
+  if(P.seq === "gre") TEmin = Tacq/2 + GRE_OVH;
+  else if(P.seq === "epi") TEmin = (NacqPE/2)*ESPeff + Tacq/2 + GRE_OVH;
+  const TE = Math.max(P.TE, TEmin);
+  const fFat = FAT_MODELS[P.fatModel].ppm.map(p => p*1e-6*GBAR*P.B0);
+  const fMain = -3.40e-6*GBAR*P.B0;                    // main (methylene) fat peak
+  return {fovRO, fovPE, dro, dpe, NacqRO, NacqPE, FOVaRO:NacqRO*dro, FOVaPE:NacqPE*dpe,
+          Tacq, dwell:Tacq/NacqRO, isEPI, ESP, ESPeff, accel, vat, TEmin, TE, fFat, fMain,
+          bwPE: isEPI ? 1/(NacqPE*ESPeff) : Infinity};
+}
+
+// Exact k-space of water and fat on the acquisition grid. Index i = m*NacqRO + r,
+// k_RO = (r − NacqRO/2)/FOVaRO, k_PE = (m − NacqPE/2)/FOVaPE.
+function kspaceObject(shapes, G, roAxis, dk){
+  const NR = G.NacqRO, NP = G.NacqPE, n = NR*NP;
+  const Wr = new Float64Array(n), Wi = new Float64Array(n), Fr = new Float64Array(n), Fi = new Float64Array(n);
+  const kx = new Float64Array(n), ky = new Float64Array(n);
+  for(let m=0;m<NP;m++){
+    const kpe = (m-NP/2)/G.FOVaPE;
+    for(let r=0;r<NR;r++){
+      const i = m*NR+r, kro = (r-NR/2)/G.FOVaRO + (dk ? dk.ro[i] : 0), kp = kpe + (dk ? dk.pe[i] : 0);
+      if(roAxis === "x"){ kx[i] = kro; ky[i] = kp; } else { kx[i] = kp; ky[i] = kro; }
+    }
+  }
+  const TWO_PI = 2*Math.PI;
+  for(const s of shapes){
+    if(s.dw === 0 && s.df === 0) continue;
+    const {a, b, c, x0, y0} = s, sn = s.s, ell = s.type === "ell";
+    for(let i=0;i<n;i++){
+      const u = kx[i]*c + ky[i]*sn, v = -kx[i]*sn + ky[i]*c;
+      let A;
+      if(ell){
+        const kap = Math.hypot(a*u, b*v);
+        A = kap < 1e-12 ? Math.PI*a*b : a*b*bessj1(TWO_PI*kap)/kap;
+      } else {
+        A = a*b*sinc(a*u)*sinc(b*v);
+      }
+      const ph = -TWO_PI*(kx[i]*x0 + ky[i]*y0), cr = Math.cos(ph)*A, ci = Math.sin(ph)*A;
+      if(s.dw){ Wr[i] += s.dw*cr; Wi[i] += s.dw*ci; }
+      if(s.df){ Fr[i] += s.df*cr; Fi[i] += s.df*ci; }
+    }
+  }
+  return {Wr, Wi, Fr, Fi};
+}
+
+// deterministic hash → uniform (0,1), so the noise pattern is frozen for a given grid
+function hashU(i){
+  let a = (i*2654435761 + 0x6D2B79F5) | 0;
+  let t = Math.imul(a ^ (a >>> 15), 1 | a);
+  t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+  return (((t ^ (t >>> 14)) >>> 0) + 0.5)/4294967297;
+}
+
+// Time since excitation (gre, epi) or since the echo (se, epise) of every sample,
+// and the resulting acquired signal.
+function acquire(P, G, K, Corr, Ed){
+  const NR = G.NacqRO, NP = G.NacqPE, n = NR*NP;
+  const Sr = new Float64Array(n), Si = new Float64Array(n), T = new Float32Array(n);
+  const fm = FAT_MODELS[P.fatModel], np = fm.ppm.length;
+  const om = G.fFat.map(f => 2*Math.PI*f), al = fm.amp;
+  const wS = P.species === "fat" ? 0 : 1;
+  const fS = (P.species === "water" ? 0 : 1)*(P.fatSat ? FATSAT_RESID : 1);
+  const p = P.roPol ? -1 : 1, q = P.pePol ? -1 : 1;
+  const base = (P.seq === "gre" || P.seq === "epi") ? G.TE : 0;
+  const sig = P.noise*NOISE_C*Math.sqrt(P.bw*NR)*Math.sqrt(G.accel);   // fewer lines acquired: SNR ∝ 1/√R
+  let tmin = Infinity, tmax = -Infinity;
+  const parity = new Uint8Array(NP);
+  for(let m=0;m<NP;m++){
+    const jpe = m-NP/2;
+    let tLine = 0, sgn = 1, par = 0;
+    if(G.isEPI){
+      const l = NP/2 + q*jpe;                          // acquisition order of this line
+      tLine = q*jpe*G.ESPeff; sgn = (l % 2 === 0) ? 1 : -1; par = sgn > 0 ? 0 : 1;
+    }
+    const C = Corr ? Corr[par] : null;
+    parity[m] = par;
+    for(let r=0;r<NR;r++){
+      const i = m*NR+r, tau = sgn*p*(r-NR/2)*G.dwell, t = base + tLine + tau;
+      T[i] = t; if(t < tmin) tmin = t; if(t > tmax) tmax = t;
+      // VAT: the view-angle gradient cancels off-resonance during the readout and
+      // weights the readout by the slice profile's transform, sinc(BW_RF·τ)
+      const tOff = G.vat ? base : t, wv = G.vat ? sinc(P.rfbw*tau) : 1;
+      let pr = 0, pi = 0;
+      for(let j=0;j<np;j++){ const ph = om[j]*tOff; pr += al[j]*Math.cos(ph); pi -= al[j]*Math.sin(ph); }
+      let re = wS*K.Wr[i] + fS*(K.Fr[i]*pr - K.Fi[i]*pi);
+      let im = wS*K.Wi[i] + fS*(K.Fr[i]*pi + K.Fi[i]*pr);
+      if(C){ re += C.r[i]; im += C.i[i]; }
+      re *= wv; im *= wv;
+      if(Ed){ const c = Math.cos(Ed.ph[i]), sn = Math.sin(Ed.ph[i]), t2 = re*c - im*sn; im = re*sn + im*c; re = t2; }
+      if(sig > 0){
+        const u1 = hashU(2*i+1), u2 = hashU(2*i+2), R = Math.sqrt(-2*Math.log(u1))*sig;
+        re += R*Math.cos(2*Math.PI*u2); im += R*Math.sin(2*Math.PI*u2);
+      }
+      Sr[i] = re; Si[i] = im;
+    }
+  }
+  return {Sr, Si, T, tmin, tmax, sigma:sig, parity, nyq: Ed ? Ed.nyq : null};
+}
+
+/* ---------- susceptibility: correction term on a fine node grid
+ *
+ *  For a node at r with frequency f the phase −2π f t(k) splits into a constant part
+ *  (−2π f TE for gradient echoes, 0 for spin echoes) and parts linear in k:
+ *    readout:  f·τ(k_RO)    ⇒ a shift of  s·p·f·Δx_RO/BW_px  along readout (s = ±1 per EPI line parity)
+ *    EPI:      f·n·ESP/R    ⇒ a shift of  q·f·FOV_PE·ESP/R  along phase
+ *  so each node is an exactly shifted, phase-weighted point. The correction adds, for
+ *  every node in the field, [point at the shifted place] − [the same node as the exact
+ *  analytic term already contains it], and removes the content of nodes inside the
+ *  sphere. Where Δf = 0 the two terms are identical and cancel, so the exact analytic
+ *  image is untouched away from the source. Points are spread onto the node grid with
+ *  4-tap Lagrange weights (exact at nodes), which is Fourier-transformed and cropped
+ *  to the acquired k-space. Intravoxel dephasing is represented by the 3–6 nodes per pixel
+ *  and direction of that grid.
+ */
+// fine grid: a power of two with at least 3 nodes per acquired pixel (at most 2048), spanning
+// exactly the acquired FOV so that its DFT bins coincide with the acquired k-space samples
+function fineSize(N){ let n = 1; while(n < 3*N) n <<= 1; return Math.min(2048, Math.max(n, 2*N)); }
+function buildNodes(shapes, G, roAxis, extent){
+  const NfR = fineSize(G.NacqRO), NfP = fineSize(G.NacqPE);
+  const dR = G.FOVaRO/NfR, dP = G.FOVaPE/NfP, R = Math.min(NfR/G.NacqRO, NfP/G.NacqPE);
+  const dx = roAxis === "x" ? dR : dP, dy = roAxis === "x" ? dP : dR;
+  const ix0 = -Math.ceil(extent/dx), nx = 2*Math.ceil(extent/dx)+1;
+  const iy0 = -Math.ceil(extent/dy), ny = 2*Math.ceil(extent/dy)+1;
+  const {W, F} = rasterize(shapes, ix0, nx, dx, iy0, ny, dy);
+  let n = 0; for(let i=0;i<W.length;i++) if(Math.abs(W[i]) > 1e-7 || Math.abs(F[i]) > 1e-7) n++;
+  const x = new Float32Array(n), y = new Float32Array(n), w = new Float32Array(n), f = new Float32Array(n);
+  const coarse = new Uint8Array(n);                     // every second node in both directions
+  let k = 0;
+  for(let j=0;j<ny;j++) for(let i=0;i<nx;i++){
+    const o = j*nx+i; if(!(Math.abs(W[o]) > 1e-7 || Math.abs(F[o]) > 1e-7)) continue;
+    x[k] = (ix0+i)*dx; y[k] = (iy0+j)*dy; w[k] = W[o]; f[k] = F[o];
+    coarse[k] = ((ix0+i) % 2 === 0 && (iy0+j) % 2 === 0) ? 1 : 0; k++;
+  }
+  return {R, NfR, NfP, dR, dP, x, y, w, f, n, coarse};
+}
+const LAG = [new Float64Array(4), new Float64Array(4)];
+function lagrange(t, o){ o[0] = -t*(t-1)*(t-2)/6; o[1] = (t+1)*(t-1)*(t-2)/2; o[2] = -(t+1)*t*(t-2)/2; o[3] = (t+1)*t*(t-1)/6; }
+// add (wr + i·wi) at fine-grid coordinates (u, v), relative to the grid centre
+function deposit(Gr, Gi, NfR, NfP, u, v, wr, wi){
+  let iu = Math.floor(u), tu = u-iu, iv = Math.floor(v), tv = v-iv;
+  if(tu > 1-1e-7){ iu++; tu = 0; }
+  if(tv > 1-1e-7){ iv++; tv = 0; }
+  const hr = NfR/2, hp = NfP/2;
+  const exu = tu < 1e-7, exv = tv < 1e-7;
+  if(!exu) lagrange(tu, LAG[0]);
+  if(!exv) lagrange(tv, LAG[1]);
+  const nu = exu ? 1 : 4, nv = exv ? 1 : 4, ou = exu ? 0 : -1, ov = exv ? 0 : -1;
+  for(let b=0;b<nv;b++){
+    const cv = exv ? 1 : LAG[1][b]; if(cv === 0) continue;
+    const row = ((iv + ov + b + hp) % NfP + NfP) % NfP;
+    for(let a=0;a<nu;a++){
+      const c = cv*(exu ? 1 : LAG[0][a]);
+      const col = ((iu + ou + a + hr) % NfR + NfR) % NfR, o = row*NfR + col;
+      Gr[o] += c*wr; Gi[o] += c*wi;
+    }
+  }
+}
+// centred forward FFT of the fine grid, cropped to the NR × NP acquired samples
+function gridToK(Gr, Gi, NfR, NfP, NR, NP){
+  const Tr = new Float64Array(NfP*NR), Ti = new Float64Array(NfP*NR);
+  const br = new Float64Array(NfR), bi = new Float64Array(NfR);
+  for(let m=0;m<NfP;m++){
+    const o = m*NfR; let any = false;
+    for(let s=0;s<NfR;s++) if(Gr[o+s] !== 0 || Gi[o+s] !== 0){ any = true; break; }
+    if(!any) continue;
+    for(let s=0;s<NfR;s++){ const q = (s + NfR/2) % NfR; br[q] = Gr[o+s]; bi[q] = Gi[o+s]; }
+    fft1(br, bi, false);
+    for(let r=0;r<NR;r++){ const q = (r - NR/2 + NfR) % NfR; Tr[m*NR+r] = br[q]; Ti[m*NR+r] = bi[q]; }
+  }
+  const Kr = new Float64Array(NR*NP), Ki = new Float64Array(NR*NP);
+  const cr = new Float64Array(NfP), ci = new Float64Array(NfP);
+  for(let r=0;r<NR;r++){
+    for(let m=0;m<NfP;m++){ const q = (m + NfP/2) % NfP; cr[q] = Tr[m*NR+r]; ci[q] = Ti[m*NR+r]; }
+    fft1(cr, ci, false);
+    for(let m=0;m<NP;m++){ const q = (m - NP/2 + NfP) % NfP; Kr[m*NR+r] = cr[q]; Ki[m*NR+r] = ci[q]; }
+  }
+  return {r:Kr, i:Ki};
+}
+// preview = true uses every second node in each direction (weights ×4) for fast interaction;
+// the cancellation away from the source is still exact because reference points stay on nodes
+function susceptibilityCorrection(P, G, N, preview){
+  const sub = preview ? 2 : 1;                           // coarse nodes lie on a half-size grid
+  const NfR = N.NfR/sub, NfP = N.NfP/sub, roX = P.roAxis === "x";
+  const npar = G.isEPI ? 2 : 1;
+  const grids = []; for(let k=0;k<npar;k++) grids.push([new Float64Array(NfR*NfP), new Float64Array(NfR*NfP)]);
+  const p = P.roPol ? -1 : 1, q = P.pePol ? -1 : 1;
+  const base = (P.seq === "gre" || P.seq === "epi") ? G.TE : 0;
+  const roHz = G.vat ? 0 : p*G.dro/P.bw;               // mm of readout shift per Hz (line parity +)
+  const peHz = G.isEPI ? q*G.FOVaPE*G.ESPeff : 0;       // mm of phase shift per Hz
+  const A = N.dR*N.dP*(preview ? 4 : 1), halfRO = G.FOVaRO/2, filt = P.osRO;
+  const fm = FAT_MODELS[P.fatModel], np = fm.ppm.length;
+  const wS = P.species === "fat" ? 0 : 1;
+  const fS = (P.species === "water" ? 0 : 1)*(P.fatSat ? FATSAT_RESID : 1);
+  const tmax = Math.abs(base) + (G.isEPI ? G.NacqPE/2*G.ESPeff : 0) + G.Tacq/2;
+  const fthr = 1e-3/(2*Math.PI*tmax);                   // below this the node's phase changes < 1 mrad
+  const a2 = P.sr*P.sr, TWO_PI = 2*Math.PI, iR = 1/(N.dR*sub), iP = 1/(N.dP*sub);
+  // fat reference terms (as in the exact analytic image): per peak, a fixed shift and phase
+  const fRef = [];
+  for(let j=0;j<np;j++){ const fp = G.fFat[j], ph = -TWO_PI*fp*base; fRef.push([fp, fm.amp[j]*Math.cos(ph), fm.amp[j]*Math.sin(ph)]); }
+  let nField = 0, nVoid = 0;
+  for(let k=0;k<N.n;k++){
+    if(preview && !N.coarse[k]) continue;
+    const x = N.x[k], y = N.y[k], dx = x-P.sx, dy = y-P.sy;
+    const inside = dx*dx + dy*dy < a2;
+    const df = inside ? 0 : fieldHz(P, x, y);
+    if(!inside && !(Math.abs(df) > fthr)) continue;
+    const w = wS*N.w[k]*A, f = fS*N.f[k]*A;
+    if(w === 0 && f === 0) continue;
+    inside ? nVoid++ : nField++;
+    const ro0 = roX ? x : y, pe0 = roX ? y : x;
+    for(let par=0;par<npar;par++){
+      const Gr = grids[par][0], Gi = grids[par][1], sR = (par === 0 ? 1 : -1)*roHz;
+      if(w !== 0){
+        deposit(Gr, Gi, NfR, NfP, ro0*iR, pe0*iP, -w, 0);                 // remove the node as it is
+        if(!inside){
+          const ro = ro0 + sR*df;
+          if(!(filt && Math.abs(ro) > halfRO)){
+            const ph = -TWO_PI*df*base;
+            deposit(Gr, Gi, NfR, NfP, ro*iR, (pe0 + peHz*df)*iP, w*Math.cos(ph), w*Math.sin(ph));
+          }
+        }
+      }
+      if(f !== 0) for(let j=0;j<np;j++){
+        const fp = fRef[j][0];
+        deposit(Gr, Gi, NfR, NfP, (ro0 + sR*fp)*iR, (pe0 + peHz*fp)*iP, -f*fRef[j][1], -f*fRef[j][2]);
+        if(!inside){
+          const ft = fp + df, ro = ro0 + sR*ft;
+          if(filt && Math.abs(ro) > halfRO) continue;
+          const ph = -TWO_PI*ft*base, a = f*fm.amp[j];
+          deposit(Gr, Gi, NfR, NfP, ro*iR, (pe0 + peHz*ft)*iP, a*Math.cos(ph), a*Math.sin(ph));
+        }
+      }
+    }
+  }
+  const out = grids.map(g => gridToK(g[0], g[1], NfR, NfP, G.NacqRO, G.NacqPE));
+  out.nField = nField; out.nVoid = nVoid; out.R = N.R; out.preview = !!preview;
+  return out;
+}
+
+/* ---------- eddy currents and gradient delay as trajectory errors
+ *
+ *  A field that is linear in position is a gradient, and a gradient error is a k-space
+ *  error:  k_actual(t) = k(t) + γ̄∫[ G(t′−δt) − G(t′) + g_ec(t′) ] dt′ ,
+ *  g_ec(t) = −(dG/dt) ⊗ a·e^{−t/τ}, on each axis (self terms only). The slice-axis error at
+ *  slice offset z₀ is a spatially constant frequency, so it becomes a phase −2π z₀ Δk_SS.
+ *  The analytic object is then evaluated exactly at the actual k and reconstructed on the
+ *  nominal grid. The refocusing pulse of a spin echo inverts the accumulated error.
+ *  Gradients are handled as γ̄G, in (1/mm)/s, so 1 mT/m = 42.577 (1/mm)/s.
+ */
+function eddyActive(P){ return (P.ecAmp || 0) > 0 || (P.delay || 0) !== 0; }
+const RF_BW = 1500, SLICE = 5, RAMP_D = 0.3e-3, GAP180 = 6e-3, PREP = 1e-3;
+// diffusion timing for the requested b (Stejskal–Tanner, rectangular lobes): solve δ
+function diffTiming(P){
+  if(!(P.seq === "se" || P.seq === "epise") || P.diff === "none" || !(P.bval > 0)) return null;
+  const q = 2*Math.PI*GBAR*P.gd*1e-3/1e3;               // 2π·γ̄G in 1/(mm·s)
+  const bOf = d => q*q*d*d*((d + RAMP_D + GAP180) - d/3);  // s/mm²
+  let lo = 1e-4, hi = 0.2;
+  for(let k=0;k<60;k++){ const mid = (lo+hi)/2; if(bOf(mid) < P.bval) lo = mid; else hi = mid; }
+  return {delta:lo, DELTA:lo + RAMP_D + GAP180, amp:GBAR*P.gd*1e-6};   // γ̄G in (1/mm)/s (mT/m = 1e-6 T/mm)
+}
+function eddyErrors(P, G){
+  const NR = G.NacqRO, NP = G.NacqPE, p = P.roPol ? -1 : 1, q = P.pePol ? -1 : 1;
+  const isSE = P.seq === "se" || P.seq === "epise", r = EPI_RAMP/2;
+  const kdRO = 1/(G.dwell*G.FOVaRO);                     // readout γ̄G
+  const halfTrain = G.isEPI ? (NP/2)*G.ESP : 0;
+  const D = diffTiming(P);
+  // echo time: gradient echo from the TE control; spin echo from the minimum timing
+  let t180 = 0, TE, ta = 2.5e-3;
+  if(isSE){
+    const lobe = D ? D.delta + RAMP_D : 0;
+    t180 = Math.max(ta + lobe + GAP180/2, halfTrain + G.Tacq/2 + r + GAP180/2 + lobe + PREP + 0.2e-3);
+    ta = t180 - lobe - GAP180/2;
+    TE = 2*t180;
+  } else TE = G.TE;
+  // trapezoids per axis: [t0, rise, flat, fall, amplitude]
+  const T = [[], [], []];                                // RO, PE, SS
+  const trap = (ax, t0, ru, fl, rd, a) => T[ax].push([t0, ru, fl, rd, a]);
+  const ssA = RF_BW/SLICE;
+  trap(2, -1.1e-3, 0.1e-3, 2e-3, 0.1e-3, ssA);            // excitation
+  trap(2, 1.0e-3, 0.1e-3, 0.8e-3, 0.1e-3, -ssA*(1.1e-3)/0.9e-3);   // slice refocus (≈ half area)
+  if(isSE) trap(2, t180 - 1.1e-3, 0.1e-3, 2e-3, 0.1e-3, ssA);      // refocusing pulse
+  if(D){
+    const ax = P.diff === "ro" ? 0 : P.diff === "pe" ? 1 : 2;
+    trap(ax, ta, RAMP_D, D.delta - RAMP_D, RAMP_D, D.amp);
+    trap(ax, ta + D.DELTA, RAMP_D, D.delta - RAMP_D, RAMP_D, D.amp);
+  }
+  const roStart = TE - halfTrain - G.Tacq/2 - r;          // start of the first readout ramp
+  const pre = roStart - PREP - 0.05e-3;
+  if(G.isEPI){
+    trap(0, pre, 0.1e-3, PREP - 0.2e-3, 0.1e-3, -p*(NR/2/G.FOVaRO + kdRO*r/2)/(PREP - 0.1e-3));
+    trap(1, pre, 0.1e-3, PREP - 0.2e-3, 0.1e-3, -q*(NP/2)/G.FOVaPE/(PREP - 0.1e-3));
+    for(let l=0;l<NP;l++){
+      const tc = TE + (l - NP/2)*G.ESP, sg = (l % 2 === 0 ? 1 : -1)*p;
+      trap(0, tc - G.Tacq/2 - r, r, G.Tacq, r, sg*kdRO);
+      if(l < NP-1) trap(1, tc + G.Tacq/2, r, 0, r, q/(G.FOVaPE*r));   // blip, area 1/FOV
+    }
+  } else {
+    trap(0, pre, 0.1e-3, PREP - 0.2e-3, 0.1e-3, -p*(NR/2/G.FOVaRO + kdRO*r/2)/(PREP - 0.1e-3));
+    trap(0, TE - G.Tacq/2 - r, r, G.Tacq, r, p*kdRO);
+  }
+  // unit phase-encoding lobe of line-by-line sequences (area 1/FOV; scaled per line)
+  const Tpe = G.isEPI ? null : [[pre, 0.1e-3, PREP - 0.2e-3, 0.1e-3, 1/G.FOVaPE/(PREP - 0.1e-3)]];
+  const tEnd = TE + halfTrain + G.Tacq/2 + 2*r + 0.2e-3, t0 = -1.5e-3;
+  const dt = Math.min(2e-6, G.dwell/2), n = Math.ceil((tEnd - t0)/dt) + 1;
+  const a = (P.ecAmp || 0)/100, tau = (P.ecTau || 30)*1e-3, dly = (P.delay || 0)*1e-6;
+  const E = Math.exp(-dt/tau), gain = a*tau*(1 - E)/dt;
+  const i180 = isSE ? Math.round((t180 - t0)/dt) : -1;
+  const sample = (list, t) => { let v = 0; for(const [s0, ru, fl, rd, A] of list){
+      const u = t - s0; if(u <= 0) continue;
+      if(u < ru) v += A*u/ru; else if(u < ru+fl) v += A; else if(u < ru+fl+rd) v += A*(1 - (u-ru-fl)/rd); }
+    return v; };
+  // error integral on the time grid for one axis (list of trapezoids)
+  const errorOf = list => {
+    const nom = new Float64Array(n), act = new Float64Array(n);
+    for(const tr of list){                                // fill only the support of each trapezoid
+      const [s0, ru, fl, rd] = tr, i0 = Math.max(0, Math.floor((s0 - t0 - Math.abs(dly))/dt) - 1);
+      const i1 = Math.min(n-1, Math.ceil((s0 + ru + fl + rd - t0 + Math.abs(dly))/dt) + 1);
+      for(let i=i0;i<=i1;i++){ const t = t0 + i*dt; nom[i] += sample([tr], t); act[i] += sample([tr], t - dly); }
+    }
+    const K = new Float64Array(n), g = new Float64Array(n);
+    let e = 0, k = 0;
+    for(let i=1;i<n;i++){
+      e = e*E + gain*(act[i] - act[i-1]);                 // exponential response to the slope
+      g[i] = -e;                                          // eddy field
+      const err1 = act[i] + g[i] - nom[i], err0 = act[i-1] + g[i-1] - nom[i-1];
+      k += 0.5*(err0 + err1)*dt;
+      if(i === i180) k = -k;                              // refocusing pulse inverts the phase
+      K[i] = k;
+    }
+    return {K, g, nom};
+  };
+  const eRO = errorOf(T[0]), ePE = errorOf(T[1]), eSS = errorOf(T[2]), eU = Tpe ? errorOf(Tpe) : null;
+  const at = (arr, t) => { const x = (t - t0)/dt, i = Math.max(0, Math.min(n-2, Math.floor(x))), f = x - i; return arr[i]*(1-f) + arr[i+1]*f; };
+  const N = NR*NP, ro = new Float64Array(N), pe = new Float64Array(N), ph = new Float64Array(N);
+  const z0 = P.z0 || 0;
+  for(let m=0;m<NP;m++){
+    const jpe = m - NP/2;
+    let tLine = 0, sgn = 1;
+    if(G.isEPI){ const l = NP/2 + q*jpe; tLine = (l - NP/2)*G.ESP; sgn = (l % 2 === 0) ? 1 : -1; }
+    for(let rr=0;rr<NR;rr++){
+      const i = m*NR + rr, t = TE + tLine + sgn*p*(rr - NR/2)*G.dwell;
+      ro[i] = at(eRO.K, t); pe[i] = at(ePE.K, t) + (eU ? jpe*at(eU.K, t) : 0);
+      ph[i] = -2*Math.PI*z0*at(eSS.K, t);
+    }
+  }
+  // parity-dependent readout shift and phase at the centre of the train (reference scan)
+  const nyq = {dk:[0,0], ph:[0,0]};
+  if(G.isEPI){
+    const cnt = [0,0];
+    for(let l=NP/2-2;l<NP/2+2;l++){ const t = TE + (l - NP/2)*G.ESP, par = l % 2;
+      nyq.dk[par] += at(eRO.K, t); nyq.ph[par] += -2*Math.PI*z0*at(eSS.K, t); cnt[par]++; }
+    for(const k of [0,1]){ nyq.dk[k] /= cnt[k]; nyq.ph[k] /= cnt[k]; }
+  }
+  // decimated traces for the plot: nominal gradient and eddy field per axis
+  const M = 700, tr = {t:[], nom:[[],[],[]], g:[[],[],[]]};
+  const es = [eRO, ePE, eSS];
+  for(let j=0;j<=M;j++){
+    const i = Math.min(n-1, Math.round(j/M*(n-1))); tr.t.push(t0 + i*dt);
+    for(let ax=0;ax<3;ax++){
+      let lo = Infinity, hi = -Infinity; const i0 = Math.max(0, Math.round((j-0.5)/M*(n-1))), i1 = Math.min(n-1, Math.round((j+0.5)/M*(n-1)));
+      for(let k=i0;k<=i1;k++){ const v = es[ax].nom[k]; if(v < lo) lo = v; if(v > hi) hi = v; }
+      tr.nom[ax].push(Math.abs(lo) > Math.abs(hi) ? lo : hi); tr.g[ax].push(es[ax].g[i]);
+    }
+  }
+  // mean eddy field over the readout window: what distorts (the part alternating with the
+  // readout lobes averages out here and appears as the Nyquist ghost instead)
+  const adc = [roStart + r, TE + halfTrain + G.Tacq/2];
+  const i0 = Math.max(0, Math.round((adc[0]-t0)/dt)), i1 = Math.min(n-1, Math.round((adc[1]-t0)/dt));
+  const gMean = es.map(e => { let s = 0; for(let i=i0;i<=i1;i++) s += e.g[i]; return s/Math.max(1, i1-i0+1); });
+  return {ro, pe, ph, nyq, trace:tr, TE, t180, D, gMean, adc};
+}
+
+// k-space apodisation as a function of u = k/kmax in [−1, 1)
+function windowAt(type, u){
+  const a = Math.abs(u);
+  if(type === "hamming") return 0.54 + 0.46*Math.cos(Math.PI*u);
+  if(type === "hann") return 0.5 + 0.5*Math.cos(Math.PI*u);
+  if(type === "tukey") return a < 0.5 ? 1 : 0.5*(1 + Math.cos(Math.PI*(a-0.5)/0.5));
+  return 1;
+}
+
+/* ---------- FFT: radix-2 for powers of two, Bluestein otherwise (unnormalised) */
+function fftPow2(re, im, inv){
+  const n = re.length;
+  for(let i=1, j=0; i<n; i++){
+    let bit = n >> 1;
+    for(; j & bit; bit >>= 1) j ^= bit;
+    j ^= bit;
+    if(i < j){ let t = re[i]; re[i] = re[j]; re[j] = t; t = im[i]; im[i] = im[j]; im[j] = t; }
+  }
+  const sgn = inv ? 1 : -1;
+  for(let len=2; len<=n; len<<=1){
+    const ang = sgn*2*Math.PI/len, wr = Math.cos(ang), wi = Math.sin(ang), h = len >> 1;
+    for(let i=0;i<n;i+=len){
+      let cr = 1, ci = 0;
+      for(let k=0;k<h;k++){
+        const a = i+k, b = a+h;
+        const xr = re[b]*cr - im[b]*ci, xi = re[b]*ci + im[b]*cr;
+        re[b] = re[a]-xr; im[b] = im[a]-xi; re[a] += xr; im[a] += xi;
+        const t = cr*wr - ci*wi; ci = cr*wi + ci*wr; cr = t;
+      }
+    }
+  }
+}
+const BLUE = new Map();
+function fft1(re, im, inv){
+  const n = re.length;
+  if((n & (n-1)) === 0){ fftPow2(re, im, inv); return; }
+  const key = n*2 + (inv ? 1 : 0);
+  let B = BLUE.get(key);
+  if(!B){
+    let M = 1; while(M < 2*n-1) M <<= 1;
+    const sgn = inv ? 1 : -1, cr = new Float64Array(n), ci = new Float64Array(n);
+    for(let k=0;k<n;k++){ const a = sgn*Math.PI*((k*k) % (2*n))/n; cr[k] = Math.cos(a); ci[k] = Math.sin(a); }
+    const br = new Float64Array(M), bi = new Float64Array(M);
+    br[0] = cr[0]; bi[0] = -ci[0];
+    for(let k=1;k<n;k++){ br[k] = br[M-k] = cr[k]; bi[k] = bi[M-k] = -ci[k]; }
+    fftPow2(br, bi, false);
+    B = {M, cr, ci, br, bi, ar:new Float64Array(M), ai:new Float64Array(M)};
+    BLUE.set(key, B);
+  }
+  const {M, cr, ci, br, bi, ar, ai} = B;
+  ar.fill(0); ai.fill(0);
+  for(let k=0;k<n;k++){ ar[k] = re[k]*cr[k] - im[k]*ci[k]; ai[k] = re[k]*ci[k] + im[k]*cr[k]; }
+  fftPow2(ar, ai, false);
+  for(let k=0;k<M;k++){ const r = ar[k]*br[k] - ai[k]*bi[k]; ai[k] = ar[k]*bi[k] + ai[k]*br[k]; ar[k] = r; }
+  fftPow2(ar, ai, true);
+  for(let k=0;k<n;k++){
+    const r = ar[k]/M, i = ai[k]/M;
+    re[k] = r*cr[k] - i*ci[k]; im[k] = r*ci[k] + i*cr[k];
+  }
+}
+// centred inverse DFT along both axes of an (MR × MP) array, row-major [m][r]:
+// stored index s ↔ frequency/position index s − M/2
+function ifft2c(Re, Im, MR, MP, rowHook){
+  const tr = new Float64Array(MR), ti = new Float64Array(MR), hr = new Float64Array(MR), hi = new Float64Array(MR);
+  for(let m=0;m<MP;m++){
+    const o = m*MR;
+    for(let s=0;s<MR;s++){ const q = (s + MR/2) % MR; tr[q] = Re[o+s]; ti[q] = Im[o+s]; }
+    fft1(tr, ti, true);
+    for(let q=0;q<MR;q++){ const s = (q + MR/2) % MR; hr[s] = tr[q]; hi[s] = ti[q]; }
+    if(rowHook) rowHook(m, hr, hi);                    // hybrid space: x along readout, one k_PE line
+    for(let s=0;s<MR;s++){ Re[o+s] = hr[s]; Im[o+s] = hi[s]; }
+  }
+  const cr = new Float64Array(MP), ci = new Float64Array(MP);
+  for(let r=0;r<MR;r++){
+    for(let s=0;s<MP;s++){ const q = (s + MP/2) % MP; cr[q] = Re[s*MR+r]; ci[q] = Im[s*MR+r]; }
+    fft1(cr, ci, true);
+    for(let q=0;q<MP;q++){ const s = (q + MP/2) % MP; Re[s*MR+r] = cr[q]; Im[s*MR+r] = ci[q]; }
+  }
+}
+
+// Apodise, zero-fill, inverse DFT, scale to density units, crop the oversampling.
+// Returns a complex image of (nRO·z) × (nPE·z), row-major [pe][ro], pixel (dro/z, dpe/z).
+function reconstruct(P, G, A){
+  const NR = G.NacqRO, NP = G.NacqPE, z = P.zf ? 2 : 1, MR = NR*z, MP = NP*z;
+  const Re = new Float64Array(MR*MP), Im = new Float64Array(MR*MP);
+  const wr = new Float64Array(NR), wp = new Float64Array(NP);
+  for(let r=0;r<NR;r++) wr[r] = windowAt(P.filter, (r-NR/2)/(NR/2));
+  for(let m=0;m<NP;m++) wp[m] = windowAt(P.filter, (m-NP/2)/(NP/2));
+  const oR = (MR-NR)/2, oP = (MP-NP)/2;
+  for(let m=0;m<NP;m++) for(let r=0;r<NR;r++){
+    const i = m*NR+r, o = (m+oP)*MR + r+oR, w = wr[r]*wp[m];
+    Re[o] = A.Sr[i]*w; Im[o] = A.Si[i]*w;
+  }
+  // Nyquist ghost correction (reference scan, idealised): in hybrid (x, k_PE) space remove the
+  // parity-dependent part of the readout k-shift and phase measured at the centre of the train
+  const nyq = P.nyq && A.nyq ? A.nyq : null;
+  ifft2c(Re, Im, MR, MP, nyq ? (row, tr, ti) => {
+    const m = row - oP; if(m < 0 || m >= NP) return;
+    const par = A.parity[m], dkc = nyq.dk[par] - (nyq.dk[0]+nyq.dk[1])/2, phc = nyq.ph[par] - (nyq.ph[0]+nyq.ph[1])/2;
+    for(let s=0;s<MR;s++){
+      const x = (s - MR/2)*G.FOVaRO/MR, a = 2*Math.PI*dkc*x - phc, c = Math.cos(a), sn = Math.sin(a);
+      const r = tr[s]*c - ti[s]*sn; ti[s] = tr[s]*sn + ti[s]*c; tr[s] = r;
+    }
+  } : null);
+  const sc = 1/(G.FOVaRO*G.FOVaPE), outR = P.nRO*z, outP = P.nPE*z;
+  const cR = (MR-outR)/2, cP = (MP-outP)/2;
+  const IR = new Float64Array(outR*outP), II = new Float64Array(outR*outP);
+  for(let m=0;m<outP;m++) for(let r=0;r<outR;r++){
+    const o = (m+cP)*MR + r+cR, i = m*outR+r;
+    IR[i] = Re[o]*sc; II[i] = Im[o]*sc;
+  }
+  return {IR, II, nR:outR, nP:outP, pR:G.dro/z, pP:G.dpe/z};
+}
+
+// Image noise standard deviation (density units, before filtering)
+function imageSigma(G, A){ return A.sigma/(G.dro*G.dpe*Math.sqrt(G.NacqRO*G.NacqPE)); }
+
+// 1D edge response and PSF of a truncated, windowed acquisition (x in pixels)
+function edgeResponse(N, filter, x){
+  // unit step at x = 0 in a periodic image of N pixels: the j = 0 term gives x/N,
+  // which cancels the linear ramp of the truncated sine series
+  let s = 0.5 + x/N;
+  for(let j=1;j<N/2;j++) s += windowAt(filter, j/(N/2))*Math.sin(2*Math.PI*j*x/N)/(Math.PI*j);
+  return s;
+}
+function psfAt(N, filter, x){
+  let s = 1;
+  for(let j=1;j<N/2;j++) s += 2*windowAt(filter, j/(N/2))*Math.cos(2*Math.PI*j*x/N);
+  return s/N;
+}
+function edgeMetrics(N, filter){
+  let over = -Infinity, x10 = null, x90 = null;
+  for(let x=-6; x<=6; x+=0.005){
+    const e = edgeResponse(N, filter, x);
+    if(x > 0 && e-1 > over) over = e-1;
+    if(x10 === null && e >= 0.1) x10 = x;
+    if(x90 === null && e >= 0.9) x90 = x;
+  }
+  const p0 = psfAt(N, filter, 0);
+  let fw = 0;
+  for(let x=0; x<6; x+=0.002){ if(psfAt(N, filter, x) < p0/2){ fw = 2*x; break; } }
+  return {over, rise:x90-x10, fwhm:fw};
+}
+/* ================== END PHYSICS CORE ================== */
+
+
+/* ---------------------------------------------------------- version */
+const VERSION = "0.3.3";
+const AUTHORS = "Designed by Filip Sz (Lund University) and coded by Claude (Anthropic)";
+const CHANGELOG = [
+  ["0.3.3", "2026-09-20",
+   "Guide texts corrected. \"Cartesian\" was used where \"line by line\" was meant; EPI is Cartesian " +
+   "too. The chemical-shift and susceptibility notes now explain that displacement appears along the " +
+   "low-bandwidth directions. Line-by-line imaging and multi-echo spin echo have effectively infinite " +
+   "bandwidth along phase, but EPI does not. The sequence names now say \"line by line (spin-warp)\". " +
+   "Notes no longer point to controls that are hidden in the simple view. The aliasing note now names " +
+   "the flanks of the abdomen as the tissue that folds in."],
+  ["0.3.2", "2026-09-20",
+   "Simple and Advanced. A two-way switch sits directly under the artifact list. Simple shows the " +
+   "artifact, three worked examples for it, and the notes: no sliders at all. The examples are " +
+   "the teaching points of each artifact, for instance low against high bandwidth, opposed against " +
+   "in phase, a Hamming filter, metal in a gradient echo, or a corrected Nyquist ghost. " +
+   "Advanced adds the full control stack below, in collapsible sections, with the sections that do not " +
+   "apply to the artifact folded away."],
+  ["0.3.1", "2026-09-20",
+   "Calmer controls. The rail is now a set of collapsible sections, and it opens in a simple view that " +
+   "shows only what the chosen artifact needs: the sections that do not apply are folded away, advanced " +
+   "controls (polarities, fat model, noise, windowing, display pickers, diffusion gradient and slice " +
+   "offset) are hidden, and controls that currently have no effect disappear instead of sitting greyed " +
+   "out. One button reveals everything, and every section can be opened or closed by hand. Nothing is " +
+   "removed: the physics and the presets are unchanged."],
+  ["0.3.0", "2026-09-20",
+   "Eddy currents and gradient delay. Both are errors in the k-space trajectory: k(t) + γ̄∫[G(t′−δt) − G(t′) + " +
+   "g_ec(t′)]dt′, with g_ec = −(dG/dt) ⊗ a·e^(−t/τ) on each axis, computed from the full gradient waveforms of " +
+   "the shot (slice selection, refocusing, diffusion lobes, prephasers, readout and blips). The refocusing " +
+   "pulse inverts the accumulated error, and a slice offset turns the slice-axis error into a phase. The " +
+   "analytic object is evaluated exactly at the actual k. This gives the EPI Nyquist ghost, an idealised " +
+   "reference-scan correction, and the diffusion eddy-current distortions of EPI (scaling along phase, " +
+   "shear from readout, shift from slice). A button freezes the b = 0 image for comparison, and a new plot " +
+   "shows the gradients and eddy fields over the shot. The two susceptibility modes are merged into one, " +
+   "because they are one mechanism: the same field offset, displaced along whichever direction has the " +
+   "lowest bandwidth per pixel. Quick buttons switch between metal with spin echo and air with EPI. " +
+   "EPI acceleration is disabled while eddy currents are on."],
+  ["0.2.0", "2026-09-20",
+   "Susceptibility artifacts. A sphere of air, titanium, Co–Cr or austenitic steel, which can be dragged " +
+   "in the object panel, creates the analytic dipole field Δf = γ̄B₀(Δχ/3)(a/r)³(3cos²θ − 1), with B₀ " +
+   "through or in the slice. The field enters the same signal equation. Each point of a fine node grid " +
+   "(up to 4 × 4 per pixel) is shifted and phase-weighted according to its frequency, and only the " +
+   "difference from the exact analytic image is computed, so the image away from the source is " +
+   "unchanged. This gives readout displacement, pile-up and voids in line-by-line imaging, extra " +
+   "dephasing in gradient echoes, and phase-direction distortion in EPI. Two new modes: metal " +
+   "implant (grid phantom) and EPI distortion (air sphere in the head). New countermeasures: " +
+   "view-angle tilting for spin echo (readout shift cancelled, sinc(BW_RF·τ) blur), and an idealised " +
+   "EPI acceleration R that shortens the echo train and costs √R in SNR. The object panel can show " +
+   "the field map with the one-pixel contour, and a new plot shows the displacement through the " +
+   "source with pile-up marked. New grid phantom. Faster rasterisation of the object panel and the " +
+   "projection plot."],
+  ["0.1.0", "2026-09-20",
+   "First version. One forward model for all artifacts: an analytic phantom (ellipses and " +
+   "rectangles with closed-form Fourier transforms, water and fat as separate species) is " +
+   "sampled on the acquired k-space grid, every sample carrying its own acquisition time, and " +
+   "reconstructed by an inverse DFT. Four artifacts: chemical shift of the first kind " +
+   "(displacement along readout, and along phase in EPI), chemical shift of the second kind " +
+   "(in-phase and opposed-phase gradient echoes, single-peak or six-peak fat), aliasing, and " +
+   "Gibbs ringing with k-space filters and zero-filling. Spin echo, gradient echo, and " +
+   "single-shot gradient-echo and spin-echo EPI. Three phantoms: abdomen, Shepp–Logan head " +
+   "with a fat ring, and a QA phantom with oil and water vials. k-space coloured by acquisition " +
+   "time, noise scaled with bandwidth, line profiles, a frozen reference with a split view, " +
+   "and PNG export."]
+];
+
+/* ---------------------------------------------------------- state */
+const $ = id => document.getElementById(id);
+const BASE = {seq:"se", B0:1.5, TE:15e-3, bw:250, fov:400, pePct:75, nRO:256, nPE:192,
+  roAxis:"x", roPol:false, pePol:false, fatModel:"single", fatSat:false, osRO:true, osPE:0,
+  filter:"none", zf:false, noise:0.5, species:"both", view:"mag", win:1.1, kview:"magtime",
+  diag:"physics", profY:0, mat:"none", sr:8, sx:0, sy:0, b0dir:"z", vat:false, rfbw:1500,
+  accel:1, objView:"rho", ecAmp:0, ecTau:30, delay:0, diff:"none", bval:1000, gd:45, z0:0, nyq:false};
+const PRESETS = {
+  fat1:Object.assign({}, BASE, {phantom:"abdomen", B0:3, bw:130, profY:-40}),
+  fat2:Object.assign({}, BASE, {phantom:"abdomen", seq:"gre", TE:2.30e-3, bw:500, profY:-40}),
+  alias:Object.assign({}, BASE, {phantom:"abdomen", fov:380, pePct:60, nPE:160, roAxis:"y"}),
+  gibbs:Object.assign({}, BASE, {phantom:"qa", bw:300, fov:240, pePct:100, nRO:64, nPE:64, noise:0,
+        win:1.2, diag:"profile", profY:-45}),
+  susc:Object.assign({}, BASE, {phantom:"grid", fov:240, pePct:100, nRO:192, nPE:192, bw:250,
+        mat:"ti", sr:6, sx:0, sy:0, b0dir:"y", objView:"field", noise:0.3, win:1.1, profY:10}),
+  eddy:Object.assign({}, BASE, {phantom:"head", seq:"epi", B0:3, TE:30e-3, bw:1500, fov:240, pePct:100,
+        nRO:128, nPE:128, fatSat:true, noise:0.2, ecAmp:0.3, ecTau:0.5, delay:1.5, diff:"none", nyq:false})
+};
+// Worked examples per artifact: [label, overrides of that artifact's preset]. The first one
+// is always the preset itself. These are what the simple view offers instead of controls.
+const EXAMPLES = {
+  fat1:[["Low bandwidth", {}],
+        ["High bandwidth", {bw:600}],
+        ["EPI", {seq:"epise", bw:1500, nRO:128, nPE:128, fov:380}]],
+  fat2:[["Opposed phase", {}],
+        ["In phase", {TE:4.605e-3}],
+        ["Spin echo", {seq:"se"}]],
+  alias:[["Phase wrap", {}],
+        ["Full phase FOV", {pePct:100, nPE:256}],
+        ["Phase oversampling", {osPE:0.6}]],
+  gibbs:[["64 matrix", {}],
+        ["256 matrix", {nRO:256, nPE:256}],
+        ["Hamming filter", {filter:"hamming"}]],
+  susc:[["Metal, spin echo", {}],
+        ["Metal, gradient echo", {seq:"gre", TE:10e-3}],
+        ["Air, EPI", {phantom:"head", seq:"epise", B0:3, bw:1500, nRO:128, nPE:128, fatSat:true,
+                      mat:"air", sr:8, sx:0, sy:72, b0dir:"z", accel:2, profY:0}]],
+  eddy:[["Nyquist ghost", {}],
+        ["Ghost corrected", {nyq:true}],
+        ["Diffusion along phase", {seq:"epise", ecAmp:0.15, ecTau:40, delay:0, diff:"pe", bval:1000, nyq:true}]]
+};
+
+const NRO_OPTS = [32,48,64,96,128,160,192,256,320,384];
+const NPE_OPTS = [32,48,64,96,128,160,192,256,320,384];
+const P = Object.assign({mode:"fat1"}, PRESETS.fat1);
+let REF = null;                 // frozen reference image
+let split = 0.5;                // divider position (fraction of image width)
+let CUR = null;                 // latest computed result
+
+/* ---------------------------------------------------------- slider maps */
+const TE_LO = 0.5e-3, TE_HI = 200e-3, BW_LO = 30, BW_HI = 4000, TAU_LO = 0.1, TAU_HI = 1000;
+const logTo = (s, lo, hi) => lo*Math.pow(hi/lo, s/1000);
+const logFrom = (v, lo, hi) => Math.round(1000*Math.log(v/lo)/Math.log(hi/lo));
+
+/* ---------------------------------------------------------- formatting */
+const f1 = v => v.toFixed(1), f2 = v => v.toFixed(2);
+function fmtSigned(v, d){ return (v >= 0 ? "+" : "−") + Math.abs(v).toFixed(d); }
+function fmtMs(t){ const a = Math.abs(t)*1e3; return (a < 10 ? a.toFixed(2) : a < 100 ? a.toFixed(1) : a.toFixed(0)) + " ms"; }
+function fmtHz(f){ const a = Math.abs(f); return (f < 0 ? "−" : "") + (a >= 1e4 ? (a/1e3).toFixed(1) + " kHz" : a >= 100 ? a.toFixed(0) + " Hz" : a >= 10 ? a.toFixed(1) + " Hz" : a.toFixed(2) + " Hz"); }
+
+/* ---------------------------------------------------------- compute */
+let KCACHE = {key:"", K:null, shapes:null, pkey:""};
+function getShapes(){
+  if(KCACHE.pkey !== P.phantom){ KCACHE.shapes = PHANTOMS[P.phantom].build(); KCACHE.pkey = P.phantom; KCACHE.key = ""; NCACHE.key = ""; }
+  return KCACHE.shapes;
+}
+let NCACHE = {key:"", N:null};
+let refineTimer = 0;
+function compute(preview){
+  const G = geometry(P), shapes = getShapes();
+  const key = [P.phantom, G.NacqRO, G.NacqPE, G.dro, G.dpe, P.roAxis].join("|");
+  const edOn = eddyActive(P);
+  const Ed = (edOn || P.mode === "eddy") ? eddyErrors(P, G) : null;   // traces are plotted even when off
+  let K;
+  if(edOn) K = kspaceObject(shapes, G, P.roAxis, Ed);
+  else { if(KCACHE.key !== key){ KCACHE.K = kspaceObject(shapes, G, P.roAxis); KCACHE.key = key; } K = KCACHE.K; }
+  let Corr = null;
+  if(hasSource(P)){
+    if(NCACHE.key !== key){ NCACHE.N = buildNodes(shapes, G, P.roAxis, PHANTOMS[P.phantom].extent + 2); NCACHE.key = key; }
+    Corr = susceptibilityCorrection(P, G, NCACHE.N, preview);
+  }
+  const A = acquire(P, G, K, Corr, edOn ? Ed : null);
+  A.corr = Corr; A.eddy = Ed;
+  const I = reconstruct(P, G, A);
+  CUR = {G, A, I, shapes, disp:toDisplay(I)};
+}
+// reorient the (ro, pe) image into display axes: x right, y up
+function toDisplay(I){
+  const roX = P.roAxis === "x";
+  const W = roX ? I.nR : I.nP, H = roX ? I.nP : I.nR;
+  const px = roX ? I.pR : I.pP, py = roX ? I.pP : I.pR;
+  const re = new Float32Array(W*H), im = new Float32Array(W*H);
+  for(let iy=0;iy<H;iy++) for(let ix=0;ix<W;ix++){
+    const src = roX ? iy*I.nR + ix : ix*I.nR + iy;
+    const dst = (H-1-iy)*W + ix;                       // canvas rows run downward
+    re[dst] = I.IR[src]; im[dst] = I.II[src];
+  }
+  // pixel centre of index n sits at (n − N/2)·p
+  return {W, H, px, py, re, im, x0:-W/2*px - px/2, y0:-H/2*py - py/2, ex:W*px, ey:H*py};
+}
+
+/* ---------------------------------------------------------- theme colours */
+const C = {};
+function readTheme(){
+  const cs = getComputedStyle(document.documentElement);
+  for(const k of ["bg","panel","panel2","rule","text","muted","dim","axis","grid","accent","water","fat","imgbg"])
+    C[k] = cs.getPropertyValue("--"+k).trim();
+  OBJCACHE.key = "";
+  schedule();
+}
+
+/* ---------------------------------------------------------- canvas helpers */
+function fit(cv){
+  const r = cv.getBoundingClientRect(), d = window.devicePixelRatio || 1;
+  const w = Math.max(1, Math.round(r.width*d)), h = Math.max(1, Math.round(r.height*d));
+  if(cv.width !== w || cv.height !== h){ cv.width = w; cv.height = h; }
+  const ctx = cv.getContext("2d");
+  ctx.setTransform(d,0,0,d,0,0);
+  return {ctx, w:r.width, h:r.height};
+}
+// mm → css px transform that fits [x0,x0+ex]×[y0,y0+ey] into the pane
+function viewFit(w, h, x0, y0, ex, ey, padT, padB, padX){
+  const s = Math.min((w-2*padX)/ex, (h-padT-padB)/ey);
+  const ox = (w - ex*s)/2, oy = padT + (h-padT-padB - ey*s)/2;
+  return {s, X:x => ox + (x-x0)*s, Y:y => oy + (y0+ey-y)*s, ox, oy};
+}
+const VIR = [[68,1,84],[71,45,123],[59,82,139],[44,114,142],[33,145,140],[40,174,128],[94,201,98],[173,220,48],[253,231,37]];
+function viridis(t){
+  t = Math.min(1, Math.max(0, t))*8; const i = Math.min(7, Math.floor(t)), f = t-i, a = VIR[i], b = VIR[i+1];
+  return [a[0]+(b[0]-a[0])*f, a[1]+(b[1]-a[1])*f, a[2]+(b[2]-a[2])*f];
+}
+function hexRGB(h){ h = h.replace("#",""); if(h.length === 3) h = h.split("").map(c=>c+c).join(""); const n = parseInt(h,16); return [n>>16&255, n>>8&255, n&255]; }
+function arrow(ctx, x1, y1, x2, y2, col, lw){
+  ctx.strokeStyle = col; ctx.fillStyle = col; ctx.lineWidth = lw || 1.4;
+  ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
+  const a = Math.atan2(y2-y1, x2-x1), L = 7;
+  ctx.beginPath(); ctx.moveTo(x2,y2);
+  ctx.lineTo(x2-L*Math.cos(a-0.4), y2-L*Math.sin(a-0.4)); ctx.lineTo(x2-L*Math.cos(a+0.4), y2-L*Math.sin(a+0.4));
+  ctx.closePath(); ctx.fill();
+}
+function label(ctx, txt, x, y, col, align, base, size){
+  ctx.fillStyle = col; ctx.font = (size || 10.5) + "px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace";
+  ctx.textAlign = align || "left"; ctx.textBaseline = base || "alphabetic"; ctx.fillText(txt, x, y);
+}
+// right-aligned legend: items [[colour, text], …] ending at x
+function legendRow(ctx, xr, y, items, dash){
+  ctx.font = "10.5px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace";
+  let x = xr;
+  for(let i=items.length-1;i>=0;i--){
+    const [col, txt, dsh] = items[i], tw = ctx.measureText(txt).width;
+    label(ctx, txt, x, y, C.muted, "right");
+    x -= tw + 5;
+    ctx.strokeStyle = col; ctx.lineWidth = 2; ctx.setLineDash(dsh || []);
+    ctx.beginPath(); ctx.moveTo(x - 12, y - 3.5); ctx.lineTo(x, y - 3.5); ctx.stroke(); ctx.setLineDash([]);
+    x -= 12 + 14;
+  }
+  return x;
+}
+function niceTicks(lo, hi, n){
+  const span = hi-lo; if(!(span > 0)) return [lo];
+  const raw = span/n, mag = Math.pow(10, Math.floor(Math.log10(raw)));
+  const st = [1,2,2.5,5,10].map(v=>v*mag).find(v => span/v <= n) || 10*mag;
+  const out = []; for(let v=Math.ceil(lo/st)*st; v<=hi+1e-9*st; v+=st) out.push(Math.abs(v) < 1e-12 ? 0 : v);
+  return out;
+}
+function fmtTick(v){ const a = Math.abs(v); if(a === 0) return "0"; if(a >= 1000) return (v/1000).toFixed(a%1000 ? 1 : 0) + "k"; if(a >= 10 || Number.isInteger(v)) return v.toFixed(0); return v.toFixed(a >= 1 ? 1 : 2); }
+// generic axes: returns mapping functions
+function axes(ctx, bx, by, bw, bh, xr, yr, xlab, ylab, opt){
+  opt = opt || {};
+  const X = v => bx + (v-xr[0])/(xr[1]-xr[0])*bw, Y = v => by + bh - (v-yr[0])/(yr[1]-yr[0])*bh;
+  ctx.lineWidth = 1;
+  if(!opt.noGrid){
+    ctx.strokeStyle = C.grid;
+    for(const t of niceTicks(yr[0], yr[1], 4)){ ctx.beginPath(); ctx.moveTo(bx, Y(t)); ctx.lineTo(bx+bw, Y(t)); ctx.stroke(); }
+  }
+  ctx.strokeStyle = C.axis; ctx.beginPath(); ctx.moveTo(bx, by); ctx.lineTo(bx, by+bh); ctx.lineTo(bx+bw, by+bh); ctx.stroke();
+  for(const t of niceTicks(xr[0], xr[1], opt.nx || 6)){
+    ctx.beginPath(); ctx.moveTo(X(t), by+bh); ctx.lineTo(X(t), by+bh+3); ctx.stroke();
+    if(!opt.noXLab) label(ctx, opt.xfmt ? opt.xfmt(t) : fmtTick(t), X(t), by+bh+13, C.muted, "center");
+  }
+  if(!opt.noY) for(const t of niceTicks(yr[0], yr[1], 4)){
+    ctx.beginPath(); ctx.moveTo(bx-3, Y(t)); ctx.lineTo(bx, Y(t)); ctx.stroke();
+    label(ctx, fmtTick(t), bx-5, Y(t)+3.5, C.muted, "right");
+  }
+  if(xlab) label(ctx, xlab, bx+bw, by+bh+26, C.dim, "right");
+  if(ylab) label(ctx, ylab, bx, by-6, C.dim, "left");
+  return {X, Y};
+}
+
+/* ---------------------------------------------------------- object panel */
+const OBJCACHE = {key:"", cv:null, W:null, F:null, R:0};
+let OBJVIEW = null;
+function objectExtent(){ const e = PHANTOMS[P.phantom].extent; const G = CUR.G;
+  return Math.max(e*1.15, 0.5*Math.max(G.fovRO, G.fovPE)*1.08); }
+function drawObject(){
+  const cv = $("cvObj"), {ctx, w, h} = fit(cv);
+  ctx.fillStyle = C.bg; ctx.fillRect(0,0,w,h);
+  const E = objectExtent(), V = viewFit(w, h, -E, -E, 2*E, 2*E, 30, 42, 14);
+  const R = Math.max(64, Math.min(560, Math.round(2*E*V.s*(window.devicePixelRatio||1)*0.8)));
+  OBJVIEW = Object.assign({E}, V);
+  const key = [P.phantom, E, R].join("|");
+  if(OBJCACHE.key !== key){                          // densities on the display lattice (y downward)
+    // rasterize puts node (i, j) at (i·d, j·d); map display pixels onto that lattice by
+    // translating the shapes and mirroring y (which also mirrors their rotation)
+    const d = 2*E/R, sh = CUR.shapes.map(q => Object.assign({}, q, {x0:q.x0 + E - d/2, y0:-q.y0 + E - d/2, s:-q.s}));
+    const r2 = rasterize(sh, 0, R, d, 0, R, d);
+    OBJCACHE.W = r2.W; OBJCACHE.F = r2.F; OBJCACHE.R = R; OBJCACHE.key = key;
+    if(!OBJCACHE.cv) OBJCACHE.cv = document.createElement("canvas");
+  }
+  {
+    const oc = OBJCACHE.cv; if(oc.width !== R){ oc.width = R; oc.height = R; }
+    const octx = oc.getContext("2d"), img = octx.createImageData(R, R);
+    const fc = hexRGB(C.fat.startsWith("#") ? C.fat : "#e3a53c");
+    const field = P.objView === "field" && hasSource(P), d = 2*E/R;
+    const G = CUR.G, f1px = G.isEPI ? G.bwPE : P.bw, fr = f1px/10, LN = Math.log(1 + 1000);
+    let fmap = null;
+    if(field){
+      fmap = new Float32Array(R*R);
+      for(let j=0;j<R;j++) for(let i=0;i<R;i++) fmap[j*R+i] = fieldHz(P, -E + (i+0.5)*d, E - (j+0.5)*d);
+    }
+    for(let k=0;k<R*R;k++){
+      const wv = OBJCACHE.W[k], fv = OBJCACHE.F[k], o = 4*k;
+      let r, g, b;
+      if(!field){
+        const gr = Math.min(1, wv/1.1)*235;
+        r = gr + fv*fc[0]; g = gr + fv*fc[1]; b = gr*1.02 + fv*fc[2];
+      } else {
+        const df = fmap[k];
+        const gr = Math.min(1, (wv+fv)/1.1)*110;
+        if(Number.isNaN(df)){ r = g = b = 0; }
+        else {
+          const v = Math.min(1, Math.log(1 + Math.abs(df)/fr)/LN), hue = df < 0 ? [70,120,235] : [235,90,75];
+          r = gr*(1-v) + hue[0]*v; g = gr*(1-v) + hue[1]*v; b = gr*(1-v) + hue[2]*v;
+          // contour where |Δf| crosses one pixel of displacement
+          const i = k % R, jn = k + R, in_ = i < R-1 ? k+1 : -1;
+          const above = Math.abs(df) >= f1px;
+          const nb = [jn < R*R ? fmap[jn] : NaN, in_ >= 0 ? fmap[in_] : NaN];
+          if(nb.some(z => !Number.isNaN(z) && (Math.abs(z) >= f1px) !== above)){ r = 255; g = 255; b = 255; }
+        }
+      }
+      img.data[o] = Math.min(255, r); img.data[o+1] = Math.min(255, g); img.data[o+2] = Math.min(255, b); img.data[o+3] = 255;
+    }
+    octx.putImageData(img, 0, 0);
+  }
+  ctx.fillStyle = C.imgbg; ctx.fillRect(V.X(-E), V.Y(E), 2*E*V.s, 2*E*V.s);
+  ctx.imageSmoothingEnabled = true; ctx.drawImage(OBJCACHE.cv, V.X(-E), V.Y(E), 2*E*V.s, 2*E*V.s);
+  // FOV and its periodic copies along the directions that alias
+  const G = CUR.G, d = CUR.disp, roX = P.roAxis === "x";
+  ctx.save(); ctx.beginPath(); ctx.rect(V.X(-E), V.Y(E), 2*E*V.s, 2*E*V.s); ctx.clip();
+  const fx = d.ex, fy = d.ey;
+  ctx.setLineDash([4,4]); ctx.strokeStyle = C.accent; ctx.globalAlpha = 0.55; ctx.lineWidth = 1;
+  if(P.mode === "alias"){
+    for(const n of [-1,1]){                          // the image repeats with the acquired FOV
+      const dx = roX ? 0 : n*G.FOVaPE, dy = roX ? n*G.FOVaPE : 0;
+      ctx.strokeRect(V.X(d.x0+dx), V.Y(d.y0+fy+dy), fx*V.s, fy*V.s);
+    }
+    if(!P.osRO) for(const n of [-1,1]){
+      const dx = roX ? n*G.FOVaRO : 0, dy = roX ? 0 : n*G.FOVaRO;
+      ctx.strokeRect(V.X(d.x0+dx), V.Y(d.y0+fy+dy), fx*V.s, fy*V.s);
+    }
+  }
+  ctx.setLineDash([]); ctx.globalAlpha = 1; ctx.lineWidth = 1.5;
+  ctx.strokeRect(V.X(d.x0), V.Y(d.y0+fy), fx*V.s, fy*V.s);
+  if(P.osPE > 0){                                    // acquired (oversampled) phase FOV
+    const rx0 = roX ? d.x0 : -G.FOVaPE/2 - d.px/2, rw = roX ? fx : G.FOVaPE;
+    const ry0 = roX ? -G.FOVaPE/2 - d.py/2 : d.y0, rh = roX ? G.FOVaPE : fy;
+    ctx.setLineDash([2,3]); ctx.globalAlpha = 0.6; ctx.lineWidth = 1;
+    ctx.strokeRect(V.X(rx0), V.Y(ry0+rh), rw*V.s, rh*V.s);
+    ctx.setLineDash([]); ctx.globalAlpha = 1;
+  }
+  // profile line
+  ctx.strokeStyle = C.accent; ctx.globalAlpha = 0.5; ctx.setLineDash([3,3]);
+  ctx.beginPath(); ctx.moveTo(V.X(-E), V.Y(P.profY)); ctx.lineTo(V.X(E), V.Y(P.profY)); ctx.stroke();
+  ctx.setLineDash([]); ctx.globalAlpha = 1;
+  ctx.restore();
+  // RO / PE axes glyph
+  const gx = V.X(-E) + 10, gy = V.Y(-E) - 10, L = 26;
+  arrow(ctx, gx, gy, gx + L, gy, roX ? C.accent : C.muted);
+  arrow(ctx, gx, gy, gx, gy - L, roX ? C.muted : C.accent);
+  label(ctx, roX ? "RO" : "PE", gx + L + 4, gy + 3.5, roX ? C.accent : C.muted);
+  label(ctx, roX ? "PE" : "RO", gx - 3, gy - L - 5, roX ? C.muted : C.accent);
+  label(ctx, `FOV ${f1(roX?G.fovRO:G.fovPE)} × ${f1(roX?G.fovPE:G.fovRO)} mm`, w - 12, h - 8, C.dim, "right");
+  if(P.objView === "field" && hasSource(P)){
+    const f1px = CUR.G.isEPI ? CUR.G.bwPE : P.bw;
+    legendRow(ctx, w - 12, h - 24, [["#4678eb", "Δf < 0"], ["#eb5a4b", "Δf > 0"], [document.documentElement.dataset.theme === "light" ? C.text : "#ffffff", `|Δf| = ${fmtHz(f1px)}: 1 px shift`]]);
+  } else legendRow(ctx, w - 12, h - 24, [["#c8ccd2", "water"], [C.fat, "fat"]]);
+  if(hasSource(P)){
+    ctx.strokeStyle = C.accent; ctx.lineWidth = 1.2;
+    ctx.beginPath(); ctx.arc(V.X(P.sx), V.Y(P.sy), P.sr*V.s, 0, 2*Math.PI); ctx.stroke();
+    // B0 glyph
+    const bx = V.X(E) - 16, by = V.Y(E) + 34;
+    if(P.b0dir === "y") arrow(ctx, bx, by + 22, bx, by - 4, C.text, 1.4);
+    else { ctx.strokeStyle = C.text; ctx.lineWidth = 1.2; ctx.beginPath(); ctx.arc(bx, by + 9, 6, 0, 2*Math.PI); ctx.stroke();
+           ctx.fillStyle = C.text; ctx.beginPath(); ctx.arc(bx, by + 9, 1.8, 0, 2*Math.PI); ctx.fill(); }
+    label(ctx, "B₀", bx - 9, by + 13, C.text, "right");
+  }
+  scaleBar(ctx, V, V.X(E) - 6, V.Y(-E) - 10);
+}
+function scaleBar(ctx, V, xr, y){
+  const mm = 50, L = mm*V.s;
+  ctx.strokeStyle = C.muted; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.moveTo(xr-L, y); ctx.lineTo(xr, y); ctx.stroke();
+  label(ctx, mm + " mm", xr - L/2, y - 5, C.muted, "center");
+}
+
+/* ---------------------------------------------------------- k-space panel */
+const KCV = document.createElement("canvas");
+function drawK(){
+  const cv = $("cvK"), {ctx, w, h} = fit(cv);
+  ctx.fillStyle = C.bg; ctx.fillRect(0,0,w,h);
+  const G = CUR.G, A = CUR.A, NR = G.NacqRO, NP = G.NacqPE, roX = P.roAxis === "x";
+  const W = roX ? NR : NP, H = roX ? NP : NR;
+  if(KCV.width !== W || KCV.height !== H){ KCV.width = W; KCV.height = H; }
+  const kctx = KCV.getContext("2d"), img = kctx.createImageData(W, H);
+  let mx = 0; for(let i=0;i<A.Sr.length;i++){ const v = A.Sr[i]*A.Sr[i]+A.Si[i]*A.Si[i]; if(v > mx) mx = v; }
+  mx = Math.sqrt(mx) || 1;
+  const trange = A.tmax - A.tmin, flatT = !(trange > 1e-9), LD = Math.log(1+1e4);
+  for(let m=0;m<NP;m++) for(let r=0;r<NR;r++){
+    const i = m*NR+r, ix = roX ? r : m, iy = roX ? m : r, o = 4*((H-1-iy)*W + ix);
+    const L = Math.log(1 + 1e4*Math.hypot(A.Sr[i], A.Si[i])/mx)/LD;
+    let rgb;
+    if(P.kview === "mag") rgb = [L*255, L*255, L*255];
+    else {
+      const c = viridis(flatT ? 0.5 : (A.T[i]-A.tmin)/trange);
+      const b = P.kview === "time" ? 1 : 0.16 + 0.84*L;
+      rgb = [c[0]*b, c[1]*b, c[2]*b];
+    }
+    img.data[o] = rgb[0]; img.data[o+1] = rgb[1]; img.data[o+2] = rgb[2]; img.data[o+3] = 255;
+  }
+  kctx.putImageData(img, 0, 0);
+  // physical k extents (1/mm): kx ∈ [−1/(2 d_x), 1/(2 d_x))
+  const dxm = roX ? G.dro : G.dpe, dym = roX ? G.dpe : G.dro;
+  const kxE = 1/dxm, kyE = 1/dym;
+  const showBar = P.kview !== "mag";
+  const V = viewFit(w, h, -kxE/2, -kyE/2, kxE, kyE, 40, showBar ? 46 : 26, 16);
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(KCV, V.X(-kxE/2), V.Y(kyE/2), kxE*V.s, kyE*V.s);
+  // axes through the centre
+  ctx.strokeStyle = "rgba(255,255,255,0.18)"; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(V.X(-kxE/2), V.Y(0)); ctx.lineTo(V.X(kxE/2), V.Y(0));
+  ctx.moveTo(V.X(0), V.Y(-kyE/2)); ctx.lineTo(V.X(0), V.Y(kyE/2)); ctx.stroke();
+  const xl = roX ? "k_RO" : "k_PE", yl = roX ? "k_PE" : "k_RO";
+  label(ctx, xl, V.X(kxE/2), V.Y(-kyE/2) + 13, C.muted, "right");
+  label(ctx, yl, V.X(-kxE/2), V.Y(kyE/2) - 6, C.muted, "left");
+  label(ctx, `${NR} × ${NP} samples`, w - 12, 18, C.dim, "right");
+  if(showBar){
+    const bx = V.X(-kxE/2), bw = kxE*V.s, by = h - 26, bh = 6;
+    for(let i=0;i<bw;i++){ const c = viridis(i/bw); ctx.fillStyle = `rgb(${c[0]|0},${c[1]|0},${c[2]|0})`; ctx.fillRect(bx+i, by, 1.2, bh); }
+    const unit = G.isEPI || P.seq === "gre" ? "time since excitation" : "time from echo";
+    label(ctx, flatT ? "t = const" : fmtSignedMs(A.tmin), bx, by + 18, C.muted, "left");
+    label(ctx, "t: " + unit, bx + bw/2, by + 18, C.dim, "center");
+    if(!flatT) label(ctx, fmtSignedMs(A.tmax), bx + bw, by + 18, C.muted, "right");
+  }
+}
+function fmtSignedMs(t){ return (t < 0 ? "−" : "") + fmtMs(t); }
+
+/* ---------------------------------------------------------- image panel */
+const ICV = document.createElement("canvas"), RCV = document.createElement("canvas");
+function paintImage(target, d, win, view){
+  if(target.width !== d.W || target.height !== d.H){ target.width = d.W; target.height = d.H; }
+  const c = target.getContext("2d"), img = c.createImageData(d.W, d.H);
+  for(let i=0;i<d.W*d.H;i++){
+    const m = Math.hypot(d.re[i], d.im[i]); let v;
+    if(view === "phase"){ v = m < 0.05*win ? 0 : (Math.atan2(d.im[i], d.re[i]) + Math.PI)/(2*Math.PI); }
+    else v = Math.min(1, m/win);
+    const g = v*255; img.data[4*i] = g; img.data[4*i+1] = g; img.data[4*i+2] = g; img.data[4*i+3] = 255;
+  }
+  c.putImageData(img, 0, 0);
+}
+let IMGVIEW = null;
+function drawImage(){
+  const cv = $("cvImg"), {ctx, w, h} = fit(cv), d = CUR.disp;
+  ctx.fillStyle = C.bg; ctx.fillRect(0,0,w,h);
+  let x0 = d.x0, y0 = d.y0, ex = d.ex, ey = d.ey;
+  if(REF){ x0 = Math.min(x0, REF.x0); y0 = Math.min(y0, REF.y0);
+    ex = Math.max(d.x0+d.ex, REF.x0+REF.ex) - x0; ey = Math.max(d.y0+d.ey, REF.y0+REF.ey) - y0; }
+  const V = viewFit(w, h, x0, y0, ex, ey, 30, 26, 14); V.top = y0 + ey; IMGVIEW = V;
+  paintImage(ICV, d, P.win, P.view);
+  ctx.imageSmoothingEnabled = false;
+  const splitX = V.X(x0) + split*ex*V.s;
+  if(REF){
+    paintImage(RCV, REF, P.win, P.view);
+    ctx.save(); ctx.beginPath(); ctx.rect(0,0,splitX,h); ctx.clip();
+    ctx.fillStyle = C.imgbg; ctx.fillRect(V.X(REF.x0), V.Y(REF.y0+REF.ey), REF.ex*V.s, REF.ey*V.s);
+    ctx.drawImage(RCV, V.X(REF.x0), V.Y(REF.y0+REF.ey), REF.ex*V.s, REF.ey*V.s);
+    ctx.restore();
+    ctx.save(); ctx.beginPath(); ctx.rect(splitX,0,w-splitX,h); ctx.clip();
+  }
+  ctx.fillStyle = C.imgbg; ctx.fillRect(V.X(d.x0), V.Y(d.y0+d.ey), d.ex*V.s, d.ey*V.s);
+  ctx.drawImage(ICV, V.X(d.x0), V.Y(d.y0+d.ey), d.ex*V.s, d.ey*V.s);
+  if(REF){
+    ctx.restore();
+    ctx.strokeStyle = C.accent; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(splitX, 26); ctx.lineTo(splitX, h-22); ctx.stroke();
+    ctx.fillStyle = C.accent; ctx.beginPath(); ctx.arc(splitX, h/2, 5, 0, 2*Math.PI); ctx.fill();
+    label(ctx, "reference", splitX - 6, h - 8, C.muted, "right");
+    label(ctx, "current", splitX + 6, h - 8, C.muted, "left");
+  }
+  // profile line
+  ctx.strokeStyle = C.accent; ctx.lineWidth = 1; ctx.globalAlpha = 0.7; ctx.setLineDash([3,3]);
+  ctx.beginPath(); ctx.moveTo(V.X(d.x0), V.Y(P.profY)); ctx.lineTo(V.X(d.x0+d.ex), V.Y(P.profY)); ctx.stroke();
+  ctx.setLineDash([]); ctx.globalAlpha = 1;
+  const roX = P.roAxis === "x";
+  const gx = V.X(d.x0) + 10, gy = V.Y(d.y0) - 10, L = 22;
+  arrow(ctx, gx, gy, gx + L, gy, roX ? C.accent : C.muted);
+  arrow(ctx, gx, gy, gx, gy - L, roX ? C.muted : C.accent);
+  label(ctx, roX ? "RO" : "PE", gx + L + 4, gy + 3.5, roX ? C.accent : C.muted);
+  label(ctx, roX ? "PE" : "RO", gx - 3, gy - L - 5, roX ? C.muted : C.accent);
+  if(!REF) label(ctx, `${d.W} × ${d.H} px · ${f2(d.px)} × ${f2(d.py)} mm`, w - 12, h - 8, C.dim, "right");
+  scaleBar(ctx, V, V.X(d.x0+d.ex) - 6, V.Y(d.y0) - 10);
+}
+
+/* ---------------------------------------------------------- plots */
+function drawDiag(){
+  const cv = $("cvDiag"), {ctx, w, h} = fit(cv);
+  ctx.fillStyle = C.bg; ctx.fillRect(0,0,w,h);
+  if(P.diag === "profile"){ $("diagTag").textContent = "Line profile"; drawProfile(ctx, w, h); return; }
+  if(P.mode === "fat1"){ $("diagTag").textContent = "Spectrum and pixel bandwidth"; drawSpectrum(ctx, w, h); }
+  else if(P.mode === "fat2"){ $("diagTag").textContent = "Water + fat in one voxel"; drawPhasor(ctx, w, h); }
+  else if(P.mode === "alias"){ $("diagTag").textContent = "Projection along phase encoding"; drawAliasPlot(ctx, w, h); }
+  else if(P.mode === "susc"){ drawDisplacement(ctx, w, h); }
+  else if(P.mode === "eddy"){ drawEddy(ctx, w, h); }
+  else { $("diagTag").textContent = "Edge response of the acquisition"; drawEdge(ctx, w, h); }
+}
+
+function drawProfile(ctx, w, h){
+  const d = CUR.disp, sh = CUR.shapes;
+  const row = Math.round((d.y0 + d.ey - P.profY)/d.py - 0.5);
+  const bx = 46, by = 44, bw = w - bx - 18, bh = h - by - 40;
+  if(row < 0 || row >= d.H){ label(ctx, "Profile line is outside the image FOV — click on the image.", w/2, h/2, C.muted, "center"); return; }
+  const xr = [d.x0, d.x0 + d.ex];
+  const vals = []; let vmax = 0;
+  for(let i=0;i<d.W;i++){ const k = row*d.W+i; const v = P.view === "phase" ? Math.atan2(d.im[k], d.re[k]) : Math.hypot(d.re[k], d.im[k]); vals.push(v); vmax = Math.max(vmax, v); }
+  const truth = [], NT = Math.max(400, Math.round(bw*2));
+  let tmax = 0;
+  for(let i=0;i<=NT;i++){ const x = xr[0] + i/NT*(xr[1]-xr[0]); const [a,b] = truthAt(sh, x, P.profY); truth.push([x,a,b]); tmax = Math.max(tmax, a+b); }
+  const phase = P.view === "phase";
+  const yr = phase ? [-Math.PI, Math.PI] : [0, Math.max(1.2, vmax*1.08, tmax*1.08)];
+  const {X, Y} = axes(ctx, bx, by, bw, bh, xr, yr, `x (mm), profile at y = ${f1(P.profY)} mm`, phase ? "phase (rad)" : "signal");
+  if(!phase){
+    // truth: total, and fat alone
+    ctx.strokeStyle = C.muted; ctx.lineWidth = 1.2; ctx.beginPath();
+    truth.forEach(([x,a,b],i) => { const y = Y(a+b); i ? ctx.lineTo(X(x), y) : ctx.moveTo(X(x), y); }); ctx.stroke();
+    ctx.strokeStyle = C.fat; ctx.globalAlpha = 0.8; ctx.lineWidth = 1; ctx.beginPath();
+    truth.forEach(([x,a,b],i) => { const y = Y(b); i ? ctx.lineTo(X(x), y) : ctx.moveTo(X(x), y); }); ctx.stroke();
+    ctx.globalAlpha = 1;
+  }
+  ctx.strokeStyle = C.accent; ctx.lineWidth = 1.5; ctx.beginPath();
+  vals.forEach((v,i) => { const x = d.x0 + (i+0.5)*d.px; i ? ctx.lineTo(X(x), Y(v)) : ctx.moveTo(X(x), Y(v)); }); ctx.stroke();
+  if(d.W <= 160){ ctx.fillStyle = C.accent; vals.forEach((v,i) => { const x = d.x0 + (i+0.5)*d.px; ctx.fillRect(X(x)-1.5, Y(v)-1.5, 3, 3); }); }
+  legendRow(ctx, bx + bw, 28, phase ? [[C.accent, "image phase"]] : [[C.accent, "|image|"], [C.muted, "true ρW+ρF"], [C.fat, "true ρF"]]);
+}
+
+function drawSpectrum(ctx, w, h){
+  const G = CUR.G, fm = FAT_MODELS[P.fatModel], p = P.roPol ? -1 : 1;
+  const fmin = Math.min(...G.fFat), fmax = Math.max(0, ...G.fFat);
+  const pad = Math.max(0.6*P.bw, 0.25*(fmax-fmin));
+  const xr = [fmin - pad, fmax + pad];
+  const bx = 22, bw = w - 44;
+  const tracks = G.isEPI ? 2 : 1, th = (h - 74)/tracks;
+  const X = f => bx + (f - xr[0])/(xr[1]-xr[0])*bw;
+  const drawTrack = (y0, bwpx, name, shiftPx) => {
+    const base = y0 + th - 16, top = y0 + 16;
+    // pixel bins
+    const kmin = Math.ceil((xr[0])/bwpx - 0.5), kmax = Math.floor((xr[1])/bwpx + 0.5);
+    const spacing = bwpx/(xr[1]-xr[0])*bw;
+    if(spacing >= 3){
+      for(let k=kmin;k<=kmax;k++){
+        ctx.fillStyle = k % 2 ? C.panel2 : C.bg;
+        const a = X((k-0.5)*bwpx), b = X((k+0.5)*bwpx);
+        ctx.fillRect(Math.max(bx,a), top, Math.min(bx+bw,b) - Math.max(bx,a), base-top);
+        ctx.strokeStyle = C.grid; ctx.beginPath(); ctx.moveTo(a, top); ctx.lineTo(a, base); ctx.stroke();
+      }
+    } else { ctx.fillStyle = C.panel2; ctx.fillRect(bx, top, bw, base-top); }
+    ctx.strokeStyle = C.axis; ctx.beginPath(); ctx.moveTo(bx, base); ctx.lineTo(bx+bw, base); ctx.stroke();
+    // sticks
+    const H = base - top - 16;
+    ctx.lineWidth = 3; ctx.strokeStyle = C.water;
+    ctx.beginPath(); ctx.moveTo(X(0), base); ctx.lineTo(X(0), base - H); ctx.stroke();
+    ctx.strokeStyle = C.fat;
+    const amax = Math.max(...fm.amp);
+    G.fFat.forEach((f,j) => { ctx.beginPath(); ctx.moveTo(X(f), base); ctx.lineTo(X(f), base - H*fm.amp[j]/amax*0.9); ctx.stroke(); });
+    ctx.lineWidth = 1;
+    // displacement bracket
+    const yb = base - H - 4;
+    arrow(ctx, X(0), yb, X(G.fMain), yb, C.accent, 1.2);
+    label(ctx, `${name}: ${fmtSigned(shiftPx, shiftPx*shiftPx < 100 ? 2 : 1)} px`, (X(0)+X(G.fMain))/2, yb - 5, C.accent, "center");
+    label(ctx, `${name.split(" ")[0]} pixel = ${fmtHz(bwpx)}`, bx + 4, base - 5, C.muted, "left");
+  };
+  const shiftRO = p*G.fMain/P.bw;
+  drawTrack(24, P.bw, "readout shift", shiftRO);
+  if(G.isEPI){ const q = P.pePol ? -1 : 1; drawTrack(24 + th, G.bwPE, "phase shift", q*G.fMain*G.NacqPE*G.ESP); }
+  // frequency axis
+  const ay = h - 34;
+  ctx.strokeStyle = C.axis;
+  for(const t of niceTicks(xr[0], xr[1], 6)){ ctx.beginPath(); ctx.moveTo(X(t), ay-4); ctx.lineTo(X(t), ay); ctx.stroke(); label(ctx, fmtTick(t), X(t), ay + 11, C.muted, "center"); }
+  label(ctx, "frequency offset from water (Hz)", bx + bw, ay + 22, C.dim, "right");
+  legendRow(ctx, bx + bw, 18, [[C.water, "water"], [C.fat, "fat"]]);
+}
+
+function fatPhasor(t){
+  const fm = FAT_MODELS[P.fatModel]; let re = 0, im = 0;
+  CUR.G.fFat.forEach((f,j) => { re += fm.amp[j]*Math.cos(2*Math.PI*f*t); im -= fm.amp[j]*Math.sin(2*Math.PI*f*t); });
+  return [re, im];
+}
+function echoPhaseTime(){ const G = CUR.G; return (P.seq === "gre" || P.seq === "epi") ? G.TE : 0; }
+function drawPhasor(ctx, w, h){
+  const G = CUR.G, t = echoPhaseTime(), fw = 0.5, ff = 0.5;
+  const [pr, pi] = fatPhasor(t);
+  // left: phasor diagram
+  const R = Math.min(h - 84, w*0.36)/2, cx = 26 + R, cy = 40 + R;
+  ctx.strokeStyle = C.grid; ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(cx, cy, R, 0, 2*Math.PI); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(cx-R, cy); ctx.lineTo(cx+R, cy); ctx.moveTo(cx, cy-R); ctx.lineTo(cx, cy+R); ctx.stroke();
+  const s = R/1.0;
+  arrow(ctx, cx, cy, cx + fw*s, cy, C.water, 2.5);
+  // fat vector starts at the water tip; drawn 3 px off the axis so it stays visible when antiparallel
+  { const ex = ff*pr*s, ey = -ff*pi*s, L = Math.hypot(ex, ey) || 1, ox = -ey/L*3, oy = ex/L*3;
+    arrow(ctx, cx + fw*s + ox, cy + oy, cx + fw*s + ex + ox, cy + ey + oy, C.fat, 2); }
+  const rr = fw + ff*pr, ri = ff*pi;
+  if(Math.hypot(rr, ri) > 0.02) arrow(ctx, cx, cy, cx + rr*s, cy - ri*s, C.accent, 1.6);
+  label(ctx, "50 % water + 50 % fat voxel", cx, cy + R + 16, C.muted, "center");
+  label(ctx, `|S| = ${f2(Math.hypot(rr, ri))}`, cx, cy + R + 30, C.accent, "center");
+  // right: |S|(TE)
+  const bx = cx + R + 58, by = 44, bw = w - bx - 16, bh = h - by - 42;
+  if(bw < 80) return;
+  const gre = P.seq === "gre" || P.seq === "epi";
+  const tHi = Math.max(2.2/Math.abs(G.fMain), t*1.25);
+  const {X, Y} = axes(ctx, bx, by, bw, bh, [0, tHi*1e3], [0, 1.05], "TE (ms)", "|S|", {nx:5});
+  const curve = (w_, f_, col, dash) => {
+    ctx.strokeStyle = col; ctx.lineWidth = 1.4; ctx.setLineDash(dash || []); ctx.beginPath();
+    for(let i=0;i<=300;i++){ const tt = i/300*tHi, [a,b] = gre ? fatPhasor(tt) : [1,0]; const v = Math.hypot(w_ + f_*a, f_*b)/(w_+f_);
+      i ? ctx.lineTo(X(tt*1e3), Y(v)) : ctx.moveTo(X(tt*1e3), Y(v)); }
+    ctx.stroke(); ctx.setLineDash([]);
+  };
+  curve(0.5, 0.5, C.accent);
+  curve(0.73, 0.10, C.muted, [4,3]);
+  // in / opposed phase markers (single-peak definitions)
+  const fa = Math.abs(G.fMain);
+  for(let k=1; k/(2*fa) <= tHi; k++){
+    const tt = k/(2*fa), x = X(tt*1e3);
+    ctx.strokeStyle = C.grid; ctx.beginPath(); ctx.moveTo(x, by); ctx.lineTo(x, by+bh); ctx.stroke();
+    label(ctx, k % 2 ? "OP" : "IP", x, by + 10, C.dim, "center");
+  }
+  if(gre){ ctx.strokeStyle = C.text; ctx.lineWidth = 1.2; ctx.beginPath(); ctx.moveTo(X(t*1e3), by); ctx.lineTo(X(t*1e3), by+bh); ctx.stroke(); }
+  legendRow(ctx, bx + bw, 28, [[C.accent, "50/50 voxel"], [C.muted, "liver, 12 % fat", [4,3]]]);
+  if(!gre) label(ctx, "spin echo: fat phase refocused at TE", bx + bw/2, by + bh/2, C.text, "center");
+}
+
+let PROJ = {key:"", u:null, p:null};
+function projection(){
+  const E = 240, n = 2*E, key = P.phantom + "|" + P.roAxis;
+  if(PROJ.key === key) return PROJ;
+  const {W, F} = rasterize(CUR.shapes, -E, n+1, 1, -E, n+1, 1);
+  const u = new Float64Array(n+1), p = new Float64Array(n+1), peY = P.roAxis === "x";
+  for(let a=0;a<=n;a++){
+    u[a] = -E + a; let sum = 0;
+    for(let b=0;b<=n;b++){ const k = peY ? a*(n+1) + b : b*(n+1) + a; sum += W[k] + F[k]; }
+    p[a] = sum;
+  }
+  PROJ = {key, u, p}; return PROJ;
+}
+function drawAliasPlot(ctx, w, h){
+  const G = CUR.G, pr = projection(), F = G.fovPE, n = pr.u.length;
+  const bx = 46, by = 44, bw = w - bx - 18, bh = h - by - 40;
+  const xr = [pr.u[0], pr.u[n-1]];
+  const fold = u => { let s = 0; for(let k=-4;k<=4;k++){ const v = u + k*G.FOVaPE; const j = Math.round(v - pr.u[0]); if(j >= 0 && j < n) s += pr.p[j]; } return s; };
+  let pmax = 0; for(let i=0;i<n;i++) pmax = Math.max(pmax, pr.p[i]);
+  const folded = []; for(let i=0;i<n;i++){ const u = pr.u[i]; if(Math.abs(u) <= G.FOVaPE/2){ const v = fold(u); folded.push([u, v]); pmax = Math.max(pmax, v); } }
+  const {X, Y} = axes(ctx, bx, by, bw, bh, xr, [0, pmax*1.1], "position along PE (mm)", "∫ρ dRO");
+  // FOV
+  ctx.fillStyle = C.panel2; ctx.globalAlpha = 0.9; ctx.fillRect(X(-F/2), by, (X(F/2)-X(-F/2)), bh); ctx.globalAlpha = 1;
+  ctx.strokeStyle = C.accent; ctx.setLineDash([4,3]);
+  for(const s of [-1,1]){ ctx.beginPath(); ctx.moveTo(X(s*F/2), by); ctx.lineTo(X(s*F/2), by+bh); ctx.stroke(); }
+  if(G.FOVaPE > F + 1e-6){ ctx.strokeStyle = C.dim; for(const s of [-1,1]){ ctx.beginPath(); ctx.moveTo(X(s*G.FOVaPE/2), by); ctx.lineTo(X(s*G.FOVaPE/2), by+bh); ctx.stroke(); } }
+  ctx.setLineDash([]);
+  // shifted copies
+  ctx.strokeStyle = C.dim; ctx.lineWidth = 1; ctx.setLineDash([2,3]);
+  for(const k of [-1,1]){ ctx.beginPath(); let st = false;
+    for(let i=0;i<n;i++){ const x = pr.u[i] + k*G.FOVaPE; if(x < xr[0] || x > xr[1]) continue; st ? ctx.lineTo(X(x), Y(pr.p[i])) : ctx.moveTo(X(x), Y(pr.p[i])); st = true; }
+    ctx.stroke(); }
+  ctx.setLineDash([]);
+  // true projection
+  ctx.strokeStyle = C.muted; ctx.lineWidth = 1.4; ctx.beginPath();
+  for(let i=0;i<n;i++) i ? ctx.lineTo(X(pr.u[i]), Y(pr.p[i])) : ctx.moveTo(X(pr.u[i]), Y(pr.p[i])); ctx.stroke();
+  // folded
+  ctx.strokeStyle = C.accent; ctx.lineWidth = 1.8; ctx.beginPath();
+  folded.forEach(([u,v],i) => i ? ctx.lineTo(X(u), Y(v)) : ctx.moveTo(X(u), Y(v))); ctx.stroke();
+  legendRow(ctx, bx + bw, 28, [[C.muted, "object"], [C.dim, "copies at ±FOV", [2,3]], [C.accent, "in the image"]]);
+}
+
+// displacement in pixels along the encoding direction that distorts, through the source centre
+function drawDisplacement(ctx, w, h){
+  const G = CUR.G, roX = P.roAxis === "x", alongPE = G.isEPI;
+  const axisIsX = alongPE ? !roX : roX;                  // physical axis of the plotted line
+  const pix = alongPE ? G.dpe : G.dro;
+  const bwEff = alongPE ? G.bwPE : P.bw;
+  const sgn = alongPE ? (P.pePol ? -1 : 1) : (P.roPol ? -1 : 1);
+  $("diagTag").textContent = `Displacement along ${alongPE ? "phase" : "readout"} (${axisIsX ? "x" : "y"}) through the source`;
+  const bx = 46, by = 44, bw = w - bx - 18, bh = h - by - 40;
+  if(!hasSource(P)){ label(ctx, "No susceptibility source — choose one in the rail.", w/2, h/2, C.muted, "center"); return; }
+  const c0 = axisIsX ? P.sx : P.sy, half = (axisIsX ? (roX ? G.fovRO : G.fovPE) : (roX ? G.fovPE : G.fovRO))/2;
+  const xr = [-half, half], n = 800, pts = [];
+  let mx = 0;
+  const vatOff = G.vat && !alongPE;
+  for(let i=0;i<=n;i++){
+    const u = xr[0] + i/n*(xr[1]-xr[0]);
+    const f = axisIsX ? fieldHz(P, u, P.sy) : fieldHz(P, P.sx, u);
+    const d = vatOff ? 0 : sgn*f/bwEff;
+    pts.push([u, d]); if(!Number.isNaN(d)) mx = Math.max(mx, Math.abs(d));
+  }
+  const lim = Math.max(3, Math.min(40, mx*1.1));
+  const {X, Y} = axes(ctx, bx, by, bw, bh, xr, [-lim, lim], `${axisIsX ? "x" : "y"} (mm) through the source centre at ${f1(c0)} mm`, "shift (px)");
+  ctx.fillStyle = C.panel2; ctx.fillRect(bx, Y(0.5), bw, Y(-0.5) - Y(0.5));
+  ctx.strokeStyle = C.axis; ctx.beginPath(); ctx.moveTo(bx, Y(0)); ctx.lineTo(bx+bw, Y(0)); ctx.stroke();
+  // curve, with pile-up (local stretch 1 + ∂d/∂u < 0.25) marked
+  const du = (xr[1]-xr[0])/n/pix;
+  ctx.lineWidth = 1.8;
+  for(let i=1;i<=n;i++){
+    const [u0, d0] = pts[i-1], [u1, d1] = pts[i];
+    if(Number.isNaN(d0) || Number.isNaN(d1)) continue;
+    const jac = 1 + (d1 - d0)/du;
+    ctx.strokeStyle = jac < 0.25 ? "#eb5a4b" : C.accent;
+    ctx.beginPath(); ctx.moveTo(X(u0), Y(Math.max(-lim, Math.min(lim, d0)))); ctx.lineTo(X(u1), Y(Math.max(-lim, Math.min(lim, d1)))); ctx.stroke();
+  }
+  // sphere
+  ctx.fillStyle = C.dim; ctx.globalAlpha = 0.35;
+  const a = P.sr;
+  ctx.fillRect(X(Math.max(xr[0], c0 - a)), by, Math.max(0, X(Math.min(xr[1], c0 + a)) - X(Math.max(xr[0], c0 - a))), bh);
+  ctx.globalAlpha = 1;
+  legendRow(ctx, bx + bw, 28, [[C.accent, "shift"], ["#eb5a4b", "signal piles up"], [C.panel2, "±½ px"]]);
+  if(vatOff) label(ctx, "VAT cancels the readout shift (only blur remains)", bx + bw/2, by + 16, C.text, "center");
+  label(ctx, `1 px = ${fmtHz(bwEff)}`, bx + 6, by + 12, C.muted);
+}
+
+// gradient waveforms and the eddy fields they leave behind, over the whole shot
+function drawEddy(ctx, w, h){
+  const Ed = CUR.A.eddy;
+  $("diagTag").textContent = "Gradients and eddy fields over the shot";
+  if(!Ed){ label(ctx, "Eddy currents are off.", w/2, h/2, C.muted, "center"); return; }
+  const tr = Ed.trace, t = tr.t.map(v => v*1e3), xr = [t[0], t[t.length-1]];
+  const bx = 52, bw = w - bx - 18, top = 40, mid = 40 + (h - 40 - 34)*0.40, bh1 = mid - top - 4, by2 = mid + 18, bh2 = h - 34 - by2;
+  const cols = [C.water, C.fat, C.muted], names = ["readout", "phase", "slice"];
+  // readout window
+  const X = v => bx + (v - xr[0])/(xr[1]-xr[0])*bw;
+  ctx.fillStyle = C.panel2; ctx.fillRect(X(Ed.adc[0]*1e3), top, X(Ed.adc[1]*1e3) - X(Ed.adc[0]*1e3), h - 34 - top);
+  // top: nominal gradients, each normalised to its own maximum
+  const A1 = axes(ctx, bx, top, bw, bh1, xr, [-1.1, 1.1], null, "gradient (each / its max)", {noY:true, nx:6, noXLab:true});
+  for(let ax=0;ax<3;ax++){
+    const mx = Math.max(1e-12, ...tr.nom[ax].map(Math.abs));
+    ctx.strokeStyle = cols[ax]; ctx.lineWidth = 1; ctx.beginPath();
+    tr.nom[ax].forEach((v,i) => { const y = A1.Y(v/mx); i ? ctx.lineTo(A1.X(t[i]), y) : ctx.moveTo(A1.X(t[i]), y); }); ctx.stroke();
+  }
+  // bottom: eddy fields in µT/m
+  const gu = tr.g.map(a => a.map(v => v/GBAR*1e9));   // (1/mm)/s → µT/m
+  let gm = 1e-3; gu.forEach(a => a.forEach(v => { if(Math.abs(v) > gm) gm = Math.abs(v); }));
+  const A2 = axes(ctx, bx, by2, bw, bh2, xr, [-gm*1.1, gm*1.1], "time from excitation (ms)", "eddy field (µT/m)", {nx:6});
+  for(let ax=0;ax<3;ax++){
+    ctx.strokeStyle = cols[ax]; ctx.lineWidth = 1.5; ctx.beginPath();
+    gu[ax].forEach((v,i) => { const y = A2.Y(v); i ? ctx.lineTo(A2.X(t[i]), y) : ctx.moveTo(A2.X(t[i]), y); }); ctx.stroke();
+  }
+  ctx.strokeStyle = C.text; ctx.setLineDash([3,3]); ctx.beginPath(); ctx.moveTo(X(Ed.TE*1e3), top); ctx.lineTo(X(Ed.TE*1e3), h - 34); ctx.stroke(); ctx.setLineDash([]);
+  legendRow(ctx, bx + bw, 28, names.map((n,i) => [cols[i], n]).concat([[C.panel2, "readout window"]]));
+}
+
+function drawEdge(ctx, w, h){
+  const N = P.nRO, bx = 46, by = 44, bw = w - bx - 18, bh = h - by - 40;
+  const xr = [-6, 6];
+  const {X, Y} = axes(ctx, bx, by, bw, bh, xr, [-0.15, 1.2], "distance from edge (pixels)", "edge response");
+  ctx.strokeStyle = C.muted; ctx.lineWidth = 1.2; ctx.beginPath(); ctx.moveTo(X(-6), Y(0)); ctx.lineTo(X(0), Y(0)); ctx.lineTo(X(0), Y(1)); ctx.lineTo(X(6), Y(1)); ctx.stroke();
+  const draw = (filt, col, lw, dash) => {
+    ctx.strokeStyle = col; ctx.lineWidth = lw; ctx.setLineDash(dash || []); ctx.beginPath();
+    for(let i=0;i<=480;i++){ const x = -6 + 12*i/480, v = edgeResponse(N, filt, x); i ? ctx.lineTo(X(x), Y(v)) : ctx.moveTo(X(x), Y(v)); }
+    ctx.stroke(); ctx.setLineDash([]);
+  };
+  if(P.filter !== "none") draw("none", C.dim, 1, [3,3]);
+  draw(P.filter, C.accent, 1.8);
+  // samples at pixel centres for an edge half-way between two pixel centres
+  ctx.fillStyle = C.accent;
+  for(let k=-6;k<6;k++){ const x = k + 0.5; ctx.beginPath(); ctx.arc(X(x), Y(edgeResponse(N, P.filter, x)), 2.6, 0, 2*Math.PI); ctx.fill(); }
+  const m = edgeMetrics(N, P.filter);
+  label(ctx, `overshoot ${f1(100*m.over)} %  ·  10–90 % rise ${f2(m.rise)} px  ·  PSF FWHM ${f2(m.fwhm)} px`, bx + bw, by + 12, C.accent, "right");
+  legendRow(ctx, bx + bw, 28, P.filter !== "none"
+    ? [[C.muted, "object"], [C.dim, "no filter", [3,3]], [C.accent, "this acquisition"]]
+    : [[C.muted, "object"], [C.accent, "this acquisition"]]);
+  label(ctx, "dots: pixel centres, edge half-way between two", bx + bw, by + bh - 6, C.muted, "right");
+}
+
+/* ---------------------------------------------------------- physics panel */
+const MODE_TITLE = {
+  fat1:"Chemical shift, 1st kind: fat is encoded at the wrong position",
+  fat2:"Chemical shift, 2nd kind: water and fat add as vectors",
+  alias:"Aliasing: discrete k-space sampling makes the image periodic",
+  gibbs:"Gibbs ringing: k-space ends at k<sub>max</sub>",
+  susc:"Susceptibility: a field offset moves signal along the low-bandwidth direction",
+  eddy:"Eddy currents: the gradients that were played are not the ones that were asked for"
+};
+function physHTML(){
+  const G = CUR.G, A = CUR.A, m = P.mode, hl = on => on ? ' class="hl"' : "";
+  const fatOn = m === "fat1" || m === "fat2", susc = m === "susc";
+  const espTxt = G.accel > 1 ? "n·ESP/R" : "n·ESP";
+  const tExpr = {
+    se:`t(k) = <span${hl(m==="fat1"||m==="susc")}>τ(k<sub>RO</sub>)</span>`,
+    gre:`t(k) = <span${hl(m==="fat2"||m==="susc")}>TE</span> + <span${hl(m==="fat1"||m==="susc")}>τ(k<sub>RO</sub>)</span>`,
+    epi:`t(k) = <span${hl(m==="fat2")}>TE</span> + <span${hl(m==="fat1"||m==="susc")}>${espTxt}</span> + (−1)<sup>n</sup><span${hl(m==="fat1")}>τ(k<sub>RO</sub>)</span>`,
+    epise:`t(k) = <span${hl(m==="fat1"||m==="susc")}>${espTxt}</span> + (−1)<sup>n</sup><span${hl(m==="fat1")}>τ(k<sub>RO</sub>)</span>`
+  }[P.seq];
+  let eq = `s(k) = ∬ [ ρ<sub>W</sub>(r) + <span${hl(fatOn)}>ρ<sub>F</sub>(r) Σ<sub>p</sub> α<sub>p</sub> e<sup>−i2π f<sub>p</sub> t(k)</sup></span> ] <span${hl(susc)}>e<sup>−i2π Δf(r) t(k)</sup></span> e<sup>−i2π k·r</sup> d²r<br>`;
+  eq += `${tExpr},&nbsp; τ(k<sub>RO</sub>) = k<sub>RO</sub>Δx<sub>RO</sub>/BW<sub>px</sub> ∈ [−T<sub>acq</sub>/2, T<sub>acq</sub>/2]<br>`;
+  eq += `k = (<span${hl(m==="alias")}>j/FOV<sub>RO</sub>, m/FOV<sub>PE</sub></span>),&nbsp; <span${hl(m==="gibbs")}>−N/2 ≤ j, m &lt; N/2</span><br>`;
+  if(susc) eq += `<span class="hl">Δf(r) = γ̄B₀·(Δχ/3)·(a/r)³·(3cos²θ − 1)</span>` + (P.b0dir === "z" ? ",&nbsp; θ = 90° in an axial slice" : "") + `<br>`;
+  if(G.vat) eq += `VAT: off-resonance cancelled during readout, s(k) × sinc(BW<sub>RF</sub>·τ)<br>`;
+  if(m === "eddy" || eddyActive(P)) eq += `<span${hl(m==="eddy")}>k is really k(t) + γ̄∫[G(t′−δt) − G(t′) + g<sub>ec</sub>(t′)]dt′,&nbsp; g<sub>ec</sub> = −(dG/dt) ⊗ a·e<sup>−t/τ</sup></span><br>`;
+  const rows = []; const r = (a, b, hi) => rows.push(`<tr${hi ? ' class="hi"' : ""}><td>${a}</td><td>${b}</td></tr>`);
+  const p = P.roPol ? -1 : 1, q = P.pePol ? -1 : 1;
+  const roName = P.roAxis === "x" ? "x" : "y", peName = P.roAxis === "x" ? "y" : "x";
+  if(m === "fat1"){
+    const sRO = p*G.fMain/P.bw;
+    eq += `<span class="res">Δ<sub>RO</sub> = f<sub>F</sub>/BW<sub>px</sub> = ${fmtSigned(sRO,2)} px</span>`;
+    if(G.isEPI) eq += `<span class="res">,&nbsp; Δ<sub>PE</sub> = f<sub>F</sub>·N<sub>PE</sub>·ESP = ${fmtSigned(q*G.fMain*G.NacqPE*G.ESP,1)} px</span>`;
+    r("Larmor frequency f₀ = γ̄B₀", (GBAR*P.B0/1e6).toFixed(2) + " MHz");
+    r("Fat offset f<sub>F</sub> (−3.4 ppm)", fmtHz(G.fMain));
+    r("Readout bandwidth per pixel", fmtHz(P.bw));
+    r(`Fat shift, readout (${roName})`, `${fmtSigned(sRO,2)} px = ${fmtSigned(sRO*G.dro,1)} mm`, !G.isEPI);
+    if(G.isEPI){
+      const sPE = q*G.fMain*G.NacqPE*G.ESP;
+      r("Echo spacing ESP", fmtMs(G.ESP));
+      r("Bandwidth per pixel, phase", fmtHz(G.bwPE));
+      r(`Fat shift, phase (${peName})`, `${fmtSigned(sPE,1)} px = ${fmtSigned(sPE*G.dpe,0)} mm`, true);
+    }
+    r("Image SNR for ρ = 1, unfiltered", snrText());
+  } else if(m === "fat2"){
+    const t = echoPhaseTime(), [pr, pi] = fatPhasor(t), fa = Math.abs(G.fMain);
+    const phi = ((2*Math.PI*fa*t*180/Math.PI) % 360 + 540) % 360 - 180;
+    eq += `<span class="res">S = |ρ<sub>W</sub> + ρ<sub>F</sub>e<sup>−i2πf<sub>F</sub>TE</sup>|,&nbsp; φ<sub>F</sub>(TE) = ${fmtSigned(phi,0)}°</span>`;
+    r("Fat offset f<sub>F</sub> (−3.4 ppm)", fmtHz(G.fMain));
+    r("First opposed / in-phase TE", `${fmtMs(1/(2*fa))} / ${fmtMs(1/fa)}`);
+    r("TE used" + (G.TE > P.TE + 1e-9 ? " (clamped to minimum)" : ""), P.seq === "se" || P.seq === "epise" ? "phase refocused" : fmtMs(G.TE));
+    r("50/50 voxel, |S| relative to in-phase", f2(Math.hypot(0.5+0.5*pr, 0.5*pi)), true);
+    r("Liver voxel (12 % fat), |S| rel. in-phase", f2(Math.hypot(0.73+0.10*pr, 0.10*pi)/0.83));
+    r("Readout fat shift (still present)", `${fmtSigned(p*G.fMain/P.bw,2)} px`);
+  } else if(m === "alias"){
+    const E = objectSpanPE();
+    eq += `<span class="res">ρ̂(r) = Σ<sub>n</sub> ρ(r + n·FOV<sub>PE</sub>ê<sub>PE</sub>)` + (P.osRO ? "" : ` + readout copies`) + `</span>`;
+    r("Phase FOV", `${f1(G.fovPE)} mm`);
+    r("Δk<sub>PE</sub> = 1/FOV<sub>acq</sub>", (1000/G.FOVaPE).toFixed(2) + " m⁻¹");
+    r("Object extent along phase", `${f1(E)} mm`);
+    r("Folded in from each side", `${f1(Math.max(0, (E - G.FOVaPE)/2))} mm`, true);
+    r("Phase lines acquired (∝ scan time)", `${G.NacqPE}`);
+    r("Readout samples per line", `${G.NacqRO}` + (P.osRO ? " (×2 oversampled)" : ""));
+    r("Image SNR for ρ = 1, unfiltered", snrText());
+  } else if(m === "eddy"){
+    const Ed = A.eddy;
+    if(Ed){
+      const uT = v => fmtSigned(v/GBAR*1e9, 2) + " µT/m";
+      const L = q*G.FOVaPE*G.ESP;                          // mm of phase shift per Hz
+      if(G.isEPI){
+        eq += `<span class="res">during the train: Δf(r) = γ̄g<sub>ec</sub>·r ⇒ phase-direction scale, shear and shift</span>`;
+        r("Odd–even readout shift (N/2 ghost)", `${f2((Ed.nyq.dk[0] - Ed.nyq.dk[1])*G.FOVaRO)} samples` + (P.nyq ? ", corrected" : ""), true);
+        r("Mean eddy field in readout: RO", uT(Ed.gMean[0]));
+        r("Mean eddy field in readout: PE", uT(Ed.gMean[1]));
+        r("Mean eddy field in readout: slice", uT(Ed.gMean[2]));
+        r("Phase scaling (from phase field)", `${fmtSigned(100*Ed.gMean[1]*L, 1)} %`, true);
+        r("Shear (from readout field)", `${fmtSigned(100*Ed.gMean[0]*L, 1)} mm per 100 mm`, true);
+        r("Shift (slice field × z₀)", `${fmtSigned(Ed.gMean[2]*(P.z0||0)*L, 1)} mm`, true);
+      } else {
+        eq += `<span class="res">Line by line: each line has the same small error, at the same time after excitation</span>`;
+        r("Mean eddy field in readout: RO", uT(Ed.gMean[0]));
+        r("Mean eddy field in readout: PE", uT(Ed.gMean[1]));
+        r("Mean eddy field in readout: slice", uT(Ed.gMean[2]));
+      }
+      r("Echo time of this timeline", fmtMs(Ed.TE));
+      if(Ed.D) r("Diffusion δ / Δ", `${fmtMs(Ed.D.delta)} / ${fmtMs(Ed.D.DELTA)}`);
+    }
+  } else if(susc){
+    const dchi = MATERIALS[P.mat].dchi, f0 = GBAR*P.B0;
+    const peak = f0*dchi*1e-6/3*(P.b0dir === "y" ? 2 : 1);   // at the surface, along B₀ if in plane
+    if(!hasSource(P)){ r("Susceptibility source", "none — choose one", true); }
+    else {
+      if(G.isEPI){
+        const sPE = peak/G.bwPE;
+        eq += `<span class="res">Δ<sub>PE</sub> = Δf·N<sub>PE</sub>·ESP/R = Δf/${fmtHz(G.bwPE)} px</span>`;
+        r("Δχ relative to tissue", `+${dchi} ppm`);
+        r("Largest |Δf|, at the sphere surface", fmtHz(peak));
+        r("Bandwidth per pixel, phase", fmtHz(G.bwPE));
+        r("Largest phase shift (at the surface)", `${f1(sPE)} px`, true);
+        r("Distance where the shift is 1 px", sPE > 1 ? `${f1(P.sr*Math.cbrt(sPE))} mm from centre` : "shift < 1 px everywhere");
+        r("Readout shift at the surface", `${f2(peak/P.bw)} px`);
+        r("Echo spacing, effective", fmtMs(G.ESPeff) + (G.accel > 1 ? ` (R = ${G.accel})` : ""));
+      } else {
+        const sRO = G.vat ? 0 : peak/P.bw;
+        eq += `<span class="res">Δ<sub>RO</sub> = Δf/BW<sub>px</sub>` + (P.seq === "gre" ? `,&nbsp; dephasing e<sup>−i2πΔf·TE</sup> within each voxel` : "") + `</span>`;
+        r("Δχ relative to tissue", `+${dchi} ppm`);
+        r("Largest |Δf|, at the sphere surface", fmtHz(peak));
+        r("Readout bandwidth per pixel", fmtHz(P.bw));
+        r("Largest readout shift (at the surface)", G.vat ? "cancelled by VAT" : `${f1(sRO)} px`, true);
+        r("Distance where the shift is 1 px", G.vat ? "—" : sRO > 1 ? `${f1(P.sr*Math.cbrt(sRO))} mm from centre` : "shift < 1 px everywhere");
+        if(P.seq === "gre") r("Distance where Δf·TE = ½ cycle", `${f1(P.sr*Math.cbrt(Math.max(1, peak*G.TE/0.5)))} mm`);
+        if(G.vat) r("VAT blur ≈ BW<sub>RF</sub>/BW<sub>px</sub>", `${f1(P.rfbw/P.bw)} px`, true);
+      }
+      r("Image SNR for ρ = 1, unfiltered", snrText());
+    }
+  } else {
+    const M = edgeMetrics(P.nRO, P.filter);
+    eq += `<span class="res">ρ̂ = ρ ⊛ PSF,&nbsp; PSF(x) = N<sup>−1</sup> Σ<sub>j</sub> w<sub>j</sub> e<sup>i2πjx/N</sup></span>`;
+    r("Pixel size (readout)", `${f2(G.dro)} mm`);
+    r("k<sub>max</sub> = 1/(2Δx)", (1000/(2*G.dro)).toFixed(0) + " m⁻¹");
+    r("Edge overshoot", `${f1(100*M.over)} %`, true);
+    r("Ripple period (unfiltered)", `2 px = ${f2(2*G.dro)} mm`);
+    r("PSF full width at half maximum", `${f2(M.fwhm)} px`);
+    r("Image SNR for ρ = 1, unfiltered", snrText());
+  }
+  const half = Math.ceil(rows.length/2);
+  return `<h3>${MODE_TITLE[m]}</h3><div class="eq">${eq}</div>` +
+    `<div class="cols"><table class="read">${rows.slice(0,half).join("")}</table><table class="read">${rows.slice(half).join("")}</table></div>`;
+}
+function snrText(){ const s = imageSigma(CUR.G, CUR.A); return s > 0 ? (1/s).toFixed(0) : "noise off"; }
+function objectSpanPE(){
+  const pr = projection(); let lo = null, hi = null;
+  for(let i=0;i<pr.u.length;i++) if(pr.p[i] > 1e-6){ if(lo === null) lo = pr.u[i]; hi = pr.u[i]; }
+  return lo === null ? 0 : hi - lo;
+}
+
+const NOTES = {
+  fat1:`<p>Frequency encoding places signal according to its frequency, and fat precesses <b>3.4 ppm</b> slower than water. Along any encoding direction, fat is therefore displaced by <b>f<sub>F</sub>/BW<sub>px</sub> pixels</b>, where BW<sub>px</sub> is the bandwidth per pixel along that direction. The shift appears along the <b>low-bandwidth directions</b>. At water–fat boundaries it leaves a bright band where the two overlap and a dark band where they separate. Look at the kidneys in their perirenal fat, and at the edge of the oil vial in the QA phantom.</p>
+<p>Along readout the bandwidth is set by the receiver, typically hundreds of Hz per pixel, so the shift is a pixel or a few. Along phase it depends on how k-space is filled. In line-by-line (spin-warp) imaging every phase-encoding line is acquired at the same time after excitation, so fat accrues no extra phase from line to line. The phase direction then has effectively infinite bandwidth and shows no shift. Multi-echo spin echo (TSE) behaves the same way, because each refocusing pulse resets the phase. Other techniques do not. In EPI all lines come from one echo train, so the phase direction has only 1/(N<sub>PE</sub>·ESP), of the order of 10 Hz per pixel, and fat moves tens of pixels along phase. This is why EPI is essentially never run without fat suppression.</p>
+<p>Raise the readout bandwidth or lower B₀ and the readout shift shrinks, at an SNR cost of √BW<sub>px</sub>. In Advanced you can also swap the readout direction or reverse its polarity and watch the shift follow.</p>`,
+  fat2:`<p>In a gradient echo, water and fat in the same voxel add as vectors with relative phase 2π f<sub>F</sub> TE. At the <b>opposed-phase</b> TE they subtract. Every voxel that straddles a water–fat boundary goes dark, giving the one-pixel black outline around organs. Tissue with a little fat, like the liver here with 12 % fat, loses signal. This is the basis of in-/opposed-phase imaging for steatosis and adrenal adenomas.</p>
+<p>Compare the opposed-phase and in-phase examples, or step TE with the buttons in Advanced. The effect depends on the product of f<sub>F</sub> and TE, so the opposed-phase TE halves from 1.5 T to 3 T. A spin echo refocuses the chemical-shift phase at TE, so the outline disappears.</p>
+<p>With the six-peak fat spectrum there is no TE at which all fat is exactly opposed or exactly in phase. This is why chemical-shift-encoded fat quantification uses a multi-peak fat model.</p>`,
+  alias:`<p>k-space is sampled in steps Δk = 1/FOV. The inverse DFT of a sampled spectrum is <b>periodic</b> with period FOV, so tissue outside the FOV is not lost. It is added back in from the opposite side. Here the flanks, the lateral abdominal wall and its subcutaneous fat, lie outside a 60 % phase FOV and fold into the image from the opposite side.</p>
+<p>The readout does not alias in practice, because it is oversampled at no cost in scan time and the receiver filter removes frequencies outside the band. Turn readout oversampling off to see what that filter prevents. Phase oversampling removes the wrap at the cost of more phase lines, and so more scan time, but it buys a little SNR.</p>
+<p>In EPI the wrap and the fat shift combine: fat displaced beyond the FOV edge reappears on the other side.</p>`,
+  gibbs:`<p>Only |k| &lt; k<sub>max</sub> = 1/(2Δx) is measured. The image is therefore the object convolved with the PSF of the truncated, windowed k-space. At sharp edges this gives an overshoot of <b>about 9 % of the step</b>, with ripples roughly two pixels apart. Look at the bars, the vials and the edge block.</p>
+<p>Raise N and the ripples move closer to the edge, but the overshoot stays about 9 %. That is the Gibbs phenomenon. A Hann or Hamming window all but removes the ringing, but it widens the PSF, which lowers the effective resolution. The profile and the numbers show this trade-off.</p>
+<p>Zero-filling only interpolates. It adds no information, but it shows the ringing between pixel centres. The overshoot seen at the pixel centres also depends on where the edge falls relative to the pixel grid.</p>`
+,
+  susc:`<p>Any field offset Δf(r) enters the signal through e<sup>−i2πΔf(r)t(k)</sup>, the same term as the chemical shift of fat. For a sphere, Δf = γ̄B₀(Δχ/3)(a/r)³(3cos²θ − 1): proportional to B₀ and Δχ, falling off as 1/r³, with the dipole pattern when B₀ lies in the image plane. Show the object panel as a field map. The white contour marks a shift of one pixel.</p>
+<p><b>Where the signal goes depends on how k-space is filled, not on the source.</b> Along each direction the displacement is Δf divided by the bandwidth per pixel along that direction, so it appears along the low-bandwidth directions. Along readout the bandwidth is hundreds of Hz per pixel. Along phase it is effectively infinite in line-by-line imaging and in multi-echo spin echo (TSE), where every line sees the same off-resonance evolution, so there the distortion is along readout only. In EPI the phase direction has only 1/(N<sub>PE</sub>·ESP), of the order of 10 Hz per pixel, so the same Δf moves the signal tens to a hundred times further, along phase. Compare the examples, or switch the sequence yourself in Advanced.</p>
+<p>Where neighbouring points are pushed together the signal <b>piles up</b>. Where they are pulled apart it thins, so voids are larger than the object causing them. Gradient echoes add dephasing within each voxel, e<sup>−i2πΔf·TE</sup>, which spin echoes refocus. Remedies: a higher bandwidth along the distorted direction (a higher readout bandwidth in line-by-line imaging; a shorter echo spacing or a larger R in EPI), a lower B₀, and view-angle tilting. VAT cancels the readout shift but blurs by about BW<sub>RF</sub>/BW<sub>px</sub> pixels. Reversing the EPI blips flips the distortion, the basis of blip-up/blip-down correction such as topup.</p>
+<p>Real implants also bend the excited slice, which this 2D model does not include; that is what SEMAC and MAVRIC address. Real sinuses are not spheres centred in the slice. The scaling laws are exact.</p>`
+,
+  eddy:`<p>Switching a gradient induces currents in the magnet's conducting structures. Their field opposes the change and decays with the time constants of those structures. To first order the field is a gradient, and an error in the gradient is an <b>error in k-space</b>. The object is sampled where k really was, then reconstructed as if k had been where it was asked to be. The same holds for a small timing delay δt between gradients and ADC.</p>
+<p><b>Nyquist ghost.</b> EPI traverses readout in alternating directions. A delay, or eddy fields from the readout ramps, shifts the echo one way on even lines and the other way on odd lines. The difference is modulated at the Nyquist frequency in k<sub>PE</sub>, which puts a ghost at FOV/2. Scanners measure the odd–even difference with a reference scan without phase blips and remove it: tick the correction. The part that varies along the train, from short time constants, remains.</p>
+<p><b>Diffusion weighting.</b> The large diffusion lobes leave fields that are still present during the readout. In EPI any field is a displacement along phase: an eddy gradient along phase <b>scales</b> the image, one along readout <b>shears</b> it, and one along slice at a slice offset z₀ <b>shifts</b> it. Freeze the b = 0 reference, choose a direction and compare with the split view. This is the misregistration that eddy-current correction (e.g. FSL eddy) must undo. Long time constants hurt the most, because the field survives into the readout. Twice-refocused spin echoes are designed to null a chosen τ.</p>
+<p>Line-by-line sequences are robust. Every line is played with the same gradients and sees the same small error at the same time after excitation. There is no alternation to make a ghost and no error that builds up along phase, so there is hardly any distortion. Spatially higher-order eddy fields and cross-terms between axes are not modelled.</p>`
+};
+
+/* ---------------------------------------------------------- UI sync */
+function applyPreset(mode, fromExample){
+  if(!fromExample) exampleIdx = 0;
+  Object.assign(P, PRESETS[mode], {mode});
+  REF = null; $("freeze").setAttribute("aria-pressed", "false"); $("freeze").textContent = "Freeze reference";
+  applyFolds();
+  pushControls();
+}
+function pushControls(){
+  $("mode").value = P.mode; $("phantom").value = P.phantom; $("seq").value = P.seq;
+  $("sB0").value = P.B0; $("sTE").value = logFrom(P.TE, TE_LO, TE_HI); $("sBW").value = logFrom(P.bw, BW_LO, BW_HI);
+  $("sFOV").value = P.fov; $("sPE").value = P.pePct; $("nRO").value = P.nRO; $("nPE").value = P.nPE;
+  $("roAxis").value = P.roAxis; $("roPol").checked = P.roPol; $("pePol").checked = P.pePol;
+  $("fatModel").value = P.fatModel; $("fatSat").checked = P.fatSat; $("osRO").checked = P.osRO;
+  $("sOsPE").value = Math.round(P.osPE*100); $("filter").value = P.filter; $("zf").checked = P.zf;
+  $("sNoise").value = P.noise; $("view").value = P.view; $("species").value = P.species; $("sWin").value = P.win;
+  $("kview").value = P.kview; $("diag").value = P.diag;
+  $("mat").value = P.mat; $("sSr").value = P.sr; $("b0dir").value = P.b0dir; $("vat").checked = P.vat;
+  $("sRf").value = P.rfbw; $("sAcc").value = P.accel; $("objView").value = P.objView;
+  $("sEc").value = P.ecAmp; $("sTau").value = logFrom(P.ecTau, TAU_LO, TAU_HI); $("sDelay").value = P.delay;
+  $("diff").value = P.diff; $("sB").value = P.bval; $("sGd").value = P.gd; $("sZ0").value = P.z0; $("nyq").checked = P.nyq;
+  renderExamples();
+  schedule();
+}
+function pullControls(){
+  P.phantom = $("phantom").value; P.seq = $("seq").value;
+  P.B0 = +$("sB0").value; P.bw = logTo(+$("sBW").value, BW_LO, BW_HI);
+  P.fov = +$("sFOV").value; P.pePct = +$("sPE").value; P.nRO = +$("nRO").value; P.nPE = +$("nPE").value;
+  P.roAxis = $("roAxis").value; P.roPol = $("roPol").checked; P.pePol = $("pePol").checked;
+  P.fatModel = $("fatModel").value; P.fatSat = $("fatSat").checked; P.osRO = $("osRO").checked;
+  P.osPE = +$("sOsPE").value/100; P.filter = $("filter").value; P.zf = $("zf").checked;
+  P.noise = +$("sNoise").value; P.view = $("view").value; P.species = $("species").value; P.win = +$("sWin").value;
+  P.kview = $("kview").value; P.diag = $("diag").value;
+  P.mat = $("mat").value; P.sr = +$("sSr").value; P.b0dir = $("b0dir").value; P.vat = $("vat").checked;
+  P.rfbw = +$("sRf").value; P.accel = +$("sAcc").value; P.objView = $("objView").value;
+  P.ecAmp = +$("sEc").value; P.ecTau = logTo(+$("sTau").value, TAU_LO, TAU_HI); P.delay = +$("sDelay").value;
+  P.diff = $("diff").value; P.bval = +$("sB").value; P.gd = +$("sGd").value; P.z0 = +$("sZ0").value; P.nyq = $("nyq").checked;
+}
+let exampleIdx = 0;
+function renderExamples(){
+  const box = $("exRow"), list = EXAMPLES[P.mode] || [];
+  box.innerHTML = "";
+  list.forEach(([lab, ov], i) => {
+    const b = document.createElement("button"); b.textContent = lab;
+    b.setAttribute("aria-pressed", i === exampleIdx ? "true" : "false");
+    b.addEventListener("click", () => { exampleIdx = i; applyPreset(P.mode, true); Object.assign(P, ov); pushControls(); });
+    box.appendChild(b);
+  });
+}
+function syncLabels(){
+  const G = CUR.G;
+  $("vB0").textContent = f2(P.B0) + " T";
+  const phaseSeq = P.seq === "gre" || P.seq === "epi";
+  $("vTE").textContent = (G.TE > P.TE + 1e-9 && phaseSeq) ? fmtMs(G.TE) + " (min)" : fmtMs(P.TE);
+  $("ctlTE").classList.toggle("off", !phaseSeq);
+  $("teOP").disabled = $("teIP").disabled = !phaseSeq;
+  $("subTE").innerHTML = phaseSeq
+    ? `Minimum TE here ${fmtMs(G.TEmin)}. ` + (P.seq === "epi" ? "EPI needs half the echo train before the centre of k-space." : "Half the readout plus excitation and prephaser.")
+    : "No effect in this model: spin echo refocuses the chemical-shift phase, and relaxation is not simulated.";
+  $("vBW").textContent = Math.round(P.bw) + " Hz/px";
+  $("subBW").innerHTML = `T<sub>acq</sub> ${fmtMs(G.Tacq)} per line` + (G.isEPI ? `, echo spacing ${fmtMs(G.ESP)}` : "") +
+    `, total ${(P.bw*G.NacqRO/1e3).toFixed(1)} kHz.`;
+  $("vFOV").textContent = P.fov + " mm";
+  $("vPE").textContent = P.pePct + " % = " + f1(G.fovPE) + " mm";
+  $("vOsPE").textContent = Math.round(P.osPE*100) + " %";
+  $("vNoise").textContent = P.noise === 0 ? "off" : f2(P.noise);
+  $("vWin").textContent = f2(P.win);
+  $("lblPePol").style.opacity = G.isEPI ? 1 : 0.45; $("pePol").disabled = !G.isEPI;
+  $("vSr").textContent = f1(P.sr) + " mm";
+  $("ctlSrc").classList.toggle("off", !hasSource(P));
+  $("vRf").textContent = (P.rfbw/1e3).toFixed(2) + " kHz";
+  $("ctlVat").classList.toggle("off", P.seq !== "se"); $("vat").disabled = P.seq !== "se";
+  $("vAcc").textContent = "R = " + P.accel + (G.isEPI ? `, ESP/R = ${fmtMs(G.ESPeff)}` : " (EPI only)");
+  $("ctlAcc").classList.toggle("off", !G.isEPI || eddyActive(P));
+  if(G.isEPI && eddyActive(P) && P.accel > 1) $("vAcc").textContent = "R ignored with eddy currents";
+  $("vEc").textContent = f2(P.ecAmp) + " %";
+  $("vTau").textContent = P.ecTau < 10 ? f2(P.ecTau) + " ms" : P.ecTau.toFixed(0) + " ms";
+  $("vDelay").textContent = fmtSigned(P.delay, 1) + " µs";
+  const seSeq = P.seq === "se" || P.seq === "epise";
+  $("ctlDiff").classList.toggle("off", !seSeq); $("diff").disabled = !seSeq;
+  $("vB").textContent = P.bval + " s/mm²"; $("vGd").textContent = P.gd + " mT/m"; $("vZ0").textContent = P.z0 + " mm";
+  $("freezeB0").disabled = !seSeq || P.diff === "none";
+  document.querySelectorAll(".ctl[data-hot]").forEach(el => el.classList.toggle("hot", el.dataset.hot.split(" ").includes(P.mode)));
+  $("phys").innerHTML = physHTML();
+  $("note").innerHTML = NOTES[P.mode];
+}
+
+let pending = false;
+function schedule(){ if(pending) return; pending = true; requestAnimationFrame(() => render(true)); }
+// With a susceptibility source, draw a fast preview at once and the full-density
+// result when the input has been still for 250 ms.
+function render(interactive){
+  pending = false;
+  clearTimeout(refineTimer);
+  const preview = interactive && hasSource(P);
+  compute(preview); syncLabels();
+  drawObject(); drawK(); drawImage(); drawDiag();
+  if(preview) refineTimer = setTimeout(() => render(false), 250);
+}
+
+/* ------------------------------------------------- rail: folds and level
+   Simple offers the artifact, a set of worked examples and the notes, and nothing else.
+   Advanced adds every control, with the sections that do not apply folded away. */
+function foldSetup(){
+  document.querySelectorAll("section.fold > h2").forEach(h => {
+    const sec = h.parentElement;
+    const toggle = () => { const closed = sec.classList.toggle("closed"); h.setAttribute("aria-expanded", closed ? "false" : "true"); };
+    h.addEventListener("click", toggle);
+    h.addEventListener("keydown", e => { if(e.key === "Enter" || e.key === " "){ e.preventDefault(); toggle(); } });
+  });
+}
+function applyFolds(){
+  document.querySelectorAll("section.fold").forEach(sec => {
+    const h = sec.querySelector("h2"), modes = h.dataset.modes;
+    const keep = !modes || modes.split(" ").includes(P.mode);
+    sec.classList.toggle("aside", !!modes && !keep);
+    sec.classList.toggle("closed", !keep);
+    h.setAttribute("aria-expanded", keep ? "true" : "false");
+  });
+}
+let level = "simple";
+function applyLevel(){
+  document.body.dataset.level = level;
+  $("lvlSimple").setAttribute("aria-pressed", level === "simple" ? "true" : "false");
+  $("lvlAdv").setAttribute("aria-pressed", level === "advanced" ? "true" : "false");
+}
+$("lvlSimple").addEventListener("click", () => { level = "simple"; applyLevel(); });
+$("lvlAdv").addEventListener("click", () => { level = "advanced"; applyLevel(); });
+foldSetup(); applyLevel();
+
+/* ---------------------------------------------------------- wiring */
+function fillSelect(id, opts){ $(id).innerHTML = opts.map(v => `<option value="${v}">${v}</option>`).join(""); }
+fillSelect("nRO", NRO_OPTS); fillSelect("nPE", NPE_OPTS);
+$("mode").addEventListener("change", () => applyPreset($("mode").value));
+$("preset").addEventListener("click", () => applyPreset(P.mode));
+document.querySelectorAll("#rail input, #rail select").forEach(el => {
+  if(el.id === "mode" || el.id === "sTE") return;
+  el.addEventListener(el.type === "range" ? "input" : "change", () => {
+    const wasEPI = P.seq === "epi" || P.seq === "epise";
+    pullControls();
+    const isEPI = P.seq === "epi" || P.seq === "epise";
+    if(el.id === "seq" && isEPI && !wasEPI && P.bw < 1000){ P.bw = 1500; $("sBW").value = logFrom(P.bw, BW_LO, BW_HI); }
+    if(el.id === "phantom") OBJCACHE.key = "";
+    schedule();
+  });
+});
+document.querySelectorAll("[data-b0]").forEach(b => b.addEventListener("click", () => { $("sB0").value = b.dataset.b0; pullControls(); schedule(); }));
+function stepTE(opposed){
+  // opposed phase: odd multiples of 1/(2|f_F|); in phase: even multiples (single-peak definition).
+  // First press jumps to the shortest such TE above the minimum; further presses step to the next one.
+  const G = geometry(P), fa = Math.abs(G.fMain), par = opposed ? 1 : 0;
+  let kmin = par === 1 ? 1 : 2;
+  while(kmin/(2*fa) < G.TEmin - 1e-12) kmin += 2;
+  const c = P.TE*2*fa, rc = Math.round(c);
+  let k = (Math.abs(c - rc) < 0.01 && rc % 2 === par && rc >= kmin) ? rc + 2 : kmin;
+  if(k/(2*fa) > TE_HI) k = kmin;
+  P.TE = k/(2*fa); $("sTE").value = logFrom(P.TE, TE_LO, TE_HI);
+  schedule();
+}
+$("teOP").addEventListener("click", () => stepTE(true));
+$("teIP").addEventListener("click", () => stepTE(false));
+// keep the exact TE unless the TE slider itself moves
+$("sTE").addEventListener("input", () => { P.TE = logTo(+$("sTE").value, TE_LO, TE_HI); schedule(); });
+
+function toggleFreeze(){
+  if(REF){ REF = null; $("freeze").setAttribute("aria-pressed", "false"); $("freeze").textContent = "Freeze reference"; }
+  else { const d = CUR.disp; REF = Object.assign({}, d, {re:d.re.slice(), im:d.im.slice()}); split = 0.5;
+         $("freeze").setAttribute("aria-pressed", "true"); $("freeze").textContent = "Clear reference"; }
+  schedule();
+}
+$("freeze").addEventListener("click", toggleFreeze);
+$("freezeB0").addEventListener("click", () => {
+  const keep = P.diff; P.diff = "none"; compute(false);
+  const d = CUR.disp; REF = Object.assign({}, d, {re:d.re.slice(), im:d.im.slice()}); split = 0.5;
+  $("freeze").setAttribute("aria-pressed", "true"); $("freeze").textContent = "Clear reference";
+  P.diff = keep; schedule();
+});
+
+// image interaction: move the profile line, or the split divider
+{
+  const cv = $("cvImg"); let dragging = null;
+  const pos = e => { const r = cv.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
+  const setProfile = y => { if(!IMGVIEW) return; const d = CUR.disp;
+    let mm = IMGVIEW.top - (y - IMGVIEW.oy)/IMGVIEW.s;
+    mm = Math.max(d.y0 + d.py/2, Math.min(d.y0 + d.ey - d.py/2, mm));
+    P.profY = mm; schedule(); };
+  const splitAt = x => { const V = IMGVIEW, r = cv.getBoundingClientRect(); const x0 = V.ox; const wid = r.width - 2*x0; split = Math.max(0, Math.min(1, (x - x0)/wid)); schedule(); };
+  cv.addEventListener("pointerdown", e => {
+    const [x, y] = pos(e);
+    if(REF && IMGVIEW){ const r = cv.getBoundingClientRect(), sx = IMGVIEW.ox + split*(r.width - 2*IMGVIEW.ox); if(Math.abs(x - sx) < 14){ dragging = "split"; } }
+    if(!dragging){ dragging = "prof"; setProfile(y); }
+    cv.setPointerCapture(e.pointerId);
+  });
+  cv.addEventListener("pointermove", e => { if(!dragging) return; const [x, y] = pos(e); dragging === "split" ? splitAt(x) : setProfile(y); });
+  const stop = () => { dragging = null; };
+  cv.addEventListener("pointerup", stop); cv.addEventListener("pointercancel", stop);
+}
+
+// drag the susceptibility source in the object panel
+{
+  const cv = $("cvObj"); let drag = false;
+  const move = e => { if(!OBJVIEW || !hasSource(P)) return; const r = cv.getBoundingClientRect();
+    const x = (e.clientX - r.left - OBJVIEW.ox)/OBJVIEW.s - OBJVIEW.E, y = OBJVIEW.E - (e.clientY - r.top - OBJVIEW.oy)/OBJVIEW.s;
+    P.sx = Math.max(-OBJVIEW.E, Math.min(OBJVIEW.E, x)); P.sy = Math.max(-OBJVIEW.E, Math.min(OBJVIEW.E, y)); schedule(); };
+  cv.addEventListener("pointerdown", e => { if(!hasSource(P)) return; drag = true; cv.setPointerCapture(e.pointerId); move(e); });
+  cv.addEventListener("pointermove", e => { if(drag) move(e); });
+  cv.addEventListener("pointerup", () => { drag = false; }); cv.addEventListener("pointercancel", () => { drag = false; });
+}
+
+document.addEventListener("keydown", e => {
+  if(e.target.matches("input,select,button")) return;
+  if(e.key === "f" || e.key === "F") toggleFreeze();
+});
+
+$("png").addEventListener("click", () => {
+  const ids = ["cvObj","cvK","cvImg"], cvs = ids.map($), dg = $("cvDiag");
+  const H = Math.max(...cvs.map(c=>c.height)), W = cvs.reduce((s,c)=>s+c.width, 0);
+  const out = document.createElement("canvas"); out.width = W; out.height = H + dg.height;
+  const o = out.getContext("2d"); o.fillStyle = C.bg; o.fillRect(0,0,out.width,out.height);
+  let x = 0; cvs.forEach(c => { o.drawImage(c, x, 0); x += c.width; });
+  o.drawImage(dg, 0, H);
+  const a = document.createElement("a"); a.download = `mriArtifactSim_${P.mode}.png`;
+  a.href = out.toDataURL("image/png"); document.body.appendChild(a); a.click(); a.remove();
+});
+
+$("theme").addEventListener("click", () => {
+  const dark = document.documentElement.dataset.theme === "dark";
+  document.documentElement.dataset.theme = dark ? "light" : "dark";
+  $("theme").textContent = dark ? "Dark" : "Light";
+  readTheme();
+});
+window.addEventListener("resize", schedule);
+if(window.ResizeObserver){ const ro = new ResizeObserver(schedule); ["objPane","kPane","imgPane","diagPane"].forEach(id => ro.observe($(id))); }
+
+/* ------------------------------------------------------------- go */
+$("ver").textContent = "v" + VERSION;
+$("credit").textContent = `Artifact sim v${VERSION} · ${AUTHORS}`;
+document.querySelector("#about .by").textContent = AUTHORS;
+$("changelog").innerHTML = CHANGELOG.map(([v,d,t], i) =>
+  `<div class="rel"><h5>${v} <em>· ${i === 0 ? "current, " : ""}${d}</em></h5><p>${t}</p></div>`).join("");
+{
+  const about = $("about");
+  const close = () => { about.hidden = true; $("ver").focus(); };
+  $("ver").addEventListener("click", () => {
+    about.hidden = false; about.querySelector(".sheet").scrollTop = 0;
+    $("aboutClose").focus({preventScroll:true});
+  });
+  $("aboutClose").addEventListener("click", close);
+  about.addEventListener("click", e => { if(e.target === about) close(); });
+  document.addEventListener("keydown", e => { if(e.key === "Escape" && !about.hidden) close(); });
+}
+readTheme();
+applyPreset("fat1");
+</script>
+<script>
+/* House style (shared by the MRI simulators): one light/dark preference for the
+   whole suite. The saved choice (or the operating-system setting on a first
+   visit) is applied by clicking the app's own theme button, so each app redraws
+   through its usual path. The button always names the theme it switches TO. */
+(function () {
+  "use strict";
+  var KEY = "mrisim.theme", LEGACY = [];
+  function saved() {
+    try {
+      var keys = [KEY].concat(LEGACY);
+      for (var i = 0; i < keys.length; i++) {
+        var v = localStorage.getItem(keys[i]);
+        if (v === "light" || v === "dark") return v;
+      }
+    } catch (e) { /* storage can be unavailable for file:// pages */ }
+    return null;
+  }
+  window.addEventListener("load", function () {
+    setTimeout(function () {
+      var btn = document.getElementById("theme");
+      if (!btn) return;
+      var root = document.documentElement;
+      var cur = function () { return root.getAttribute("data-theme") === "light" ? "light" : "dark"; };
+      var label = function () { btn.textContent = cur() === "dark" ? "Light" : "Dark"; };
+      var want = saved() || (window.matchMedia &&
+        window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark");
+      if (want !== cur()) btn.click();
+      label();
+      btn.addEventListener("click", function () {
+        label();
+        try { localStorage.setItem(KEY, cur()); } catch (e) { /* file:// */ }
+      });
+    }, 0);
+  });
+})();
+</script>
+</body>
+</html>
