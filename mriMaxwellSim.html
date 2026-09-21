@@ -1,0 +1,1189 @@
+<!doctype html>
+<!--
+  Maxwell sim — image effects of the residual concomitant (Maxwell) phase left
+  after diffusion encoding with an asymmetric gradient waveform.
+  Designed by Filip Sz (Lund University) and coded by Claude (Anthropic).
+
+  Single self-contained file: no build step, no network, no dependencies.
+  Version history lives in the CHANGELOG constant in the script below and is
+  shown in the version dialog; bump VERSION whenever you change the physics or the UI.
+  VERSION is the single source of truth — this header deliberately does not repeat it.
+  The file name carries no version (mriMaxwellSim.html); git tracks the history.
+-->
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Maxwell sim — residual concomitant phase in diffusion MRI</title>
+<meta name="author" content="Filip Sz (Lund University); Claude (Anthropic)">
+<meta name="description" content="Interactive simulation of how the residual concomitant-field phase after asymmetric diffusion encoding corrupts a Shepp-Logan image placed anywhere in the magnet.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23151b24'/%3E%3Cg fill='none' stroke-width='2.4' stroke-linecap='round'%3E%3Cellipse cx='16' cy='16' rx='8' ry='11' stroke='%232fb6b0'/%3E%3Cpath d='M5 26 C12 14 20 14 27 6' stroke='%23e2554d' stroke-width='1.8'/%3E%3C/g%3E%3C/svg%3E">
+<style>
+:root{
+  --bg:#0e1219; --panel:#151b24; --panel2:#1b2230; --line:#26303f;
+  --text:#ccd6e4; --muted:#7c8a9d; --dim:#4d5a6b;
+  --ui:#2fb6b0; --btn:#1b2230; --btnh:#232c3c; --btna:#2a3547;
+  --grid:#1f2836; --axis:#5c6b7e;
+  --conc:#e2554d; --gain:#5b8cff; --adc:#e0a93a; --grad:#aab6c6; --rf:#8e9aab;
+  --scene:#0b0f15;
+}
+html[data-theme="light"]{
+  --bg:#f2f4f7; --panel:#ffffff; --panel2:#f7f9fb; --line:#d7dde5;
+  --text:#1b2430; --muted:#5f6c7d; --dim:#9aa5b3;
+  --ui:#0f8f8a; --btn:#eef1f5; --btnh:#e4e9f0; --btna:#d9e0ea;
+  --grid:#e6eaf0; --axis:#8b96a4;
+  --conc:#b8231a; --gain:#1f4fc4; --adc:#b77a0b; --grad:#3b4757; --rf:#6b7686;
+  --scene:#eef1f5;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0; background:var(--bg); color:var(--text);
+  font:13px/1.45 ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
+  -webkit-font-smoothing:antialiased;
+  display:grid; grid-template-columns:300px 1fr; height:100vh; overflow:hidden;
+}
+/* ------------------------------------------------------------- rail */
+#rail{background:var(--panel); border-right:1px solid var(--line); overflow-y:auto; padding:0 0 24px}
+#rail::-webkit-scrollbar{width:9px}
+#rail::-webkit-scrollbar-thumb{background:var(--line)}
+#rail .brand{
+  position:sticky; top:0; z-index:3; background:var(--panel);
+  border-bottom:1px solid var(--line); padding:13px 14px 11px; margin:0;
+  display:flex; flex-wrap:wrap; align-items:baseline; gap:0 5px;
+}
+#rail .brand h1{
+  margin:0 auto 0 0; font-size:12px; font-weight:600; line-height:1.45;
+  letter-spacing:.16em; text-transform:uppercase; white-space:nowrap; color:var(--text);
+}
+#rail .brand .brand-sub{flex:1 0 100%; margin:6px 0 0; font-size:11px; line-height:1.4; color:var(--muted)}
+.themebtn,button.themebtn{
+  appearance:none; background:transparent; border:1px solid var(--line); color:var(--muted);
+  font:inherit; font-size:10px; line-height:1.45; letter-spacing:.1em; text-transform:uppercase;
+  padding:3px 7px; cursor:pointer; border-radius:2px; margin:0;
+}
+.themebtn:hover,button.themebtn:hover{background:transparent; color:var(--text); border-color:var(--muted)}
+section{border-bottom:1px solid var(--line); padding:11px 14px 13px}
+h2{font-size:10px; font-weight:400; letter-spacing:.18em; text-transform:uppercase; color:var(--dim); margin:0 0 9px}
+.row{display:flex; gap:5px; flex-wrap:wrap; margin-bottom:9px}
+.row:last-child{margin-bottom:0}
+button{
+  font:inherit; font-size:11.5px; color:var(--text); background:var(--btn);
+  border:1px solid var(--line); border-radius:3px; padding:5px 9px; cursor:pointer;
+}
+button.sm{padding:3px 7px; font-size:11px}
+button:hover{background:var(--btnh)}
+button:active{background:var(--btna)}
+button[aria-pressed="true"]{border-color:var(--ui); color:var(--ui)}
+button.primary,button.primary:hover{color:var(--ui); border-color:var(--ui)}
+:focus-visible{outline:2px solid var(--ui); outline-offset:2px}
+.ctl{margin:0 0 10px}
+.ctl:last-child{margin-bottom:0}
+.lab{display:flex; justify-content:space-between; align-items:baseline; gap:8px; margin-bottom:2px}
+.lab span:first-child{color:var(--muted); font-size:12px}
+.val{color:var(--text); font-size:12px; font-variant-numeric:tabular-nums; white-space:nowrap}
+.sub{color:var(--dim); font-size:10.5px; line-height:1.4; margin:4px 0 0}
+input[type=range]{-webkit-appearance:none; appearance:none; width:100%; height:18px; margin:0; background:transparent; cursor:pointer}
+input[type=range]::-webkit-slider-runnable-track{height:2px; background:var(--line)}
+input[type=range]::-moz-range-track{height:2px; background:var(--line)}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none; width:12px; height:12px; margin-top:-5px; border:0; border-radius:50%; background:var(--ui)}
+input[type=range]::-moz-range-thumb{width:12px; height:12px; border:0; border-radius:50%; background:var(--ui)}
+input[type=range]:disabled{cursor:default; opacity:.5}
+input[type=checkbox],input[type=radio]{accent-color:var(--ui)}
+select{
+  font:inherit; font-size:12px; color:var(--text); background:var(--panel2);
+  border:1px solid var(--line); border-radius:3px; padding:3px 5px; width:100%; cursor:pointer;
+}
+.sel{display:grid; grid-template-columns:1fr 1fr; gap:6px 8px; align-items:center; margin-bottom:10px}
+.sel label{color:var(--muted); font-size:12px}
+.sel:last-child{margin-bottom:0}
+table.read{width:100%; border-collapse:collapse; font-size:11.5px; font-variant-numeric:tabular-nums}
+table.read td{padding:2px 0; color:var(--muted)}
+table.read td:last-child{text-align:right; color:var(--text); white-space:nowrap}
+#warn{color:var(--adc); font-size:10.5px; line-height:1.4; margin:7px 0 0}
+#warn:empty{display:none}
+.note{color:var(--muted); font-size:11px; line-height:1.55; margin:0}
+.note b{color:var(--text); font-weight:600}
+.credit{margin:14px 14px 0; font-size:10px; line-height:1.6; color:var(--dim); letter-spacing:.02em}
+/* ------------------------------------------------------------- views */
+main{display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); grid-template-rows:repeat(2,minmax(0,1fr)); min-width:0; overflow:hidden; background:var(--line); gap:1px}
+.pane{position:relative; min-width:0; min-height:0; background:var(--bg)}
+.pane canvas{position:absolute; inset:0; width:100%; height:100%; display:block}
+.tag{
+  position:absolute; top:9px; left:12px; z-index:2; pointer-events:none;
+  font-size:10px; letter-spacing:.13em; text-transform:uppercase; color:var(--dim);
+}
+.hint{position:absolute; bottom:8px; right:12px; z-index:2; pointer-events:none; font-size:10px; color:var(--dim)}
+#cvGeo{cursor:grab; touch-action:pan-y}
+#cvGeo.drag{cursor:grabbing}
+/* ------------------------------------------------------------- about */
+#about[hidden]{display:none}
+#about{position:fixed; inset:0; z-index:40; display:grid; place-items:center; background:rgba(0,0,0,.5); padding:20px}
+#about .sheet{background:var(--panel); border:1px solid var(--line); border-radius:4px; padding:20px 22px; max-width:560px; width:100%; max-height:84vh; overflow-y:auto}
+#about h3{margin:0 0 3px; font-size:13px; letter-spacing:.16em; text-transform:uppercase}
+#about .by{margin:0 0 12px; color:var(--ui); font-size:12px}
+#about .note{margin:0 0 12px; font-size:11.5px; line-height:1.6}
+#about .eq{margin:0 0 12px; padding:8px 10px; background:var(--panel2); border:1px solid var(--line); border-radius:3px; font-size:11.5px; line-height:1.7; color:var(--text); overflow-x:auto; white-space:nowrap}
+#about .rel{border-top:1px solid var(--line); padding-top:9px; margin-top:9px}
+#about .rel h5{margin:0 0 5px; font-size:11px; letter-spacing:.1em; font-weight:600; color:var(--text)}
+#about .rel h5 em{color:var(--dim); font-style:normal; font-weight:400; letter-spacing:0}
+#about .rel p{margin:0; color:var(--muted); font-size:11.5px; line-height:1.6}
+#about #aboutClose{margin-top:18px}
+@media (max-width:1000px){
+  body{grid-template-columns:1fr; grid-template-rows:auto auto; height:auto; overflow:auto}
+  #rail{border-right:none; border-bottom:1px solid var(--line); overflow:visible}
+  main{grid-template-columns:repeat(2,minmax(0,1fr)); grid-template-rows:none; grid-auto-rows:min(50vw,420px)}
+}
+@media (max-width:560px){
+  main{grid-template-columns:1fr; grid-auto-rows:min(92vw,440px)}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+
+<div id="rail">
+  <div class="brand">
+    <h1>Maxwell sim</h1>
+    <button class="themebtn" id="ver" type="button" title="Version, credits and changelog"></button>
+    <button class="themebtn" id="theme" type="button" title="Switch colour theme">Light</button>
+    <p class="brand-sub">Residual concomitant phase after asymmetric diffusion encoding, and what it does to the image</p>
+  </div>
+
+  <section>
+    <h2>Examples</h2>
+    <div class="row">
+      <button class="sm" data-preset="clin" type="button">3 T clinical</button>
+      <button class="sm" data-preset="low" type="button">0.55 T</button>
+      <button class="sm" data-preset="hp" type="button">300 mT/m</button>
+      <button class="sm" data-preset="cross" type="button">Cross term</button>
+    </div>
+    <p class="sub" id="presetNote">Pick an example, then move one control at a time.</p>
+  </section>
+
+  <section>
+    <h2>Encoding</h2>
+    <div class="ctl">
+      <div class="lab"><span>B₀</span><span class="val" id="vB0"></span></div>
+      <input type="range" id="B0" min="0" max="1000" step="1">
+      <div class="row" style="margin-top:5px">
+        <button class="sm" data-b0="0.55" type="button">0.55</button>
+        <button class="sm" data-b0="1.5" type="button">1.5</button>
+        <button class="sm" data-b0="3" type="button">3</button>
+        <button class="sm" data-b0="7" type="button">7 T</button>
+      </div>
+    </div>
+    <div class="ctl">
+      <div class="lab"><span>Max gradient</span><span class="val" id="vG"></span></div>
+      <input type="range" id="G" min="10" max="300" step="5">
+    </div>
+    <div class="ctl">
+      <div class="lab"><span>Lobe before 180°, δ₁</span><span class="val" id="vd1"></span></div>
+      <input type="range" id="d1" min="3" max="60" step="0.5">
+    </div>
+    <div class="ctl">
+      <div class="lab"><span>Lobe after 180°, δ₂</span><span class="val" id="vd2"></span></div>
+      <input type="range" id="d2" min="3" max="60" step="0.5">
+    </div>
+    <div class="row"><button class="sm" id="sym" type="button">Make symmetric (δ₂ = δ₁)</button></div>
+    <p class="sub">The shorter lobe runs at the maximum gradient; the longer one is scaled down so both have the same area. Ramps follow a slew rate of 100 T/m/s.</p>
+  </section>
+
+  <section>
+    <h2>Gradient direction</h2>
+    <div class="row" id="dirBtns">
+      <button class="sm" data-dir="x" type="button">x</button>
+      <button class="sm" data-dir="y" type="button">y</button>
+      <button class="sm" data-dir="z" type="button">z</button>
+      <button class="sm" data-dir="xz" type="button">xz</button>
+      <button class="sm" data-dir="yz" type="button">yz</button>
+      <button class="sm" data-dir="xy" type="button">xy</button>
+      <button class="sm" data-dir="xyz" type="button">xyz</button>
+    </div>
+    <div class="ctl">
+      <div class="lab"><span>Polar angle θ (from z)</span><span class="val" id="vth"></span></div>
+      <input type="range" id="th" min="0" max="180" step="1">
+    </div>
+    <div class="ctl">
+      <div class="lab"><span>Azimuth ϕ (from x)</span><span class="val" id="vph"></span></div>
+      <input type="range" id="ph" min="-180" max="180" step="1">
+    </div>
+    <p class="sub">Direction in the magnet frame (x, y, z = bore axis), where the concomitant field is defined.</p>
+  </section>
+
+  <section>
+    <h2>Slice</h2>
+    <div class="sel">
+      <label for="orient">Orientation</label>
+      <select id="orient">
+        <option value="tra">Transversal (xy)</option>
+        <option value="cor">Coronal (xz)</option>
+        <option value="sag">Sagittal (yz)</option>
+      </select>
+    </div>
+    <div class="ctl">
+      <div class="lab"><span>Angulation</span><span class="val" id="vang"></span></div>
+      <input type="range" id="ang" min="-60" max="60" step="1">
+    </div>
+    <div class="ctl">
+      <div class="lab"><span>Centre x</span><span class="val" id="vX"></span></div>
+      <input type="range" id="X" min="-200" max="200" step="1">
+    </div>
+    <div class="ctl">
+      <div class="lab"><span>Centre y</span><span class="val" id="vY"></span></div>
+      <input type="range" id="Y" min="-200" max="200" step="1">
+    </div>
+    <div class="ctl">
+      <div class="lab"><span>Centre z</span><span class="val" id="vZ"></span></div>
+      <input type="range" id="Z" min="-200" max="200" step="1">
+    </div>
+    <div class="ctl">
+      <div class="lab"><span>Thickness</span><span class="val" id="vthk"></span></div>
+      <input type="range" id="thk" min="1" max="10" step="0.5">
+    </div>
+    <div class="row"><button class="sm" id="iso" type="button">Centre at isocentre</button></div>
+  </section>
+
+  <section>
+    <h2>Acquisition</h2>
+    <div class="sel">
+      <label for="mat">Matrix</label>
+      <select id="mat"><option value="64">64 × 64</option><option value="128">128 × 128</option><option value="256">256 × 256</option></select>
+      <label for="pf">Partial Fourier</label>
+      <select id="pf"><option value="1">Off</option><option value="0.875">7/8</option><option value="0.75">6/8</option><option value="0.625">5/8</option></select>
+      <label for="pe">Phase encoding</label>
+      <select id="pe"><option value="v">Vertical</option><option value="u">Horizontal</option></select>
+    </div>
+    <p class="sub">FOV 240 mm. Partial Fourier drops the start of the phase-encode direction and is reconstructed by zero filling, for both images.</p>
+  </section>
+
+  <section>
+    <h2>Display</h2>
+    <div class="sel">
+      <label for="eff">Effects included</label>
+      <select id="eff"><option value="all">All</option><option value="thru">Through-slice only</option><option value="inplane">In-plane only</option></select>
+      <label for="map">Lower right</label>
+      <select id="map"><option value="ratio">Signal change</option><option value="thru">Through-slice |F|</option><option value="k">k-space</option></select>
+      <label for="tex">On the 3D slice</label>
+      <select id="tex"><option value="img">Corrupted image</option><option value="phase">Residual phase</option><option value="thru">Through-slice |F|</option></select>
+    </div>
+    <div class="row"><button class="sm" id="resetView" type="button">Reset view</button></div>
+  </section>
+
+  <section>
+    <h2>Readout</h2>
+    <table class="read">
+      <tr><td>b-value</td><td id="rB"></td></tr>
+      <tr><td>Maxwell index |m|</td><td id="rM"></td></tr>
+      <tr><td>Phase scale γm/2B₀</td><td id="rC"></td></tr>
+      <tr><td>Through-slice phase, max</td><td id="rTS"></td></tr>
+      <tr><td>Through-slice |F|, min</td><td id="rF"></td></tr>
+      <tr><td>Echo shift in plane, max</td><td id="rK"></td></tr>
+      <tr><td>Signal in object</td><td id="rS"></td></tr>
+    </table>
+    <p id="warn"></p>
+  </section>
+
+  <section>
+    <h2>What to look for</h2>
+    <p class="note">The concomitant field is quadratic in both position and gradient. A spin echo cancels it only if the waveform is the same on both sides of the 180°, so an asymmetric waveform leaves a <b>residual phase</b> φ(r) = (γm/2B₀)·Q(r). Its <b>gradient along the slice normal</b> dephases spins within each voxel (through-slice signal loss). Its <b>in-plane gradient</b> shifts the echo in k-space, locally and by a different amount across the image, which removes signal and changes the point-spread function where the echo leaves the sampled window — with partial Fourier, much sooner on one side than the other. The constant part does nothing to the magnitude.</p>
+  </section>
+
+  <p class="credit" id="credit"></p>
+</div>
+
+<main>
+  <div class="pane"><canvas id="cvGeo"></canvas><div class="tag">Geometry</div><div class="hint">drag to rotate</div></div>
+  <div class="pane"><canvas id="cvWave"></canvas><div class="tag">Waveform</div></div>
+  <div class="pane"><canvas id="cvPhase"></canvas><div class="tag">Residual phase</div></div>
+  <div class="pane"><canvas id="cvRef"></canvas><div class="tag">Reference (no concomitant phase)</div></div>
+  <div class="pane"><canvas id="cvImg"></canvas><div class="tag">Corrupted image</div></div>
+  <div class="pane"><canvas id="cvMap"></canvas><div class="tag" id="mapTag">Signal change</div></div>
+</main>
+
+<div id="about" hidden>
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="aboutTitle">
+    <h3 id="aboutTitle">Maxwell sim</h3>
+    <p class="by"></p>
+    <p class="note">
+      A teaching aid, not a quantitative simulator. It shows how the concomitant (Maxwell)
+      phase left over after a spin-echo diffusion encoding with an asymmetric waveform
+      corrupts a 2D image placed anywhere in the magnet. The effects that are hard to
+      describe in words — the in-plane echo shifts, their interaction with partial Fourier,
+      and the spatial pattern of the through-slice loss — come out of the simulation
+      rather than being modelled separately.
+    </p>
+    <p class="note"><b>Concomitant field</b> (lowest order, cylindrically symmetric coil set):</p>
+    <p class="eq">B<sub>c</sub>(r,t) = [ (G<sub>x</sub>z − ½G<sub>z</sub>x)² + (G<sub>y</sub>z − ½G<sub>z</sub>y)² ] / 2B₀</p>
+    <p class="note"><b>Residual phase</b> at the echo, for G(t) = g(t)·n with h(t) = +1 before and −1 after the 180°:</p>
+    <p class="eq">φ(r) = (γm / 2B₀) · [ (n<sub>x</sub>z − ½n<sub>z</sub>x)² + (n<sub>y</sub>z − ½n<sub>z</sub>y)² ],&nbsp;&nbsp; m = ∫ h(t) g(t)² dt</p>
+    <p class="note">
+      For a general waveform m generalises to the matrix M = ∫ h(t) G(t)G(t)ᵀ dt, and |m| here equals the
+      Maxwell index √tr(M²) for a single direction. Within the slice the phase is quadratic in the
+      through-slice coordinate s, φ = φ₀ + b·s + a·s², so the slice-averaged signal is
+      ρ·e<sup>iφ₀</sup>·F(b) with F(b) = (1/Δ)∫ e<sup>i(as² + bs)</sup> ds over a rectangular profile of
+      thickness Δ. The complex image is built on a 512 × 512 grid, Fourier transformed, cropped to the
+      acquisition matrix (with partial Fourier by zero filling) and transformed back.
+    </p>
+    <p class="note">
+      <b>Simplifications.</b> A 2D modified Shepp–Logan phantom, extruded through the slice. Ideal
+      rectangular slice profile and ideal refocusing. Only the diffusion encoding gradients contribute;
+      the concomitant phase of imaging gradients, the EPI readout itself, T2/T2* decay, distortion,
+      diffusion attenuation, noise, higher-order concomitant terms (∝ 1/B₀²) and eddy currents are not simulated. The sign convention decides which side of the image partial Fourier hurts; a scanner
+      with the opposite convention mirrors that asymmetry.
+    </p>
+    <div id="changelog"></div>
+    <button class="themebtn" id="aboutClose" type="button">Close</button>
+  </div>
+</div>
+
+<script>
+"use strict";
+/* ==================== PHYSICS CORE (pure, no DOM) ==================== */
+/*  SI units throughout: T, T/m, s, m, rad.
+ *
+ *  Concomitant field (lowest order, symmetric z coil):
+ *    Bc = [ (Gx z - Gz x/2)^2 + (Gy z - Gz y/2)^2 ] / (2 B0)
+ *  For G(t) = g(t) n this is g^2 |A r|^2 / (2 B0) with the 2x3 matrix
+ *    A = [ -nz/2   0    nx ]
+ *        [   0   -nz/2  ny ]
+ *  Across a spin echo the phase accumulated before the 180 is inverted, so the
+ *  residual phase at the echo is  phi(r) = C |A r|^2,  C = gamma m / (2 B0),
+ *  m = int h(t) g(t)^2 dt,  h = +1 before and -1 after the 180.
+ *
+ *  A point in the slice is r = c + u*uh + v*vh + s*nh, so with
+ *  p = A(c + u uh + v vh) and q = A nh:
+ *    phi = C|p|^2  +  2C(p.q) s  +  C|q|^2 s^2   =  phi0 + b s + a s^2.
+ *  a is the same everywhere in the slice, so the slice integral F(b) is
+ *  tabulated once per update and interpolated per pixel.
+ */
+const GAMMA  = 2.6752218744e8;   // rad/s/T, 1H
+const SLEW   = 100;              // T/m/s
+const GAP180 = 8e-3;             // s, time between the lobes (180 + crushers, not simulated)
+const FOV    = 0.240;            // m
+const NF     = 512;              // fine simulation grid
+const PH_UNIT = 0.110;           // m per Shepp-Logan unit (phantom ~ 200 x 150 mm)
+
+/* Modified Shepp-Logan (Toft): intensity, a, b, x0, y0, angle (deg). */
+const SHEPP = [
+  [ 1.0, .6900, .9200,  .00,   .0000,   0],
+  [-0.8, .6624, .8740,  .00,  -.0184,   0],
+  [-0.2, .1100, .3100,  .22,   .0000, -18],
+  [-0.2, .1600, .4100, -.22,   .0000,  18],
+  [ 0.1, .2100, .2500,  .00,   .3500,   0],
+  [ 0.1, .0460, .0460,  .00,   .1000,   0],
+  [ 0.1, .0460, .0460,  .00,  -.1000,   0],
+  [ 0.1, .0460, .0230, -.08,  -.6050,   0],
+  [ 0.1, .0230, .0230,  .00,  -.6060,   0],
+  [ 0.1, .0230, .0460,  .06,  -.6050,   0]
+];
+
+/* Phantom on the NF x NF grid, 4x4 supersampled; row 0 is the top (+v). */
+function makePhantom(N){
+  const rho = new Float64Array(N*N), du = FOV/N, SS = 4;
+  const E = SHEPP.map(([A,a,b,x0,y0,t]) => {
+    const r = t*Math.PI/180;
+    return {A, ia2:1/(a*a), ib2:1/(b*b), x0, y0, c:Math.cos(r), s:Math.sin(r)};
+  });
+  for(let j=0;j<N;j++) for(let i=0;i<N;i++){
+    let acc = 0;
+    for(let sj=0;sj<SS;sj++) for(let si=0;si<SS;si++){
+      const u = (i - N/2 + (si+.5)/SS - .5)*du, v = (N/2 - j - (sj+.5)/SS + .5)*du;
+      const x = u/PH_UNIT, y = v/PH_UNIT;
+      for(const e of E){
+        const dx = x-e.x0, dy = y-e.y0;
+        const xr = dx*e.c + dy*e.s, yr = -dx*e.s + dy*e.c;
+        if(xr*xr*e.ia2 + yr*yr*e.ib2 <= 1) acc += e.A;
+      }
+    }
+    rho[j*N+i] = acc/(SS*SS);
+  }
+  return rho;
+}
+
+/* Trapezoid of amplitude G, total duration d, ramp tr, at time t from its start. */
+function trap(t, G, d, tr){
+  if(t < 0 || t > d) return 0;
+  if(t < tr) return G*t/tr;
+  if(t > d-tr) return G*(d-t)/tr;
+  return G;
+}
+
+/* The asymmetric pair of lobes. Gmax in T/m, d1 and d2 in s. */
+function waveform(Gmax, d1in, d2in){
+  const tr = Gmax/SLEW, dmin = 2*tr + 0.2e-3;
+  const d1 = Math.max(d1in, dmin), d2 = Math.max(d2in, dmin);
+  const A1 = d1 - tr, A2 = d2 - tr;            // area per unit amplitude
+  let G1, G2;
+  if(A1 <= A2){ G1 = Gmax; G2 = Gmax*A1/A2; } else { G2 = Gmax; G1 = Gmax*A2/A1; }
+  const I1 = G1*G1*(d1 - 4*tr/3), I2 = G2*G2*(d2 - 4*tr/3);
+  const m = I1 - I2;                             // T^2 s / m^2
+  const T = d1 + GAP180 + d2;
+  const t2 = d1 + GAP180;
+  const gEff = t => t < d1 ? trap(t, G1, d1, tr) : (t >= t2 ? -trap(t - t2, G2, d2, tr) : 0);
+  const gAct = t => t < d1 ? trap(t, G1, d1, tr) : (t >= t2 ?  trap(t - t2, G2, d2, tr) : 0);
+  // b-value (s/m^2), midpoint rule
+  const K = 6000, dt = T/K;
+  let q = 0, b = 0;
+  for(let k=0;k<K;k++){ const t = (k+.5)*dt; q += GAMMA*gEff(t)*dt; b += q*q*dt; }
+  return {G1, G2, d1, d2, tr, m, b, T, t2, gEff, gAct, clamped: d1 !== d1in || d2 !== d2in};
+}
+
+function dirVec(thDeg, phDeg){
+  const t = thDeg*Math.PI/180, p = phDeg*Math.PI/180;
+  return [Math.sin(t)*Math.cos(p), Math.sin(t)*Math.sin(p), Math.cos(t)];
+}
+
+/* Slice frame: uh (horizontal in the image), vh (vertical), nh (normal). */
+function sliceFrame(orient, angDeg){
+  let u, v, n;
+  if(orient === "cor"){ u = [1,0,0]; v = [0,0,1]; n = [0,-1,0]; }
+  else if(orient === "sag"){ u = [0,1,0]; v = [0,0,1]; n = [1,0,0]; }
+  else { u = [1,0,0]; v = [0,1,0]; n = [0,0,1]; }
+  const a = angDeg*Math.PI/180, c = Math.cos(a), s = Math.sin(a);
+  const v2 = [c*v[0]+s*n[0], c*v[1]+s*n[1], c*v[2]+s*n[2]];
+  const n2 = [-s*v[0]+c*n[0], -s*v[1]+c*n[1], -s*v[2]+c*n[2]];
+  return {u, v:v2, n:n2};
+}
+
+function applyA(n, r){ return [-.5*n[2]*r[0] + n[0]*r[2], -.5*n[2]*r[1] + n[1]*r[2]]; }
+
+/* Complex fine image and the maps that go with it. */
+function fineImage(P, rho){
+  const {n, frame, c, C, thk, effects} = P, N = NF, du = FOV/N;
+  const p0 = applyA(n, c), pu = applyA(n, frame.u), pv = applyA(n, frame.v), q = applyA(n, frame.n);
+  const a = C*(q[0]*q[0] + q[1]*q[1]);
+  const re = new Float64Array(N*N), im = new Float64Array(N*N);
+  const phi0 = new Float64Array(N*N), bArr = new Float64Array(N*N), Fmag = new Float32Array(N*N);
+  let bmin = Infinity, bmax = -Infinity;
+  for(let j=0;j<N;j++){
+    const v = (N/2 - j)*du;
+    for(let i=0;i<N;i++){
+      const u = (i - N/2)*du, k = j*N+i;
+      const px = p0[0] + u*pu[0] + v*pv[0], py = p0[1] + u*pu[1] + v*pv[1];
+      phi0[k] = C*(px*px + py*py);
+      const b = 2*C*(px*q[0] + py*q[1]);
+      bArr[k] = b;
+      if(b < bmin) bmin = b; if(b > bmax) bmax = b;
+    }
+  }
+  // F(b) table over [bmin, bmax]
+  const span = bmax - bmin, db0 = (2*Math.PI/thk)/48;
+  let T = Math.min(65536, Math.max(2, Math.ceil(span/db0) + 2));
+  const db = span > 0 ? span/(T-1) : 1;
+  const bAbs = Math.max(Math.abs(bmin), Math.abs(bmax));
+  const Ns = Math.min(8192, Math.max(16, Math.ceil(thk*(bAbs + Math.abs(a)*thk)/0.15)));
+  const Fre = new Float64Array(T), Fim = new Float64Array(T);
+  // midpoint rule; the phase is quadratic in s, so e^{i phi} is advanced by a
+  // rotation whose own angle grows by the constant second difference 2 a h^2
+  const h = thk/Ns, s0 = (0.5/Ns - 0.5)*thk, rr = Math.cos(2*a*h*h), ri = Math.sin(2*a*h*h);
+  for(let t=0;t<T;t++){
+    const b = bmin + t*db, p0 = a*s0*s0 + b*s0, d0 = a*(2*s0*h + h*h) + b*h;
+    let zr = Math.cos(p0), zi = Math.sin(p0), wr = Math.cos(d0), wi = Math.sin(d0), sr = 0, si = 0;
+    for(let k=0;k<Ns;k++){
+      sr += zr; si += zi;
+      const nzr = zr*wr - zi*wi; zi = zr*wi + zi*wr; zr = nzr;
+      const nwr = wr*rr - wi*ri; wi = wr*ri + wi*rr; wr = nwr;
+    }
+    Fre[t] = sr/Ns; Fim[t] = si/Ns;
+  }
+  const Fat = (b, out) => {
+    let x = span > 0 ? (b - bmin)/db : 0;
+    let t0 = Math.floor(x); if(t0 >= T-1) t0 = T-2; if(t0 < 0) t0 = 0;
+    const w = x - t0;
+    out[0] = Fre[t0]*(1-w) + Fre[t0+1]*w; out[1] = Fim[t0]*(1-w) + Fim[t0+1]*w;
+  };
+  const f = [0,0];
+  let fMinObj = 1, gradMaxObj = 0, gradMaxAll = 0, tsMax = 0;
+  for(let j=0;j<N;j++){
+    const v = (N/2 - j)*du;
+    for(let i=0;i<N;i++){
+      const u = (i - N/2)*du, k = j*N+i;
+      Fat(bArr[k], f);
+      const fm = Math.sqrt(f[0]*f[0] + f[1]*f[1]);
+      Fmag[k] = fm;
+      const px = p0[0] + u*pu[0] + v*pv[0], py = p0[1] + u*pu[1] + v*pv[1];
+      const gu = 2*C*(px*pu[0] + py*pu[1]), gv = 2*C*(px*pv[0] + py*pv[1]);
+      const g = Math.sqrt(gu*gu + gv*gv);
+      if(g > gradMaxAll) gradMaxAll = g;
+      const r = rho[k];
+      if(r > 0.05){
+        if(fm < fMinObj) fMinObj = fm;
+        if(g > gradMaxObj) gradMaxObj = g;
+        const ts = Math.abs(bArr[k])*thk + Math.abs(a)*thk*thk/4;
+        if(ts > tsMax) tsMax = ts;
+      }
+      if(effects === "thru"){ re[k] = r*fm; im[k] = 0; }
+      else {
+        const cp = Math.cos(phi0[k]), sp = Math.sin(phi0[k]);
+        if(effects === "inplane"){ re[k] = r*cp; im[k] = r*sp; }
+        else { re[k] = r*(cp*f[0] - sp*f[1]); im[k] = r*(cp*f[1] + sp*f[0]); }
+      }
+    }
+  }
+  return {re, im, phi0, Fmag, fMinObj, gradMaxObj, gradMaxAll, tsMax, tableCapped: T === 65536 && span/db0 > 65534};
+}
+
+/* In-place radix-2 complex FFT; inv = true gives the unnormalised inverse. */
+function fft1(re, im, inv){
+  const n = re.length;
+  for(let i=1, j=0;i<n;i++){
+    let bit = n >> 1;
+    for(; j & bit; bit >>= 1) j ^= bit;
+    j ^= bit;
+    if(i < j){ let t = re[i]; re[i] = re[j]; re[j] = t; t = im[i]; im[i] = im[j]; im[j] = t; }
+  }
+  for(let len=2; len<=n; len<<=1){
+    const ang = (inv ? 2 : -2)*Math.PI/len, wr = Math.cos(ang), wi = Math.sin(ang), h = len >> 1;
+    for(let i=0;i<n;i+=len){
+      let cr = 1, ci = 0;
+      for(let k=0;k<h;k++){
+        const a = i+k, b = a+h;
+        const xr = re[b]*cr - im[b]*ci, xi = re[b]*ci + im[b]*cr;
+        re[b] = re[a] - xr; im[b] = im[a] - xi; re[a] += xr; im[a] += xi;
+        const t = cr*wr - ci*wi; ci = cr*wi + ci*wr; cr = t;
+      }
+    }
+  }
+}
+
+/* Centred k-space window of size W x W (W <= N) of a centred N x N image:
+   K = fftshift(fft2(ifftshift(I))), cropped around the centre. */
+function kWindow(re, im, N, W){
+  const R = new Float64Array(N*N), I = new Float64Array(N*N), h = N/2;
+  for(let j=0;j<N;j++) for(let i=0;i<N;i++){
+    const d = ((j+h)%N)*N + (i+h)%N;       // ifftshift
+    R[d] = re[j*N+i]; I[d] = im[j*N+i];
+  }
+  const rr = new Float64Array(N), ri = new Float64Array(N);
+  for(let j=0;j<N;j++){
+    for(let i=0;i<N;i++){ rr[i] = R[j*N+i]; ri[i] = I[j*N+i]; }
+    fft1(rr, ri, false);
+    for(let i=0;i<N;i++){ R[j*N+i] = rr[i]; I[j*N+i] = ri[i]; }
+  }
+  const Kr = new Float64Array(W*W), Ki = new Float64Array(W*W), o = h - W/2;
+  for(let c=0;c<W;c++){
+    const col = (o + c + h) % N;               // fftshift index -> raw
+    for(let j=0;j<N;j++){ rr[j] = R[j*N+col]; ri[j] = I[j*N+col]; }
+    fft1(rr, ri, false);
+    for(let r=0;r<W;r++){
+      const raw = (o + r + h) % N;
+      Kr[r*W+c] = rr[raw]; Ki[r*W+c] = ri[raw];
+    }
+  }
+  return {Kr, Ki, W};
+}
+
+/* Acquire an M x M centred crop of a k-space window, apply partial Fourier
+   (zero the first lines along PE) and reconstruct the magnitude image. */
+function recon(K, M, pf, pe){
+  const {Kr, Ki, W} = K, o = (W - M)/2, h = M/2;
+  const nSkip = Math.round((1 - pf)*M);
+  const R = new Float64Array(M*M), I = new Float64Array(M*M);
+  for(let r=0;r<M;r++) for(let c=0;c<M;c++){
+    const idx = pe === "v" ? r : c;
+    if(idx < nSkip) continue;
+    const d = ((r+h)%M)*M + (c+h)%M;         // ifftshift
+    R[d] = Kr[(r+o)*W + c+o]; I[d] = Ki[(r+o)*W + c+o];
+  }
+  const rr = new Float64Array(M), ri = new Float64Array(M);
+  for(let j=0;j<M;j++){
+    for(let i=0;i<M;i++){ rr[i] = R[j*M+i]; ri[i] = I[j*M+i]; }
+    fft1(rr, ri, true);
+    for(let i=0;i<M;i++){ R[j*M+i] = rr[i]; I[j*M+i] = ri[i]; }
+  }
+  for(let i=0;i<M;i++){
+    for(let j=0;j<M;j++){ rr[j] = R[j*M+i]; ri[j] = I[j*M+i]; }
+    fft1(rr, ri, true);
+    for(let j=0;j<M;j++){ R[j*M+i] = rr[j]; I[j*M+i] = ri[j]; }
+  }
+  const mag = new Float64Array(M*M), s = 1/(NF*NF);
+  for(let j=0;j<M;j++) for(let i=0;i<M;i++){
+    const d = ((j+h)%M)*M + (i+h)%M;         // fftshift
+    mag[j*M+i] = Math.sqrt(R[d]*R[d] + I[d]*I[d])*s;
+  }
+  return {mag, nSkip};
+}
+/* ================== END PHYSICS CORE ================== */
+
+
+/* ---------------------------------------------------------- version */
+const VERSION = "0.1.1";
+const AUTHORS = "Designed by Filip Sz (Lund University) and coded by Claude (Anthropic)";
+const CHANGELOG = [
+  ["0.1.1", "2026-09-21",
+   "Fixes from a code review; the simulation itself is unchanged. All images and maps were drawn half a " +
+   "grid cell right and down of where their samples lie (0.94 mm at 128 × 128, 1.9 mm at 64, 0.47 mm for the " +
+   "phase and |F| maps), including on the 3D slice and in k-space; they are now drawn on the sample positions, " +
+   "and the k-space window outline follows. Readouts for an effect switched off in Effects included now read " +
+   "'off' instead of describing a term the image does not contain. When a lobe is too short for its ramps the " +
+   "δ label shows the duration actually simulated. The 0.55 T example note wrongly said m stays large; m is " +
+   "smaller there, and the loss grows because of the 1/B₀ factor. On touch screens a vertical swipe over the " +
+   "geometry view now scrolls the page; a horizontal drag still rotates it."],
+  ["0.1.0", "2026-09-21",
+   "First version. A modified Shepp–Logan slice placed anywhere in the magnet (orientation, angulation, " +
+   "centre and thickness) is corrupted by the residual concomitant phase of an asymmetric two-lobe " +
+   "spin-echo diffusion encoding, with B₀, gradient amplitude, lobe durations and direction as controls. " +
+   "The slice integral uses the exact quadratic through-slice phase; the in-plane phase is carried through " +
+   "a 512-grid Fourier transform, crop to the acquisition matrix and optional partial Fourier. Panels show " +
+   "the geometry, the waveform with the running Maxwell integral, the residual phase, the reference and " +
+   "corrupted images, and a choice of signal change, through-slice |F| or k-space. Effects can be shown " +
+   "separately (through-slice only, in-plane only)."]
+];
+
+/* ---------------------------------------------------------- state */
+const $ = id => document.getElementById(id);
+const S = {B0:3, G:80, d1:30, d2:22, th:90, ph:0, orient:"tra", ang:0, X:0, Y:0, Z:60, thk:4,
+           M:128, pf:0.75, pe:"v", eff:"all", map:"ratio", tex:"img"};
+const PRESETS = {
+  clin:  {B0:3,    G:80,  d1:24, d2:17, th:90, ph:0, orient:"tra", ang:0, X:0,  Y:0, Z:100, thk:4, M:128, pf:0.75,  pe:"v",
+          note:"3 T, 80 mT/m along x, b ≈ 2600 s/mm², transversal slice 100 mm from isocentre. Q = x-gradient·z², so the whole slice loses the same few per cent through the slice. Move z towards 0 and it vanishes."},
+  low:   {B0:0.55, G:40,  d1:36, d2:26, th:90, ph:0, orient:"tra", ang:0, X:0,  Y:0, Z:100, thk:4, M:128, pf:0.75,  pe:"v",
+          note:"The same geometry at 0.55 T with 40 mT/m. m is smaller here (the weaker gradient gives a lower b-value), but the residual phase scales as m/B₀ and 1/B₀ is 5.5 times larger, so γm/2B₀ roughly doubles and the through-slice loss is about four times larger."},
+  hp:    {B0:3,    G:300, d1:20, d2:13, th:0,  ph:0, orient:"sag", ang:0, X:40, Y:0, Z:0,   thk:4, M:128, pf:0.625, pe:"u",
+          note:"300 mT/m along z (b ≈ 12800 s/mm²), sagittal slice at x = 40 mm. The ¼Gz²(x²+y²) term gives an in-plane phase gradient along y that shifts the echo along the phase-encode direction; with 5/8 partial Fourier one side of the image loses signal first. Switch partial Fourier off to compare."},
+  cross: {B0:0.55, G:40,  d1:36, d2:26, th:45, ph:0, orient:"tra", ang:0, X:0,  Y:0, Z:80,  thk:4, M:128, pf:1,     pe:"v",
+          note:"An oblique xz gradient. The −GxGz·xz cross term makes the through-slice phase gradient ∝ (z − x/2), so the loss now changes across the image and would reach zero at x = 2z. Compare with the pure x direction."}
+};
+
+const B0MIN = 0.1, B0MAX = 11.7;
+const b0ToSl = b => Math.round(1000*Math.log(b/B0MIN)/Math.log(B0MAX/B0MIN));
+const slToB0 = s => B0MIN*Math.pow(B0MAX/B0MIN, s/1000);
+
+function syncInputs(){
+  $("B0").value = b0ToSl(S.B0);
+  for(const k of ["G","d1","d2","th","ph","ang","X","Y","Z","thk"]) $(k).value = S[k];
+  $("orient").value = S.orient; $("mat").value = String(S.M); $("pf").value = String(S.pf);
+  $("pe").value = S.pe; $("eff").value = S.eff; $("map").value = S.map; $("tex").value = S.tex;
+  syncLabels();
+}
+function syncLabels(){
+  $("vB0").textContent = (S.B0 < 1 ? S.B0.toFixed(2) : S.B0.toFixed(S.B0 < 10 ? 2 : 1)) + " T";
+  $("vG").textContent  = S.G + " mT/m";
+  // show the durations actually simulated: a lobe shorter than its two ramps is lengthened
+  const dmin = 2*(S.G*1e-3/SLEW)*1e3 + 0.2;
+  const dLab = d => d >= dmin ? d.toFixed(1) + " ms" : dmin.toFixed(1) + " ms (min)";
+  $("vd1").textContent = dLab(S.d1);
+  $("vd2").textContent = dLab(S.d2);
+  $("vth").textContent = S.th + "°";
+  $("vph").textContent = S.ph + "°";
+  $("vang").textContent = S.ang + "°";
+  $("vX").textContent = S.X + " mm"; $("vY").textContent = S.Y + " mm"; $("vZ").textContent = S.Z + " mm";
+  $("vthk").textContent = S.thk.toFixed(1) + " mm";
+  const n = dirVec(S.th, S.ph);
+  const DIRS = dirPresets();
+  for(const b of document.querySelectorAll("[data-dir]")){
+    const d = DIRS[b.dataset.dir];
+    b.setAttribute("aria-pressed", Math.abs(d[0]*n[0]+d[1]*n[1]+d[2]*n[2]) > 0.9999 ? "true" : "false");
+  }
+  for(const b of document.querySelectorAll("[data-b0]"))
+    b.setAttribute("aria-pressed", Math.abs(+b.dataset.b0 - S.B0) < 0.01 ? "true" : "false");
+  $("mapTag").textContent = {ratio:"Signal change vs reference", thru:"Through-slice |F|", k:"k-space of the corrupted slice"}[S.map];
+}
+function dirPresets(){
+  const r2 = Math.SQRT1_2, r3 = 1/Math.sqrt(3);
+  return {x:[1,0,0], y:[0,1,0], z:[0,0,1], xz:[r2,0,r2], yz:[0,r2,r2], xy:[r2,r2,0], xyz:[r3,r3,r3]};
+}
+function setDir(d){
+  S.th = Math.round(Math.acos(Math.max(-1, Math.min(1, d[2])))*180/Math.PI);
+  S.ph = Math.round(Math.atan2(d[1], d[0])*180/Math.PI);
+}
+
+/* ---------------------------------------------------------- compute */
+let RHO = null, REF = null, REFKEY = "", R = null;
+function compute(){
+  if(!RHO) RHO = makePhantom(NF);
+  const wf = waveform(S.G*1e-3, S.d1*1e-3, S.d2*1e-3);
+  const n = dirVec(S.th, S.ph);
+  const frame = sliceFrame(S.orient, S.ang);
+  const c = [S.X*1e-3, S.Y*1e-3, S.Z*1e-3];
+  const C = GAMMA*wf.m/(2*S.B0);
+  const P = {n, frame, c, C, thk:S.thk*1e-3, effects:S.eff};
+  const fi = fineImage(P, RHO);
+  const W = Math.min(NF, 2*S.M);
+  const K = kWindow(fi.re, fi.im, NF, W);
+  const img = recon(K, S.M, S.pf, S.pe);
+  const key = S.M + "|" + S.pf + "|" + S.pe;
+  if(key !== REFKEY){
+    const Kr = kWindow(RHO, new Float64Array(NF*NF), NF, W);
+    REF = {K:Kr, img:recon(Kr, S.M, S.pf, S.pe)};
+    REFKEY = key;
+  }
+  // object statistics on the acquisition grid
+  const M = S.M, ref = REF.img.mag, cor = img.mag;
+  let rmax = 0; for(let i=0;i<M*M;i++) if(ref[i] > rmax) rmax = ref[i];
+  let sr = 0, sc = 0;
+  const thr = 0.12*rmax, ds = [];
+  // the signal-change map compares locally smoothed magnitudes, so that it shows the
+  // regional loss rather than pixel-by-pixel differences in truncation ringing
+  const refS = blur(ref, M, SMOOTH), corS = blur(cor, M, SMOOTH), ratio = new Float64Array(M*M).fill(NaN);
+  for(let i=0;i<M*M;i++) if(ref[i] > thr){
+    sr += ref[i]; sc += cor[i];
+    ratio[i] = corS[i]/refS[i];
+    ds.push(Math.abs(ratio[i] - 1));
+  }
+  ds.sort((a, b) => a - b);
+  const dmax = ds.length ? ds[Math.floor(0.95*(ds.length - 1))] : 0;   // 95th percentile sets the colour range (edge ringing would dominate a max)
+  R = {wf, n, frame, c, C, fi, K, img, M, rmax, thr, sigFrac: sc/sr, dmax, W, ratio};
+  $("rB").textContent = Math.round(wf.b/1e6) + " s/mm²";
+  $("rM").textContent = fmtSig(Math.abs(wf.m)*1e9) + " (mT/m)²ms";
+  $("rC").textContent = fmtSig(Math.abs(C)*0.01) + " rad/(10 cm)²";
+  // readouts for an effect that is switched off are blanked, not shown for a term the image does not contain
+  const off = "— (off)", thruOn = S.eff !== "inplane", inOn = S.eff !== "thru";
+  $("rTS").textContent = thruOn ? fi.tsMax.toFixed(2) + " rad" : off;
+  $("rF").textContent  = thruOn ? fi.fMinObj.toFixed(3) : off;
+  $("rK").textContent  = inOn ? (fi.gradMaxObj*FOV/(2*Math.PI)).toFixed(1) + " Δk" : off;
+  $("rS").textContent = (100*R.sigFrac).toFixed(1) + " %";
+  const w = [];
+  if(wf.clamped) w.push("A lobe was lengthened to fit the ramps at this gradient.");
+  if(inOn && fi.gradMaxAll*FOV/NF > Math.PI/2) w.push("The in-plane phase changes by more than π/2 per simulation pixel somewhere in the FOV; treat the result there as approximate.");
+  if(thruOn && fi.tableCapped) w.push("Through-slice table resolution capped; |F| is approximate.");
+  $("warn").textContent = w.join(" ");
+}
+const SMOOTH = 1.5;                   // px, Gaussian sigma for the signal-change map
+function blur(a, M, sig){
+  const r = Math.ceil(3*sig), k = [];
+  let ks = 0; for(let i=-r;i<=r;i++){ const v = Math.exp(-i*i/(2*sig*sig)); k.push(v); ks += v; }
+  for(let i=0;i<k.length;i++) k[i] /= ks;
+  const t = new Float64Array(M*M), o = new Float64Array(M*M);
+  for(let j=0;j<M;j++) for(let i=0;i<M;i++){
+    let acc = 0; for(let d=-r;d<=r;d++){ const ii = Math.min(M-1, Math.max(0, i+d)); acc += k[d+r]*a[j*M+ii]; } t[j*M+i] = acc;
+  }
+  for(let j=0;j<M;j++) for(let i=0;i<M;i++){
+    let acc = 0; for(let d=-r;d<=r;d++){ const jj = Math.min(M-1, Math.max(0, j+d)); acc += k[d+r]*t[jj*M+i]; } o[j*M+i] = acc;
+  }
+  return o;
+}
+function fmtSig(x){
+  if(x === 0) return "0";
+  if(x >= 1e5 || x < 1e-2) return x.toExponential(2).replace("e+", "e");
+  return x >= 100 ? Math.round(x).toString() : x.toPrecision(3);
+}
+
+/* ---------------------------------------------------------- drawing utils */
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+function hexRgb(h){
+  h = h.replace("#", "");
+  if(h.length === 3) h = h.split("").map(c => c+c).join("");
+  const v = parseInt(h, 16); return [(v>>16)&255, (v>>8)&255, v&255];
+}
+function prep(cv){
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const w = cv.clientWidth, h = cv.clientHeight;
+  if(cv.width !== Math.round(w*dpr) || cv.height !== Math.round(h*dpr)){ cv.width = Math.round(w*dpr); cv.height = Math.round(h*dpr); }
+  const ctx = cv.getContext("2d");
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, w, h);
+  return {ctx, w, h, dpr};
+}
+function offscreen(N){ const c = document.createElement("canvas"); c.width = N; c.height = N; return c; }
+/* Every grid in this file (fine maps, acquired images, k-space) puts sample i at
+   (i - N/2)·Δ, so sample centres lie on multiples of Δ with the centre sample at 0 —
+   not in the middle of FOV/N cells. A plain drawImage would put sample i at
+   (i - N/2 + ½)·Δ, half a cell off. Textures are therefore built with one extra row
+   and column (a periodic copy for DFT grids, an edge copy otherwise) and drawn half
+   a cell up and to the left, clipped to the frame. */
+function gridTex(N, col, wrap){
+  const n = N + 1, cv = offscreen(n), ctx = cv.getContext("2d"), id = ctx.createImageData(n, n);
+  for(let j=0;j<n;j++) for(let i=0;i<n;i++){
+    const ii = i < N ? i : (wrap ? 0 : N-1), jj = j < N ? j : (wrap ? 0 : N-1);
+    const c = col(ii, jj), o = 4*(j*n+i);
+    id.data[o] = c[0]; id.data[o+1] = c[1]; id.data[o+2] = c[2]; id.data[o+3] = 255;
+  }
+  ctx.putImageData(id, 0, 0);
+  cv.gridN = N;
+  return cv;
+}
+function drawGrid(ctx, tex, r, smooth){
+  const p = r.s/tex.gridN;
+  ctx.save();
+  ctx.beginPath(); ctx.rect(r.x, r.y, r.s, r.s); ctx.clip();
+  ctx.imageSmoothingEnabled = smooth;
+  ctx.drawImage(tex, r.x - p/2, r.y - p/2, r.s + p, r.s + p);
+  ctx.restore();
+}
+const cyc = ph => {                         // cyclic colour map, phase in rad
+  const t = ph;
+  return [128 + 110*Math.cos(t), 128 + 110*Math.cos(t - 2.0944), 128 + 110*Math.cos(t + 2.0944)];
+};
+function divCol(t, neg, mid, pos){          // t in [-1, 1]
+  const a = Math.min(1, Math.abs(t)), e = t < 0 ? neg : pos;
+  return [mid[0] + (e[0]-mid[0])*a, mid[1] + (e[1]-mid[1])*a, mid[2] + (e[2]-mid[2])*a];
+}
+/* Fit a square image into a pane, leaving room for a colour bar and labels. */
+function imgRect(w, h, bar){
+  const top = 28, bot = bar ? 44 : 22, side = 14;
+  const s = Math.max(40, Math.min(w - 2*side, h - top - bot));
+  return {x:(w - s)/2, y:top + (h - top - bot - s)/2, s};
+}
+function axisLabels(ctx, r){
+  const f = R.frame, name = v => {
+    const ax = ["x","y","z"], k = [0,1,2].reduce((a,b) => Math.abs(v[b]) > Math.abs(v[a]) ? b : a, 0);
+    return (v[k] < 0 ? "−" : "") + ax[k] + (Math.abs(v[k]) < 0.999 ? "′" : "");
+  };
+  ctx.fillStyle = css("--dim"); ctx.font = "10px ui-monospace,Menlo,Consolas,monospace";
+  ctx.textAlign = "right"; ctx.textBaseline = "top";
+  ctx.fillText(name(f.u) + " →", r.x + r.s, r.y + r.s + 3);
+  ctx.save(); ctx.translate(r.x - 3, r.y); ctx.rotate(-Math.PI/2);
+  ctx.textAlign = "right"; ctx.textBaseline = "bottom"; ctx.fillText(name(f.v) + " →", 0, 0); ctx.restore();
+}
+function colorbar(ctx, r, fn, lo, hi, mid){
+  const y = r.y + r.s + 16, x0 = r.x + r.s*0.2, bw = r.s*0.6, bh = 7;
+  for(let i=0;i<bw;i++){
+    const c = fn(i/(bw-1)); ctx.fillStyle = `rgb(${c[0]|0},${c[1]|0},${c[2]|0})`; ctx.fillRect(x0+i, y, 1.2, bh);
+  }
+  ctx.strokeStyle = css("--line"); ctx.lineWidth = 1; ctx.strokeRect(x0+.5, y+.5, bw-1, bh-1);
+  ctx.fillStyle = css("--muted"); ctx.font = "10px ui-monospace,Menlo,Consolas,monospace"; ctx.textBaseline = "top";
+  ctx.textAlign = "left"; ctx.fillText(lo, x0, y + bh + 3);
+  ctx.textAlign = "right"; ctx.fillText(hi, x0 + bw, y + bh + 3);
+  if(mid){ ctx.textAlign = "center"; ctx.fillText(mid, x0 + bw/2, y + bh + 3); }
+}
+
+/* ---------------------------------------------------------- image textures */
+const TEX = {img:null, ref:null, phase:null, thru:null, map:null};
+function buildTextures(){
+  const M = R.M, rmax = R.rmax;
+  const grey = (arr, N, scale) => gridTex(N, (i, j) => { const g = Math.min(255, 255*arr[j*N+i]*scale); return [g, g, g]; }, true);
+  TEX.ref = grey(REF.img.mag, M, 1/rmax);
+  TEX.img = grey(R.img.mag, M, 1/rmax);
+  // residual phase at slice centre, fine grid decimated 2x
+  // fine sample 2i sits at (2i - NF/2)·du = (i - N/2)·2du, the same convention on the decimated grid
+  const N2 = NF/2;
+  TEX.phase = gridTex(N2, (i, j) => {
+    const k = (2*j)*NF + 2*i, c = cyc(R.fi.phi0[k]), inside = RHO[k] > 0.05 ? 1 : 0.38;
+    return [c[0]*inside, c[1]*inside, c[2]*inside];
+  }, false);
+  TEX.thru = gridTex(N2, (i, j) => thruColor(R.fi.Fmag[(2*j)*NF + 2*i]), false);
+}
+function thruColor(f){
+  const dark = document.documentElement.dataset.theme !== "light";
+  if(dark){ const lo = hexRgb(css("--scene")), hi = [236,240,245]; return [lo[0]+(hi[0]-lo[0])*f, lo[1]+(hi[1]-lo[1])*f, lo[2]+(hi[2]-lo[2])*f]; }
+  return [30 + 220*f, 36 + 216*f, 46 + 208*f];
+}
+
+/* ---------------------------------------------------------- panels */
+function drawImagePane(cv, tex, label){
+  const {ctx, w, h} = prep(cv), r = imgRect(w, h, false);
+  ctx.fillStyle = "#000"; ctx.fillRect(r.x, r.y, r.s, r.s);
+  drawGrid(ctx, tex, r, false);
+  ctx.strokeStyle = css("--line"); ctx.strokeRect(r.x - .5, r.y - .5, r.s + 1, r.s + 1);
+  axisLabels(ctx, r);
+  if(label){
+    ctx.fillStyle = css("--text"); ctx.font = "11px ui-monospace,Menlo,Consolas,monospace";
+    ctx.textAlign = "right"; ctx.textBaseline = "top"; ctx.fillText(label, w - 12, 9);
+  }
+  if(S.pf < 1) peMarker(ctx, r);
+}
+function peMarker(ctx, r){
+  ctx.fillStyle = css("--dim"); ctx.font = "10px ui-monospace,Menlo,Consolas,monospace";
+  ctx.textAlign = "left"; ctx.textBaseline = "top";
+  ctx.fillText("PE " + (S.pe === "v" ? "↕" : "↔") + "  PF " + {0.875:"7/8",0.75:"6/8",0.625:"5/8"}[S.pf], r.x, r.y + r.s + 3);
+}
+
+function drawPhase(){
+  const {ctx, w, h} = prep($("cvPhase")), r = imgRect(w, h, true);
+  drawGrid(ctx, TEX.phase, r, true);
+  ctx.strokeStyle = css("--line"); ctx.strokeRect(r.x - .5, r.y - .5, r.s + 1, r.s + 1);
+  axisLabels(ctx, r);
+  colorbar(ctx, r, t => cyc(-Math.PI + 2*Math.PI*t), "−π", "π", "0");
+  ctx.fillStyle = css("--muted"); ctx.font = "10px ui-monospace,Menlo,Consolas,monospace";
+  ctx.textAlign = "right"; ctx.textBaseline = "top";
+  ctx.fillText("slice centre · wrapped", w - 12, 9);
+}
+
+function drawMap(){
+  const cv = $("cvMap"), {ctx, w, h} = prep(cv), r = imgRect(w, h, true);
+  const M = R.M;
+  if(S.map === "ratio"){
+    const steps = [0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1];
+    const lim = steps.find(s => s >= R.dmax*0.999) || 1;
+    const neg = hexRgb(css("--conc")), pos = hexRgb(css("--gain")), mid = document.documentElement.dataset.theme === "light" ? [214,219,226] : [58,68,84];
+    const bg = hexRgb(css("--scene"));
+    const t = gridTex(M, (i, j) => { const q = R.ratio[j*M+i]; return q === q ? divCol((q - 1)/lim, neg, mid, pos) : bg; }, false);
+    drawGrid(ctx, t, r, false);
+    colorbar(ctx, r, x => divCol(2*x - 1, neg, mid, pos), "−" + Math.round(lim*100) + " %", "+" + Math.round(lim*100) + " %", "0");
+    axisLabels(ctx, r);
+    ctx.fillStyle = css("--muted"); ctx.font = "10px ui-monospace,Menlo,Consolas,monospace"; ctx.textAlign = "right"; ctx.textBaseline = "top";
+    ctx.fillText("smoothed |corr| / |ref| − 1", w - 12, 9);
+  } else if(S.map === "thru"){
+    drawGrid(ctx, TEX.thru, r, true);
+    colorbar(ctx, r, thruColor, "0", "1", "0.5");
+    axisLabels(ctx, r);
+    ctx.fillStyle = css("--muted"); ctx.font = "10px ui-monospace,Menlo,Consolas,monospace"; ctx.textAlign = "right"; ctx.textBaseline = "top";
+    ctx.fillText("|slice-averaged e^iφ|", w - 12, 9);
+  } else {
+    const W = R.W, {Kr, Ki} = R.K;
+    let kmax = 0; const rK = REF.K; for(let i=0;i<W*W;i++){ const a = Math.hypot(rK.Kr[i], rK.Ki[i]); if(a > kmax) kmax = a; }
+    // k-space index c sits at (c - W/2)·Δk, the same grid convention as the images
+    const t = gridTex(W, (i, j) => {
+      const a = Math.hypot(Kr[j*W+i], Ki[j*W+i])/kmax, g = 255*Math.max(0, Math.min(1, (Math.log10(a + 1e-12) + 4)/4));
+      return [g, g, g];
+    }, false);
+    drawGrid(ctx, t, r, false);
+    // acquisition window and partial-Fourier gap: sample c covers [c - ½, c + ½] in drawn cells
+    const sc = r.s/W, o = (W - M)/2, ax = r.x + (o - .5)*sc, ay = r.y + (o - .5)*sc, as = M*sc;
+    const nSkip = R.img.nSkip;
+    if(nSkip > 0){
+      ctx.fillStyle = "rgba(14,18,25,.62)";
+      if(S.pe === "v") ctx.fillRect(ax, ay, as, nSkip*sc); else ctx.fillRect(ax, ay, nSkip*sc, as);
+    }
+    ctx.strokeStyle = css("--adc"); ctx.lineWidth = 1.2; ctx.strokeRect(ax, ay, as, as);
+    ctx.strokeStyle = css("--dim"); ctx.lineWidth = 1; ctx.setLineDash([2,3]);
+    ctx.beginPath(); ctx.moveTo(r.x + r.s/2, r.y); ctx.lineTo(r.x + r.s/2, r.y + r.s); ctx.moveTo(r.x, r.y + r.s/2); ctx.lineTo(r.x + r.s, r.y + r.s/2); ctx.stroke(); ctx.setLineDash([]);
+    ctx.fillStyle = css("--adc"); ctx.font = "10px ui-monospace,Menlo,Consolas,monospace"; ctx.textAlign = "left"; ctx.textBaseline = "top";
+    ctx.fillText("sampled " + M + "×" + M + (nSkip ? " · shaded not acquired" : ""), r.x, r.y + r.s + 4);
+    ctx.fillStyle = css("--muted"); ctx.textAlign = "right"; ctx.fillText("log, 4 decades", r.x + r.s, r.y + r.s + 4);
+    ctx.textBaseline = "top"; ctx.fillText("2× the sampled k-range", w - 12, 9);
+  }
+  ctx.strokeStyle = css("--line"); ctx.lineWidth = 1; ctx.strokeRect(r.x - .5, r.y - .5, r.s + 1, r.s + 1);
+}
+
+function drawWave(){
+  const {ctx, w, h} = prep($("cvWave")), wf = R.wf;
+  const L = 50, Rr = 16, top = 34, gap = 22;
+  const hh = (h - top - gap - 34)/2;
+  const x = t => L + (w - L - Rr)*t/wf.T;
+  const font = "10px ui-monospace,Menlo,Consolas,monospace";
+  // --- gradient
+  const y0 = top + hh*0.55, gs = hh*0.5/Math.max(wf.G1, wf.G2);
+  ctx.strokeStyle = css("--grid"); ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(L, y0); ctx.lineTo(w - Rr, y0); ctx.stroke();
+  // 180 pulse
+  const tc = wf.d1 + GAP180/2, pw = 2.4e-3;
+  ctx.fillStyle = css("--rf"); ctx.globalAlpha = .55;
+  ctx.fillRect(x(tc - pw/2), y0 - hh*0.55, Math.max(2, x(tc + pw/2) - x(tc - pw/2)), hh*0.55);
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = css("--muted"); ctx.font = font; ctx.textAlign = "center"; ctx.textBaseline = "bottom";
+  ctx.fillText("180°", x(tc), y0 - hh*0.55 - 2);
+  const path = () => { ctx.beginPath(); const K = 600; for(let k=0;k<=K;k++){ const t = wf.T*k/K, X = x(t), Y = y0 - gs*wf.gAct(t); k ? ctx.lineTo(X, Y) : ctx.moveTo(X, Y); } };
+  path(); ctx.lineTo(x(wf.T), y0); ctx.lineTo(x(0), y0); ctx.closePath();
+  ctx.fillStyle = css("--grad"); ctx.globalAlpha = .16; ctx.fill(); ctx.globalAlpha = 1;
+  path(); ctx.strokeStyle = css("--grad"); ctx.lineWidth = 1.5; ctx.stroke();
+  ctx.fillStyle = css("--muted"); ctx.textAlign = "right"; ctx.textBaseline = "middle";
+  ctx.fillText("g(t)", L - 6, y0 - hh*0.25);
+  ctx.textAlign = "center"; ctx.textBaseline = "top";
+  ctx.fillText("h = +1", x(wf.d1/2), y0 + 4); ctx.fillText("h = −1", x(wf.t2 + wf.d2/2), y0 + 4);
+  ctx.textBaseline = "bottom";
+  ctx.fillStyle = css("--text");
+  ctx.fillText((wf.G1*1e3).toFixed(0) + " mT/m", x(wf.d1/2), y0 - gs*wf.G1 - 3);
+  ctx.fillText((wf.G2*1e3).toFixed(0) + " mT/m", x(wf.t2 + wf.d2/2), y0 - gs*wf.G2 - 3);
+  // --- running Maxwell integral
+  const K = 800, mt = new Float64Array(K+1);
+  let acc = 0, amax = 1e-30;
+  for(let k=1;k<=K;k++){
+    const t = wf.T*(k - .5)/K, g = wf.gAct(t), hs = t < wf.d1 + GAP180/2 ? 1 : -1;
+    acc += hs*g*g*wf.T/K; mt[k] = acc; amax = Math.max(amax, Math.abs(acc));
+  }
+  const y1 = top + hh + gap + hh/2, ms = (hh/2 - 6)/amax;
+  ctx.strokeStyle = css("--grid"); ctx.beginPath(); ctx.moveTo(L, y1); ctx.lineTo(w - Rr, y1); ctx.stroke();
+  ctx.beginPath();
+  for(let k=0;k<=K;k++){ const X = x(wf.T*k/K), Y = y1 - ms*mt[k]; k ? ctx.lineTo(X, Y) : ctx.moveTo(X, Y); }
+  ctx.strokeStyle = css("--conc"); ctx.lineWidth = 1.6; ctx.stroke();
+  const yEnd = y1 - ms*mt[K];
+  ctx.fillStyle = css("--conc"); ctx.beginPath(); ctx.arc(x(wf.T), yEnd, 3, 0, 2*Math.PI); ctx.fill();
+  ctx.fillStyle = css("--muted"); ctx.textAlign = "right"; ctx.textBaseline = "middle";
+  ctx.fillText("∫hg²dt", L - 6, y1);
+  ctx.textAlign = "right"; ctx.textBaseline = mt[K] >= 0 ? "bottom" : "top";
+  ctx.fillStyle = css("--conc");
+  ctx.fillText("m = " + fmtSig(wf.m*1e9) + " (mT/m)²ms", w - Rr, yEnd + (mt[K] >= 0 ? -5 : 5));
+  // time axis
+  ctx.fillStyle = css("--dim"); ctx.textAlign = "left"; ctx.textBaseline = "top";
+  ctx.fillText("0", L, h - 20);
+  ctx.textAlign = "right"; ctx.fillText((wf.T*1e3).toFixed(1) + " ms", w - Rr, h - 20);
+  ctx.textAlign = "right"; ctx.fillStyle = css("--text"); ctx.textBaseline = "top";
+  ctx.fillText("b = " + Math.round(wf.b/1e6) + " s/mm²", w - 12, 9);
+}
+
+/* ---------------------------------------------------------- 3D geometry */
+const VIEW = {yaw:-0.62, pitch:0.36};
+function project(p, s, cx, cy){
+  // world: x (left-right), y (up), z (bore). view: yaw about y, then pitch about screen x.
+  const cy_ = Math.cos(VIEW.yaw), sy = Math.sin(VIEW.yaw), cp = Math.cos(VIEW.pitch), sp = Math.sin(VIEW.pitch);
+  const X1 = cy_*p[2] + sy*p[0], Z1 = -sy*p[2] + cy_*p[0];     // bore axis points right at yaw 0
+  const Y2 = cp*p[1] - sp*Z1, Z2 = sp*p[1] + cp*Z1;
+  return [cx + s*X1, cy - s*Y2, Z2];
+}
+function drawGeo(){
+  const {ctx, w, h, dpr} = prep($("cvGeo"));
+  const s = Math.min(w, h)/640, cx = w/2, cy = h/2 + 10;
+  const P = p => project(p, s, cx, cy);
+  const line = (a, b) => { const A = P(a), B = P(b); ctx.beginPath(); ctx.moveTo(A[0], A[1]); ctx.lineTo(B[0], B[1]); ctx.stroke(); };
+  // bore
+  const Rb = 300, Lb = 420;
+  ctx.strokeStyle = css("--line"); ctx.lineWidth = 1;
+  for(const z of [-Lb, 0, Lb]){
+    ctx.beginPath();
+    for(let k=0;k<=64;k++){ const a = 2*Math.PI*k/64, q = P([Rb*Math.cos(a), Rb*Math.sin(a), z]); k ? ctx.lineTo(q[0], q[1]) : ctx.moveTo(q[0], q[1]); }
+    if(z === 0){ ctx.setLineDash([2,4]); ctx.stroke(); ctx.setLineDash([]); } else ctx.stroke();
+  }
+  for(let k=0;k<4;k++){ const a = Math.PI/4 + k*Math.PI/2; line([Rb*Math.cos(a), Rb*Math.sin(a), -Lb], [Rb*Math.cos(a), Rb*Math.sin(a), Lb]); }
+  // axes
+  ctx.font = "11px ui-monospace,Menlo,Consolas,monospace"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  const axes = [[[1,0,0],"x"],[[0,1,0],"y"],[[0,0,1],"z"]];
+  ctx.strokeStyle = css("--axis"); ctx.fillStyle = css("--muted"); ctx.lineWidth = 1;
+  for(const [d, nm] of axes){
+    line([0,0,0], [d[0]*230, d[1]*230, d[2]*230]);
+    const q = P([d[0]*252, d[1]*252, d[2]*252]); ctx.fillText(nm, q[0], q[1]);
+  }
+  // slice with texture (a plane maps affinely under orthographic projection)
+  const f = R.frame, c = [S.X, S.Y, S.Z], half = FOV*1e3/2;
+  const C0 = P(c), U = P([c[0]+f.u[0], c[1]+f.u[1], c[2]+f.u[2]]), V = P([c[0]+f.v[0], c[1]+f.v[1], c[2]+f.v[2]]);
+  const au = [U[0]-C0[0], U[1]-C0[1]], av = [V[0]-C0[0], V[1]-C0[1]];      // screen px per mm
+  const tex = S.tex === "phase" ? TEX.phase : S.tex === "thru" ? TEX.thru : TEX.img;
+  const Nt = tex.gridN, k = 2*half/Nt, e0 = (Nt/2 + .5)*k;
+  const corner = (a, b) => P([c[0] + a*half*f.u[0] + b*half*f.v[0], c[1] + a*half*f.u[1] + b*half*f.v[1], c[2] + a*half*f.u[2] + b*half*f.v[2]]);
+  const q = [corner(-1,-1), corner(1,-1), corner(1,1), corner(-1,1)];
+  ctx.save();
+  ctx.beginPath(); q.forEach((p, i) => i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1])); ctx.closePath(); ctx.clip();
+  // texture cell (px,py) -> u = (px - ½ - Nt/2)k, v = (Nt/2 + ½ - py)k, so cell centres land on the samples
+  ctx.setTransform(dpr*au[0]*k, dpr*au[1]*k, -dpr*av[0]*k, -dpr*av[1]*k,
+                   dpr*(C0[0] - au[0]*e0 + av[0]*e0), dpr*(C0[1] - au[1]*e0 + av[1]*e0));
+  ctx.globalAlpha = 0.93; ctx.imageSmoothingEnabled = S.tex !== "img";
+  ctx.drawImage(tex, 0, 0);
+  ctx.restore();
+  ctx.globalAlpha = 1;
+  ctx.strokeStyle = css("--ui"); ctx.lineWidth = 1;
+  ctx.beginPath(); q.forEach((p, i) => i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1])); ctx.closePath(); ctx.stroke();
+  // isocentre
+  const O = P([0,0,0]);
+  ctx.fillStyle = css("--text"); ctx.beginPath(); ctx.arc(O[0], O[1], 2.5, 0, 2*Math.PI); ctx.fill();
+  // gradient direction
+  const n = R.n, L = 190, tip = P([n[0]*L, n[1]*L, n[2]*L]);
+  ctx.strokeStyle = css("--text"); ctx.fillStyle = css("--text"); ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(O[0], O[1]); ctx.lineTo(tip[0], tip[1]); ctx.stroke();
+  const dx = tip[0]-O[0], dy = tip[1]-O[1], dl = Math.hypot(dx, dy);
+  if(dl > 6){
+    const ux = dx/dl, uy = dy/dl;
+    ctx.beginPath(); ctx.moveTo(tip[0] + ux*4, tip[1] + uy*4);
+    ctx.lineTo(tip[0] - ux*8 - uy*5, tip[1] - uy*8 + ux*5); ctx.lineTo(tip[0] - ux*8 + uy*5, tip[1] - uy*8 - ux*5); ctx.closePath(); ctx.fill();
+  }
+  ctx.font = "11px ui-monospace,Menlo,Consolas,monospace"; ctx.textAlign = "left"; ctx.textBaseline = "bottom";
+  ctx.fillText("g", tip[0] + 7, tip[1] - 3);
+  ctx.fillStyle = css("--muted"); ctx.font = "10px ui-monospace,Menlo,Consolas,monospace"; ctx.textAlign = "right"; ctx.textBaseline = "top";
+  ctx.fillText("B₀ = " + S.B0.toFixed(2) + " T along z", w - 12, 9);
+  ctx.fillText("n = (" + n.map(v => (Math.abs(v) < 5e-4 ? 0 : v).toFixed(2)).join(", ") + ")", w - 12, 23);
+}
+
+/* ---------------------------------------------------------- render loop */
+let dirty = true, redraw = true, scheduled = false;
+function schedule(recompute){ if(recompute) dirty = true; redraw = true; if(!scheduled){ scheduled = true; requestAnimationFrame(render); } }
+function render(){
+  scheduled = false;
+  if(dirty){ compute(); buildTextures(); dirty = false; }
+  if(!redraw) return;
+  redraw = false;
+  drawGeo(); drawWave(); drawPhase();
+  drawImagePane($("cvRef"), TEX.ref, "");
+  drawImagePane($("cvImg"), TEX.img, "signal in object " + (100*R.sigFrac).toFixed(1) + " %");
+  drawMap();
+}
+
+/* ---------------------------------------------------------- wiring */
+function bindRange(id, parse){
+  $(id).addEventListener("input", e => { S[id] = parse(e.target.value); syncLabels(); schedule(true); });
+}
+$("B0").addEventListener("input", e => { S.B0 = +slToB0(+e.target.value).toFixed(3); syncLabels(); schedule(true); });
+for(const k of ["G","th","ph","ang","X","Y","Z"]) bindRange(k, v => parseInt(v, 10));   // G also moves the minimum lobe duration
+for(const k of ["d1","d2","thk"]) bindRange(k, v => parseFloat(v));
+$("orient").addEventListener("change", e => { S.orient = e.target.value; syncLabels(); schedule(true); });
+$("mat").addEventListener("change", e => { S.M = +e.target.value; schedule(true); });
+$("pf").addEventListener("change", e => { S.pf = +e.target.value; schedule(true); });
+$("pe").addEventListener("change", e => { S.pe = e.target.value; schedule(true); });
+$("eff").addEventListener("change", e => { S.eff = e.target.value; schedule(true); });
+$("map").addEventListener("change", e => { S.map = e.target.value; syncLabels(); schedule(false); });
+$("tex").addEventListener("change", e => { S.tex = e.target.value; schedule(false); });
+for(const b of document.querySelectorAll("[data-b0]"))
+  b.addEventListener("click", () => { S.B0 = +b.dataset.b0; syncInputs(); schedule(true); });
+for(const b of document.querySelectorAll("[data-dir]"))
+  b.addEventListener("click", () => { setDir(dirPresets()[b.dataset.dir]); syncInputs(); schedule(true); });
+for(const b of document.querySelectorAll("[data-preset]"))
+  b.addEventListener("click", () => {
+    const p = PRESETS[b.dataset.preset];
+    for(const k in p) if(k !== "note") S[k] = p[k];
+    $("presetNote").textContent = p.note;
+    for(const o of document.querySelectorAll("[data-preset]")) o.setAttribute("aria-pressed", o === b ? "true" : "false");
+    syncInputs(); schedule(true);
+  });
+$("sym").addEventListener("click", () => { S.d2 = S.d1; syncInputs(); schedule(true); });
+$("iso").addEventListener("click", () => { S.X = S.Y = S.Z = 0; syncInputs(); schedule(true); });
+$("resetView").addEventListener("click", () => { VIEW.yaw = -0.62; VIEW.pitch = 0.36; schedule(false); });
+{
+  const cv = $("cvGeo"); let drag = null;
+  cv.addEventListener("pointerdown", e => { drag = {x:e.clientX, y:e.clientY, yaw:VIEW.yaw, pitch:VIEW.pitch}; cv.setPointerCapture(e.pointerId); cv.classList.add("drag"); });
+  cv.addEventListener("pointermove", e => {
+    if(!drag) return;
+    VIEW.yaw = drag.yaw + (e.clientX - drag.x)*0.008;
+    VIEW.pitch = Math.max(-1.45, Math.min(1.45, drag.pitch + (e.clientY - drag.y)*0.008));
+    schedule(false);
+  });
+  const up = () => { drag = null; cv.classList.remove("drag"); };
+  cv.addEventListener("pointerup", up); cv.addEventListener("pointercancel", up);
+}
+$("theme").addEventListener("click", () => {
+  const root = document.documentElement;
+  root.dataset.theme = root.dataset.theme === "light" ? "dark" : "light";
+  if(R) buildTextures();
+  schedule(false);
+});
+if(window.ResizeObserver) new ResizeObserver(() => schedule(false)).observe(document.querySelector("main"));
+else window.addEventListener("resize", () => schedule(false));
+
+/* ------------------------------------------------------------- about */
+$("ver").textContent = "v" + VERSION;
+$("credit").textContent = `Maxwell sim v${VERSION} · ${AUTHORS}`;
+document.querySelector("#about .by").textContent = AUTHORS;
+$("changelog").innerHTML = CHANGELOG.map(([v,d,t], i) =>
+  `<div class="rel"><h5>${v} <em>· ${i === 0 ? "current, " : ""}${d}</em></h5><p>${t}</p></div>`).join("");
+{
+  const about = $("about");
+  const close = () => { about.hidden = true; $("ver").focus(); };
+  $("ver").addEventListener("click", () => {
+    about.hidden = false; about.querySelector(".sheet").scrollTop = 0;
+    $("aboutClose").focus({preventScroll:true});
+  });
+  $("aboutClose").addEventListener("click", close);
+  about.addEventListener("click", e => { if(e.target === about) close(); });
+  document.addEventListener("keydown", e => { if(e.key === "Escape" && !about.hidden) close(); });
+}
+
+document.querySelector('[data-preset="clin"]').click();
+</script>
+<script>
+/* House style (shared by the MRI simulators): one light/dark preference for the
+   whole suite. The saved choice (or the operating-system setting on a first
+   visit) is applied by clicking the app's own theme button, so each app redraws
+   through its usual path. The button always names the theme it switches TO. */
+(function () {
+  "use strict";
+  var KEY = "mrisim.theme", LEGACY = [];
+  function saved() {
+    try {
+      var keys = [KEY].concat(LEGACY);
+      for (var i = 0; i < keys.length; i++) {
+        var v = localStorage.getItem(keys[i]);
+        if (v === "light" || v === "dark") return v;
+      }
+    } catch (e) { /* storage can be unavailable for file:// pages */ }
+    return null;
+  }
+  window.addEventListener("load", function () {
+    setTimeout(function () {
+      var btn = document.getElementById("theme");
+      if (!btn) return;
+      var root = document.documentElement;
+      var cur = function () { return root.getAttribute("data-theme") === "light" ? "light" : "dark"; };
+      var label = function () { btn.textContent = cur() === "dark" ? "Light" : "Dark"; };
+      var want = saved() || (window.matchMedia &&
+        window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark");
+      if (want !== cur()) btn.click();
+      label();
+      btn.addEventListener("click", function () {
+        label();
+        try { localStorage.setItem(KEY, cur()); } catch (e) { /* file:// */ }
+      });
+    }, 0);
+  });
+})();
+</script>
+</body>
+</html>
