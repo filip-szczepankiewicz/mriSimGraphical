@@ -1,12 +1,12 @@
 # MRI simulators for visualization
 Designed by Filip Sz (Lund University) and coded by Claude (Anthropic) and ChatGPT (OpenAI).
 
-Six interactive MRI physics visualisations. Each is a single self-contained HTML
+Seven interactive MRI physics visualisations. Each is a single self-contained HTML
 file with no build step, no server and no network access, and should run well on
 both PCs and phones. The 3D views use WebGL, with Three.js bundled inside the
 file.
 
-All six share one look: the simulator name in capitals at the top left of the
+All seven share one look: the simulator name in capitals at the top left of the
 control rail, a version chip and a light/dark chip at the right of the same line,
 a one-line description underneath, and uppercase section headings below that. The
 light/dark choice is shared between the files and remembered, and follows the
@@ -28,6 +28,7 @@ that are not corrected for field strength.
 | [`mriInductSim.html`](#mriinductsimhtml--induction-sim) | Signal induction in a receive coil |
 | [`mriSliceSim.html`](#mrislicesimhtml--slice-sim) | Slice-selective excitation and the rewinder |
 | [`mriReadoutSim.html`](#mrireadoutsimhtml--readout-sim) | K-space trajectories in spin-echo imaging |
+| [`mriArtifactSim.html`](#mriartifactsimhtml--artifact-sim) | Image artifacts: chemical shift, aliasing, Gibbs ringing |
 
 ## How to use
 
@@ -136,6 +137,89 @@ blades cover k-space as a fan and every blade re-samples the centre. The blade
 count follows π/2·N/L, as in PROPELLER/BLADE. For these blades the sequence diagram switches its
 gradient rows to the blade axes, since the physical Gx and Gy are their rotation
 by the blade angle.
+
+## `mriArtifactSim.html` — Artifact sim
+
+![Artifact sim](docs/img/mriArtifactSim.png)
+
+Image artifacts as consequences of the signal equation rather than as pictures.
+A 2D analytic phantom (ellipses and rectangles, water and fat as separate
+species) has a closed-form Fourier transform, so k-space is computed exactly at
+every acquired sample. Each sample also carries the time at which it was
+measured, and the image is a plain inverse DFT. The artifacts are not drawn.
+They follow from the fat phase term, the field offset around a susceptibility
+source, the sampling step Δk = 1/FOV and the finite k-space extent.
+
+Four panels: the true object (or its field map) with the FOV, k-space coloured
+by acquisition time, the reconstructed image, and the signal equation with the
+term that causes the chosen artifact highlighted, live numbers and a diagnostic
+plot. A dropdown selects the artifact and loads a preset. All physics stays on
+in every mode, so effects combine as they would on a scanner.
+
+- **Chemical shift, 1st kind.** Fat is shifted f<sub>F</sub>/BW<sub>px</sub>
+  pixels along each low-bandwidth direction. In line-by-line imaging (and
+  multi-echo spin echo) the phase direction has effectively infinite bandwidth,
+  so the shift is along readout only. In EPI it is f<sub>F</sub>·N<sub>PE</sub>·ESP
+  pixels along phase, which is tens of pixels, and a faint fat ghost appears at
+  N/2 from the alternating readout direction.
+- **Chemical shift, 2nd kind.** In-phase and opposed-phase gradient echoes, the
+  dark boundary outline and the signal drop in fatty liver. A spin echo
+  refocuses the effect. Single-peak or six-peak fat.
+- **Aliasing.** Phase wrap-around, readout and phase oversampling.
+- **Gibbs ringing.** Truncation overshoot of about 9 %, k-space filters (Tukey,
+  Hann, Hamming) against PSF width, and zero-filling.
+- **Susceptibility.** A sphere of air, titanium, Co–Cr or steel, which can be
+  dragged over the object, with the analytic dipole field
+  Δf = γ̄B₀(Δχ/3)(a/r)³(3cos²θ − 1) and B₀ through or in the slice. The same
+  field offset is displaced along whichever direction has the lowest bandwidth
+  per pixel. In line-by-line imaging that is readout (pile-up, voids, extra
+  dephasing in gradient echoes, view-angle tilting with its blur of about
+  BW<sub>RF</sub>/BW<sub>px</sub> pixels). In EPI it is phase: stretching and
+  compression by Δf·N<sub>PE</sub>·ESP/R pixels, which flips with the blip
+  polarity. Quick buttons switch between metal with spin echo and air with EPI.
+- **Eddy currents and gradient delay.** Modelled as errors in the k-space
+  trajectory, k(t) + γ̄∫[G(t′−δt) − G(t′) + g<sub>ec</sub>(t′)]dt′ with
+  g<sub>ec</sub> = −(dG/dt) ⊗ a·e<sup>−t/τ</sup>. They are computed from the full
+  gradient waveforms of the shot, and the analytic object is evaluated exactly at
+  the actual k. This gives the EPI Nyquist (N/2) ghost, with an idealised
+  reference-scan correction, and the diffusion eddy-current distortions of EPI:
+  scaling (phase), shear (readout) and shift (slice at an offset). A button
+  freezes the b = 0 image for comparison, and a plot shows the gradients and
+  eddy fields over the shot. Line-by-line sequences are shown to be robust.
+
+- **Flow.** Pulsatile blood in the superior sagittal sinus, flowing through
+  the slice. The vessel's k-space is exact, and each phase-encoding line gets the
+  vessel's complex amplitude at the time it was acquired, M(v)·e<sup>i2πM₁v</sup>.
+  M₁ is computed from the through-slice gradients (including spin-echo
+  crushers), and M(v) covers spin-echo washout and gradient-echo inflow. Ghosts
+  emerge along phase at multiples of N<sub>PE</sub>·TR/T<sub>c</sub>, with flow
+  compensation and a saturation band as remedies. EPI barely ghosts.
+- **Spike and RF interference.** One corrupted k-space sample, placed by
+  clicking the k-space panel, gives stripes of wavelength 1/|k₀| across the
+  whole image. An external tone that is not phase-locked to the excitations
+  gives the zipper along phase at f/BW<sub>px</sub>.
+
+A Simple/Advanced switch sits under the artifact list. Simple offers the
+artifact, three worked examples of it, and the notes, with no sliders at
+all. Advanced adds the full control stack in collapsible sections.
+
+Spin echo, gradient echo, and single-shot gradient-echo and spin-echo EPI.
+Adjustable B₀, TE, bandwidth, FOV, matrix, readout direction and polarity, fat
+saturation and noise. The noise per k-space sample scales with √bandwidth, so
+the SNR cost of a higher bandwidth is visible. Four phantoms: abdomen,
+Shepp–Logan head with a fat ring, a QA phantom with oil and water vials, and a
+20 mm grid. A frozen reference with a draggable split view allows before/after
+comparison.
+
+With a susceptibility source, every point of a fine sub-pixel grid is shifted
+and phase-weighted by its own frequency. Only the difference from the exact
+analytic image is computed, so the image away from the source is unchanged.
+Proton density only: no relaxation, so no T2\* blurring in EPI. Sources are
+spheres centred in the slice, with a field linear in Δχ, and through-plane slice
+bending is not modelled. Eddy currents are linear fields with one exponential
+per axis and no cross-terms, and diffusion lobes drive eddy currents without
+attenuating the signal. Flow is plug flow through the slice in a single
+vessel, without velocity profiles or turbulence.
 
 ## Licence
 
