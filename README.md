@@ -1,12 +1,12 @@
 # MRI simulators for visualization
 Designed by Filip Sz (Lund University) and coded by Claude (Anthropic) and ChatGPT (OpenAI).
 
-Eight interactive MRI physics visualisations. Each is a single self-contained HTML
+Interactive MRI physics visualisations. Each is a single self-contained HTML
 file with no build step, no server and no network access, and should run well on
 both PCs and phones. The 3D views use WebGL, with Three.js bundled inside the
 file.
 
-All eight share one look: the simulator name in capitals at the top left of the
+They all share one look: the simulator name in capitals at the top left of the
 control rail, a version chip and a light/dark chip at the right of the same line,
 a one-line description underneath, and uppercase section headings below that. The
 light/dark choice is shared between the files and remembered, and follows the
@@ -47,9 +47,8 @@ The simulators must be downloaded and opened in a local browser. Clicking an
 
 No installation, server or internet connection is needed; everything runs
 inside the file. A recent version of Chrome, Edge, Firefox or Safari is
-recommended. Video recording in the Sequence sim and Field sim relies on the
+recommended. Video recording in the simulators that offer it relies on the
 WebCodecs API, which is best supported in Chromium-based browsers (Chrome, Edge).
-The same applies to the B-tensor sim.
 
 On a phone, save the file to the device and open it from the file manager in a
 browser. Some mobile file viewers show the source instead of running the page.

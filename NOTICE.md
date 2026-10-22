@@ -7,25 +7,12 @@ Szczepankiewicz (Lund University). Generative-AI systems were used as
 development tools during implementation, debugging, revision, and
 documentation.
 
-Claude (Anthropic)
-- Generated code and revisions for the Field sim.
-- Generated code and revisions for the Sequence sim.
-- Generated code and revisions for the Spin packets / relaxation sim.
-- Generated code and revisions for several versions of the Induction bench.
-- Generated code and revisions for the Slice sim.
-- Generated code and revisions for the Artifact sim.
-- Harmonised the interface style across all six simulators (header, control rail,
-  palette, controls and dialog), including in the Readout sim (formerly K-space sim).
-
-ChatGPT (OpenAI)
-- Generated code and revisions for the Induction bench, including teaching
-  overlays and later interface, visualization, debugging, documentation, and
-  spin-density-operator work.
-- Generated code and revisions for the Readout sim (formerly K-space sim).
-
-The individual simulator files contain more detailed development history where
-available. In particular, the Induction bench records specific contributions
-from both Claude and ChatGPT.
+Claude (Anthropic) and ChatGPT (OpenAI) generated code, revisions, and
+documentation for the simulators, and Claude harmonised the shared interface
+style (header, control rail, palette, controls and dialog). Each simulator file
+states which tools were used for it, in its header comment and in the credits
+shown under its version chip, and contains its own development history where
+available. Some simulators were developed with both tools.
 
 Claude, Anthropic, ChatGPT, and OpenAI are identified here as AI-assisted
 development tools and service providers. They are not named as copyright
@@ -35,10 +22,10 @@ not imply endorsement by Anthropic or OpenAI.
 THIRD-PARTY SOFTWARE
 
 Some self-contained simulator files bundle third-party open-source software,
-including Three.js and OrbitControls (bundled in the Field sim, Induction
-bench and Slice sim). Those components remain subject to their
-own copyright notices and license terms. Existing third-party notices must be
-retained where required.
+for example Three.js, OrbitControls and mp4-muxer (all MIT licensed). The
+bundled code is included inside the simulator files that use it. Those
+components remain subject to their own copyright notices and license terms.
+Existing third-party notices must be retained where required.
 
 This NOTICE is informational only. It does not add restrictions or conditions
 to the MIT License covering the project material released by the copyright
