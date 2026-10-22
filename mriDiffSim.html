@@ -1,0 +1,1245 @@
+<!doctype html>
+<!--
+  Diffusion sim — a teaching visualisation of the diffusion-weighted signal
+  from a voxel that contains a distribution of diffusion tensors, encoded with
+  a b-tensor of arbitrary size, shape and orientation.
+  Designed by Filip Sz (Lund University) and coded by Claude (Anthropic).
+
+  Single self-contained file: no build step, no network, no dependencies.
+  Version history lives in the CHANGELOG constant in the script below and is
+  shown in the version dialog; bump VERSION whenever you change the physics or the UI.
+  VERSION is the single source of truth — this header deliberately does not repeat it.
+  The file name carries no version (mriDiffSim.html); git tracks the history.
+-->
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Diffusion sim — signal from a distribution of diffusion tensors</title>
+<meta name="author" content="Filip Sz (Lund University); Claude (Anthropic)">
+<meta name="description" content="Interactive visualisation of the diffusion-weighted signal S(b) = ⟨exp(−B:D)⟩ for a voxel of diffusion tensors and a tunable b-tensor.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23151b24'/%3E%3Cellipse cx='16' cy='16' rx='11' ry='4.5' transform='rotate(-35 16 16)' fill='none' stroke='%232fb6b0' stroke-width='2.4'/%3E%3Ccircle cx='16' cy='16' r='2.6' fill='%23e2554d'/%3E%3C/svg%3E">
+<style>
+:root{
+  --bg:#0e1219; --panel:#151b24; --panel2:#1b2230; --rule:#26303f;
+  --text:#ccd6e4; --muted:#7c8a9d; --dim:#4d5a6b;
+  --axis:#5c6b7e; --grid:#1f2836;
+  --sig:#e2554d; --gauss:#9aa7b8;
+  --lte:#f2a93f; --pte:#8f80f5; --ste:#7fa6c9;
+  --iso:#9aa5b3;
+  --accent:#2fb6b0;
+  --btn:#1b2230; --btnh:#232c3c; --btna:#2a3547;
+}
+html[data-theme="light"]{
+  --bg:#f2f4f7; --panel:#ffffff; --panel2:#f7f9fb; --rule:#d7dde5;
+  --text:#1b2430; --muted:#5f6c7d; --dim:#9aa5b3;
+  --axis:#8b96a4; --grid:#e6eaf0;
+  --sig:#b3221a; --gauss:#6a7686;
+  --lte:#c97a12; --pte:#5a49d6; --ste:#41709c;
+  --iso:#8b93a0;
+  --accent:#0f8f8a;
+  --btn:#eef1f5; --btnh:#e4e9f0; --btna:#d9e0ea;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0; background:var(--bg); color:var(--text);
+  font:13px/1.45 ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
+  -webkit-font-smoothing:antialiased;
+  display:grid; grid-template-columns:300px 1fr; height:100vh; overflow:hidden;
+}
+/* ------------------------------------------------------------- rail */
+#rail{background:var(--panel); border-right:1px solid var(--rule); overflow-y:auto; padding:0 0 24px}
+#rail::-webkit-scrollbar{width:9px}
+#rail::-webkit-scrollbar-thumb{background:var(--rule)}
+section{border-bottom:1px solid var(--rule); padding:11px 14px 13px}
+h2{font-size:10px; font-weight:400; letter-spacing:.18em; text-transform:uppercase; color:var(--dim); margin:0 0 9px}
+.row{display:flex; gap:6px; flex-wrap:wrap}
+button{
+  font:inherit; font-size:11.5px; color:var(--text); background:var(--btn);
+  border:1px solid var(--rule); border-radius:3px; padding:5px 9px; cursor:pointer;
+}
+button:hover{background:var(--btnh)}
+button:active{background:var(--btna)}
+button[aria-pressed="true"]{border-color:var(--accent); color:var(--accent)}
+button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--accent); outline-offset:2px}
+.ctl{margin:0 0 10px}
+.ctl:last-child{margin-bottom:0}
+.lab{display:flex; justify-content:space-between; align-items:baseline; gap:8px; margin-bottom:2px}
+.lab span:first-child{color:var(--muted); font-size:12px}
+.val{color:var(--text); font-size:12px; font-variant-numeric:tabular-nums}
+.ctl.off{opacity:.5}
+.sub{color:var(--dim); font-size:10.5px; line-height:1.4; margin:3px 0 0}
+input[type=range]{-webkit-appearance:none; appearance:none; width:100%; height:18px; margin:0; background:transparent; cursor:pointer}
+input[type=range]::-webkit-slider-runnable-track{height:2px; background:var(--rule)}
+input[type=range]::-moz-range-track{height:2px; background:var(--rule)}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none; width:12px; height:12px; margin-top:-5px; border:0; border-radius:50%; background:var(--accent)}
+input[type=range]::-moz-range-thumb{width:12px; height:12px; border:0; border-radius:50%; background:var(--accent)}
+input[type=range]:disabled{cursor:default; opacity:.5}
+label.chk{display:flex; align-items:center; gap:7px; padding:2.5px 0; cursor:pointer; font-size:11.5px; color:var(--text)}
+input[type=checkbox]{accent-color:var(--accent); margin:0; cursor:pointer}
+select{
+  font:inherit; font-size:11.5px; color:var(--text); background:var(--panel2);
+  border:1px solid var(--rule); border-radius:3px; padding:4px 6px; width:100%; cursor:pointer;
+}
+table.read{width:100%; border-collapse:collapse; font-size:11.5px; font-variant-numeric:tabular-nums}
+table.read td{padding:2px 0}
+table.read td:first-child{color:var(--muted)}
+table.read td:last-child{text-align:right; color:var(--text)}
+#keys{list-style:none; margin:8px 0; padding:0; border:1px solid var(--rule); border-radius:3px; max-height:168px; overflow-y:auto}
+#keys li{display:flex; align-items:center; gap:6px; padding:2px 4px 2px 7px; border-bottom:1px solid var(--rule); font-size:11px; color:var(--muted)}
+#keys li:last-child{border-bottom:0}
+#keys li.cur, #keys li.cur .d{color:var(--accent)}
+#keys .k{color:var(--dim); min-width:16px; font-variant-numeric:tabular-nums}
+#keys .d{flex:1; background:none; border:0; padding:2px 0; text-align:left; color:var(--text); font-size:11px; cursor:pointer}
+#keys .d:hover{background:none; color:var(--accent)}
+#keys .x{background:none; border:0; padding:0 4px; color:var(--dim); font-size:13px; line-height:1}
+#keys .x:hover{background:none; color:var(--text)}
+#keys .empty{color:var(--dim); padding:7px}
+input[type=number]{font:inherit; font-size:11.5px; color:var(--text); background:var(--panel2); border:1px solid var(--rule); border-radius:3px; padding:4px 6px; width:58px; text-align:right}
+.row select{width:auto; flex:1}
+#recStatus{color:var(--muted); font-size:10.5px; line-height:1.45; margin:8px 0 0; min-height:1.4em}
+button.rec .dot{display:inline-block; width:7px; height:7px; border-radius:50%; background:var(--sig); margin-right:6px; vertical-align:baseline}
+#note{color:var(--muted); font-size:11px; line-height:1.5; margin:0}
+#note b{color:var(--text); font-weight:600}
+sub,sup{font-size:.75em; line-height:0}
+
+/* header (house style) */
+#rail .brand{
+  position:sticky; top:0; z-index:3; background:var(--panel);
+  border-bottom:1px solid var(--rule); padding:13px 14px 11px; margin:0;
+  display:flex; flex-wrap:wrap; align-items:baseline; gap:0 5px;
+}
+#rail .brand h1{margin:0 auto 0 0; font-size:12px; font-weight:600; line-height:1.45; letter-spacing:.16em; text-transform:uppercase; white-space:nowrap}
+#rail .brand .brand-sub{flex:1 0 100%; margin:6px 0 0; font-size:11px; line-height:1.4; color:var(--muted)}
+.themebtn,button.themebtn{
+  appearance:none; background:transparent; border:1px solid var(--rule); color:var(--muted);
+  font:inherit; font-size:10px; line-height:1.45; letter-spacing:.1em; text-transform:uppercase;
+  padding:3px 7px; cursor:pointer; border-radius:2px;
+}
+.themebtn:hover,button.themebtn:hover{background:transparent; color:var(--text); border-color:var(--muted)}
+.credit{margin:14px 14px 0; font-size:10px; line-height:1.6; color:var(--dim); letter-spacing:.02em}
+
+/* ------------------------------------------------------------- views */
+main{display:grid; grid-template-rows:minmax(0,1.5fr) minmax(0,1fr); min-width:0; overflow:hidden}
+body.one main{grid-template-rows:minmax(0,1fr); grid-template-columns:minmax(0,2.35fr) minmax(0,2fr)}
+body.one #top{border-bottom:none}
+body.one #sigPane{border-left:1px solid var(--rule)}
+#top{display:grid; grid-template-columns:1fr 1.35fr; min-height:0; border-bottom:1px solid var(--rule)}
+.pane{position:relative; min-width:0; min-height:0}
+.pane+.pane{border-left:1px solid var(--rule)}
+.pane canvas{position:absolute; inset:0; width:100%; height:100%; display:block}
+.tag{position:absolute; top:9px; left:12px; z-index:2; pointer-events:none; font-size:10px; letter-spacing:.13em; text-transform:uppercase; color:var(--dim)}
+.hint{position:absolute; bottom:8px; right:12px; z-index:2; pointer-events:none; font-size:10px; color:var(--dim)}
+.orbit{cursor:grab; touch-action:none}
+.orbit.drag{cursor:grabbing}
+@media (max-width:1000px){
+  body{grid-template-columns:1fr; grid-template-rows:auto auto; height:auto; overflow:auto}
+  #rail{border-right:none; border-bottom:1px solid var(--rule); overflow:visible}
+  main{height:auto; grid-template-rows:none}
+  #top{grid-template-columns:1fr; grid-template-rows:36vh 56vh}
+  .pane+.pane{border-left:none; border-top:1px solid var(--rule)}
+  #sigPane{height:52vh}
+  body.one main{grid-template-columns:none; grid-template-rows:none}
+  body.one #sigPane{border-left:none}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+
+/* about dialog (house style) */
+#about[hidden]{display:none}
+#about{position:fixed; inset:0; z-index:40; display:grid; place-items:center; background:rgba(0,0,0,.5); padding:20px}
+#about .sheet{background:var(--panel); border:1px solid var(--rule); border-radius:4px; padding:20px 22px; max-width:540px; width:100%; max-height:82vh; overflow-y:auto}
+#about h3{margin:0 0 3px; font-size:13px; letter-spacing:.16em; text-transform:uppercase}
+#about .by{margin:0 0 12px; color:var(--accent); font-size:12px}
+#about .note{margin:0 0 12px; color:var(--muted); font-size:11.5px; line-height:1.6}
+#about .note b{color:var(--text); font-weight:600}
+#about .rel{border-top:1px solid var(--rule); padding-top:9px; margin-top:9px}
+#about .rel h5{margin:0 0 5px; font-size:11px; letter-spacing:.1em; font-weight:600; color:var(--text)}
+#about .rel h5 em{color:var(--dim); font-style:normal; font-weight:400; letter-spacing:0}
+#about .rel p{margin:0; color:var(--muted); font-size:11.5px; line-height:1.6}
+#about #aboutClose{margin-top:18px}
+</style>
+</head>
+<body>
+
+<div id="rail">
+  <div class="brand">
+    <h1>Diffusion sim</h1>
+    <button class="themebtn" id="ver" type="button" title="Version, credits and changelog"></button>
+    <button class="themebtn" id="theme" type="button" title="Switch colour theme">Light</button>
+    <p class="brand-sub">Signal from a voxel of diffusion tensors, S(b) = ⟨exp(−B:D)⟩</p>
+  </div>
+
+  <section>
+    <h2>Encoding</h2>
+    <div class="row" style="margin-bottom:10px">
+      <button type="button" id="shLTE" title="Linear tensor encoding (b_Δ = 1)">LTE</button>
+      <button type="button" id="shPTE" title="Planar tensor encoding (b_Δ = −½)">PTE</button>
+      <button type="button" id="shSTE" title="Spherical tensor encoding (b_Δ = 0)">STE</button>
+    </div>
+    <div id="encCtl"></div>
+    <label class="chk"><input type="checkbox" id="powder"> Powder-average the signal</label>
+    <label class="chk"><input type="checkbox" id="powderView"> Show all orientations in the b-tensor view</label>
+    <p class="sub">Encoding B = b·B̂, with trace(B̂) = 1. The b slider moves the marker on the signal curve.</p>
+  </section>
+
+  <section>
+    <h2>Tissue</h2>
+    <div class="ctl">
+      <div class="lab"><span>Distribution</span></div>
+      <select id="preset"></select>
+    </div>
+    <div id="tisCtl"></div>
+    <div class="ctl" id="oriCtl">
+      <div class="lab"><span>Orientation</span></div>
+      <select id="ori">
+        <option value="aligned">Aligned along z</option>
+        <option value="crossing">Two populations, z and x</option>
+        <option value="random">Random (uniform)</option>
+      </select>
+    </div>
+    <div id="tisCtl2"></div>
+  </section>
+
+  <section>
+    <h2>Display</h2>
+    <div class="ctl">
+      <div class="lab"><span>Layout</span></div>
+      <div class="row">
+        <button type="button" id="layTwo" aria-pressed="true">Two rows</button>
+        <button type="button" id="layOne" aria-pressed="false">One row</button>
+      </div>
+      <p class="sub">Recordings use the same layout.</p>
+    </div>
+    <div class="ctl">
+      <div class="lab"><span>b range</span></div>
+      <select id="brange">
+        <option value="2000" selected>0 – 2000 s/mm²</option>
+        <option value="3000">0 – 3000 s/mm²</option>
+        <option value="5000">0 – 5000 s/mm²</option>
+      </select>
+    </div>
+    <label class="chk"><input type="checkbox" id="cScaleB" checked> Scale the b-tensor glyph with b</label>
+    <label class="chk"><input type="checkbox" id="cFade" checked> Fade tensors by remaining signal</label>
+    <div class="ctl" id="fadeMapCtl" style="margin-top:4px">
+      <select id="fadeMap" aria-label="Opacity mapping">
+        <option value="log" selected>Opacity on a log scale (more contrast)</option>
+        <option value="lin">Opacity equal to the signal</option>
+      </select>
+    </div>
+    <div id="fadeCtl"></div>
+    <label class="chk"><input type="checkbox" id="cRef" checked> LTE, PTE and STE references</label>
+    <label class="chk"><input type="checkbox" id="cGauss" checked> Mean tensor ⟨D⟩ (single Gaussian)</label>
+    <label class="chk"><input type="checkbox" id="cMono"> Monoexponential at the mean</label>
+  </section>
+
+  <section>
+    <h2>Sweep</h2>
+    <div class="row">
+      <select id="swPreset" aria-label="Sweep preset">
+        <option value="tour">Shapes, random rotations</option>
+        <option value="bramp">b from 0 to max</option>
+        <option value="dirs">Directions on a hemisphere, current shape</option>
+        <option value="rots">Random rotations, current shape</option>
+        <option value="random">Random b-tensors</option>
+      </select>
+      <input type="number" id="swN" min="2" max="60" value="12" aria-label="Number of keyframes">
+      <button type="button" id="swGen">Generate</button>
+    </div>
+    <ol id="keys"></ol>
+    <div class="row" style="margin-bottom:10px">
+      <button type="button" id="swAdd">Add current</button>
+      <button type="button" id="swClear">Clear</button>
+    </div>
+    <div id="swCtl"></div>
+    <label class="chk"><input type="checkbox" id="swClosed" checked> Return to first</label>
+    <label class="chk"><input type="checkbox" id="swLoop" checked> Loop playback</label>
+    <label class="chk"><input type="checkbox" id="swEase" checked> Ease in and out</label>
+    <label class="chk"><input type="checkbox" id="swOrbit"> Orbit the view while sweeping</label>
+    <div class="row" style="margin-top:8px"><button type="button" class="primary" id="swPlay">Play</button></div>
+    <p class="sub">Keyframes hold b, the b-tensor shape and its orientation. Orientations are interpolated along the shortest rotation. Space plays and pauses.</p>
+  </section>
+
+  <section>
+    <h2>Recording</h2>
+    <div class="row">
+      <select id="recSize" aria-label="Video size">
+        <option value="1920x1080" selected>1920 × 1080</option>
+        <option value="1280x720">1280 × 720</option>
+        <option value="3840x2160">3840 × 2160</option>
+        <option value="1920x640">1920 × 640 (wide strip)</option>
+      </select>
+      <select id="recFps" aria-label="Frame rate"><option value="30" selected>30 fps</option><option value="60">60 fps</option></select>
+    </div>
+    <div class="ctl" style="margin-top:10px">
+      <div class="lab"><span>Include</span></div>
+      <label class="chk"><input type="checkbox" id="incB" checked> b-tensor</label>
+      <label class="chk"><input type="checkbox" id="incV" checked> Voxel</label>
+      <label class="chk"><input type="checkbox" id="incS" checked> Signal</label>
+    </div>
+    <div class="row" style="margin-top:8px"><button type="button" class="rec" id="recBtn"><span class="dot"></span>Record sweep</button></div>
+    <p id="recStatus"></p>
+    <p class="sub">Plays the programmed sweep once and saves it as an MP4 (H.264, constant frame rate), rendered frame by frame offline, with the chosen panels in one picture.</p>
+  </section>
+
+  <section>
+    <h2>Readout</h2>
+    <table class="read">
+      <tr><td>b</td><td id="rB"></td></tr>
+      <tr><td>S / S<sub>0</sub></td><td id="rS"></td></tr>
+      <tr><td>ADC(b) = −ln(S/S<sub>0</sub>)/b</td><td id="rADC"></td></tr>
+      <tr><td>K, this encoding</td><td id="rK"></td></tr>
+      <tr><td>MD = ⟨D<sub>iso</sub>⟩</td><td id="rMD"></td></tr>
+      <tr><td>FA of ⟨D⟩</td><td id="rFA"></td></tr>
+      <tr><td>µFA</td><td id="rUFA"></td></tr>
+    </table>
+    <p class="sub">D in µm²/ms. K = 3·V(D<sub>B</sub>)/⟨D<sub>B</sub>⟩², where D<sub>B</sub> = B̂:D is each tensor's diffusivity seen by the encoding.</p>
+  </section>
+
+  <section>
+    <h2>What to look for</h2>
+    <p id="note"></p>
+  </section>
+
+  <p class="credit" id="credit"></p>
+</div>
+
+<main>
+  <div id="top">
+    <div class="pane">
+      <div class="tag">b-tensor B̂</div>
+      <canvas id="cvB" class="orbit"></canvas>
+      <div class="hint" id="hintB">same view as the voxel</div>
+    </div>
+    <div class="pane">
+      <div class="tag">Voxel — diffusion tensors</div>
+      <canvas id="cvVox" class="orbit"></canvas>
+      <div class="hint" id="hintVox">drag to orbit · radii ∝ √λ · colour = direction</div>
+    </div>
+  </div>
+  <div class="pane" id="sigPane">
+    <div class="tag">Signal — S(b)/S<sub>0</sub>, log scale</div>
+    <canvas id="cvSig"></canvas>
+  </div>
+</main>
+
+<div id="about" hidden>
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="aboutTitle">
+    <h3 id="aboutTitle">Diffusion sim</h3>
+    <p class="by"></p>
+    <p class="note">
+      The voxel holds a distribution of diffusion tensors <b>D</b>, each a separate
+      Gaussian (free-diffusion) compartment with no exchange between them. The
+      encoding is a b-tensor <b>B</b> = b·B̂. The normalised signal is the average
+      over the distribution, S/S<sub>0</sub> = ⟨exp(−B:D)⟩, the standard
+      multidimensional-diffusion signal model.
+    </p>
+    <p class="note">
+      Simplifications: no relaxation weighting, no exchange, no time dependence or
+      restriction (each compartment is Gaussian at all b), no noise and no Rician floor.
+      Every tensor is axisymmetric. The b-tensor is drawn as a superquadric whose edges sharpen with its triaxiality τ = 4b<sub>Δ</sub>²b<sub>η</sub>² (an ellipsoid when axisymmetric, close to a box at τ = 1); the diffusion tensors are axisymmetric and therefore drawn as ellipsoids. The distribution is represented by 600 tensors
+      drawn with a fixed seed; the voxel shows a representative subset of 64. The powder
+      average uses 144 quasi-uniform b-tensor orientations, so a small orientation
+      ripple can remain for very anisotropic encodings at high b.
+      µFA is computed from the distribution as √(3/2 · ⟨V<sub>λ</sub>⟩/(⟨V<sub>λ</sub>⟩ + ⟨D<sub>iso</sub>²⟩)),
+      where V<sub>λ</sub> is each tensor's eigenvalue variance.
+    </p>
+    <div id="changelog"></div>
+    <button class="themebtn" id="aboutClose" type="button">Close</button>
+  </div>
+</div>
+
+<script>
+'use strict';
+/* ==================== PHYSICS CORE (pure, no DOM) ==================== */
+/*  Units: b in ms/µm² internally (1 ms/µm² = 1000 s/mm²), D in µm²/ms.
+ *
+ *  Each tensor i is axisymmetric: D_i = λ⊥ I + (λ∥ − λ⊥) n nᵀ, with
+ *  λ∥ = D_iso(1 + 2 D_Δ), λ⊥ = D_iso(1 − D_Δ).
+ *  B̂ has unit trace, so the diffusivity it sees is
+ *      D_B = B̂:D_i = λ⊥ + (λ∥ − λ⊥) nᵀ B̂ n,
+ *  and the signal is S(b) = Σ w_i exp(−b D_B,i). With the powder average the
+ *  sum also runs over a fixed set of b-tensor rotations.
+ *  For speed, the (D_B, w) pairs are binned on a fine grid and each bin keeps
+ *  its weighted mean D_B, which makes the binning exact to first order.
+ */
+const N_T = 600, N_VIS = 64, N_POW = 144, D_FW = 3.0, D_MAX = 3.0;
+
+function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};}
+function gauss(r){let u=0;while(u===0)u=r();return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*r());}
+
+// 3x3 matrices as row-major arrays of 9
+function mul(A,B){const C=new Array(9);for(let i=0;i<3;i++)for(let j=0;j<3;j++)C[3*i+j]=A[3*i]*B[j]+A[3*i+1]*B[3+j]+A[3*i+2]*B[6+j];return C;}
+function tr(A){return [A[0],A[3],A[6],A[1],A[4],A[7],A[2],A[5],A[8]];}
+function Rz(a){const c=Math.cos(a),s=Math.sin(a);return [c,-s,0,s,c,0,0,0,1];}
+function Ry(a){const c=Math.cos(a),s=Math.sin(a);return [c,0,s,0,1,0,-s,0,c];}
+function Rx(a){const c=Math.cos(a),s=Math.sin(a);return [1,0,0,0,c,-s,0,s,c];}
+function rotZYZ(th,ph,ps){return mul(mul(Rz(ph),Ry(th)),Rz(ps));}
+function diagRot(R,e){return mul(mul(R,[e[0],0,0,0,e[1],0,0,0,e[2]]),tr(R));}
+
+// b-tensor eigenvalues (unit trace), Haeberlen convention: z is the symmetry axis
+function bEig(bD,bE){return [(1-bD*(1+bE))/3,(1-bD*(1-bE))/3,(1+2*bD)/3].map(v=>Math.max(0,v));}
+function maxBE(bD){return bD>1e-6?Math.min(1,1/bD-1):1;}
+
+// Fixed set of quasi-uniform rotations for the powder average
+const POW=(()=>{const out=[],ga=Math.PI*(3-Math.sqrt(5));
+  for(let k=0;k<N_POW;k++){const z=1-(2*k+1)/N_POW;out.push(rotZYZ(Math.acos(z),k*ga,2*Math.PI*((k*0.7548776662466927)%1)));}
+  return out;})();
+
+function fibDir(i,n){const ga=Math.PI*(3-Math.sqrt(5)),z=1-(2*i+1)/n,r=Math.sqrt(1-z*z);return [r*Math.cos(i*ga),r*Math.sin(i*ga),z];}
+function norm3(v){const l=Math.hypot(v[0],v[1],v[2])||1;return [v[0]/l,v[1]/l,v[2]/l];}
+
+/* Build the tensor distribution from tissue parameters. */
+function buildDist(T){
+  const r=mulberry32(20261001), lpa=[], lpe=[], n=[], w=[], diso=[];
+  const wt=(1-T.ffw)/N_T, td=Math.tan(T.disp*Math.PI/180);
+  const nIso=Math.round((T.isoFrac||0)*N_T);           // tensors 0..nIso-1 form the isotropic population
+  for(let i=0;i<N_T;i++){
+    const z=gauss(r), g1=gauss(r), g2=gauss(r);
+    if(i<nIso){
+      const sg=T.isoSig||0;let d=(T.isoD||1)*Math.exp(sg*z-sg*sg/2);d=Math.min(D_MAX,Math.max(0.01,d));
+      diso.push(d);lpa.push(d);lpe.push(d);n.push([0,0,1]);w.push(wt);continue;
+    }
+    let d=T.Diso*Math.exp(T.sig*z-T.sig*T.sig/2); d=Math.min(D_MAX,Math.max(0.01,d));
+    let dir;
+    if(T.ori==='random') dir=fibDir(i,N_T);
+    else{
+      const base=(T.ori==='crossing'&&(i&1))?[1,0,0]:[0,0,1];
+      const e1=base[2]?[1,0,0]:[0,1,0], e2=base[2]?[0,1,0]:[0,0,1];
+      dir=norm3([base[0]+td*(g1*e1[0]+g2*e2[0]),base[1]+td*(g1*e1[1]+g2*e2[1]),base[2]+td*(g1*e1[2]+g2*e2[2])]);
+    }
+    diso.push(d); lpa.push(d*(1+2*T.DD)); lpe.push(d*(1-T.DD)); n.push(dir); w.push(wt);
+  }
+  if(T.ffw>0){diso.push(D_FW);lpa.push(D_FW);lpe.push(D_FW);n.push([0,0,1]);w.push(T.ffw);}
+  return {lpa,lpe,n,w,diso,count:lpa.length};
+}
+
+/* Encoding set: list of unit-trace B̂ matrices with equal weight. */
+function encodingSet(e,R,powder){
+  if(powder) return POW.map(Q=>diagRot(Q,e));
+  return [diagRot(R,e)];
+}
+
+/* Haeberlen invariants of a unit-trace (or any) eigenvalue triplet. */
+function lamToInv(l){
+  const b=l[0]+l[1]+l[2]; if(b<1e-12) return {b:0,bD:0,bE:0};
+  const d=l.map(x=>x-b/3), o=[0,1,2].sort((i,j)=>Math.abs(d[j])-Math.abs(d[i]));
+  const dZ=d[o[0]],dX=d[o[1]],dY=d[o[2]];
+  return {b, bD:3*dZ/(2*b), bE:Math.abs(dZ)<1e-12?0:Math.min(1,Math.max(0,(dY-dX)/dZ))};
+}
+/* Triaxiality τ = 4 b_Δ² b_η²: 0 for axisymmetric, 1 at eigenvalues (0, ⅓, ⅔). Continuous. */
+function triax(l){const v=lamToInv(l);return Math.min(1,4*v.bD*v.bD*v.bE*v.bE);}
+/* Continuous shape coordinate for colour: equals b_Δ for axisymmetric tensors, no sign jump. */
+function shapeCoord(l){
+  const b=l[0]+l[1]+l[2], d=l.map(x=>x-b/3), n2=d[0]*d[0]+d[1]*d[1]+d[2]*d[2];
+  if(b<=0||n2<1e-12*b*b) return 0;
+  return Math.max(-0.5,Math.min(1,9*d[0]*d[1]*d[2]/(b*n2)));
+}
+
+/* Rotations as unit quaternions [w,x,y,z], for slerp between keyframes. */
+function qFromMat(R){
+  const t=R[0]+R[4]+R[8];let w,x,y,z;
+  if(t>0){const s=Math.sqrt(t+1)*2;w=s/4;x=(R[7]-R[5])/s;y=(R[2]-R[6])/s;z=(R[3]-R[1])/s;}
+  else if(R[0]>R[4]&&R[0]>R[8]){const s=Math.sqrt(1+R[0]-R[4]-R[8])*2;w=(R[7]-R[5])/s;x=s/4;y=(R[1]+R[3])/s;z=(R[2]+R[6])/s;}
+  else if(R[4]>R[8]){const s=Math.sqrt(1+R[4]-R[0]-R[8])*2;w=(R[2]-R[6])/s;x=(R[1]+R[3])/s;y=s/4;z=(R[5]+R[7])/s;}
+  else{const s=Math.sqrt(1+R[8]-R[0]-R[4])*2;w=(R[3]-R[1])/s;x=(R[2]+R[6])/s;y=(R[5]+R[7])/s;z=s/4;}
+  const n=Math.hypot(w,x,y,z);return [w/n,x/n,y/n,z/n];
+}
+function matFromQ(q){const [w,x,y,z]=q;return [1-2*(y*y+z*z),2*(x*y-w*z),2*(x*z+w*y),2*(x*y+w*z),1-2*(x*x+z*z),2*(y*z-w*x),2*(x*z-w*y),2*(y*z+w*x),1-2*(x*x+y*y)];}
+function qMul(a,b){return [a[0]*b[0]-a[1]*b[1]-a[2]*b[2]-a[3]*b[3],a[0]*b[1]+a[1]*b[0]+a[2]*b[3]-a[3]*b[2],a[0]*b[2]-a[1]*b[3]+a[2]*b[0]+a[3]*b[1],a[0]*b[3]+a[1]*b[2]-a[2]*b[1]+a[3]*b[0]];}
+function qDot(a,b){return a[0]*b[0]+a[1]*b[1]+a[2]*b[2]+a[3]*b[3];}
+function qSlerp(a,b,t){
+  let d=qDot(a,b);if(d<0){b=b.map(v=>-v);d=-d;}
+  if(d>0.9995){const r=a.map((v,i)=>v+(b[i]-v)*t),n=Math.hypot(...r);return r.map(v=>v/n);}
+  const th=Math.acos(d),s=Math.sin(th),wa=Math.sin((1-t)*th)/s,wb=Math.sin(t*th)/s;return a.map((v,i)=>wa*v+wb*b[i]);
+}
+/* A tensor is unchanged by π-rotations about its principal axes; pick the copy of qb nearest qa. */
+const FLIPS=[[1,0,0,0],[0,1,0,0],[0,0,1,0],[0,0,0,1]];
+function nearestEquiv(qa,qb){let best=qb,bd=-1;for(const f of FLIPS){const c=qMul(qb,f),d=Math.abs(qDot(qa,c));if(d>bd){bd=d;best=c;}}return best;}
+/* ZYZ angles (rad) from a rotation matrix: R = Rz(φ) Ry(θ) Rz(ψ). */
+function eulFromMat(R){
+  const c=Math.max(-1,Math.min(1,R[8])),th=Math.acos(c),s=Math.sin(th);let ph,ps;
+  if(s>1e-6){ph=Math.atan2(R[5],R[2]);ps=Math.atan2(R[7],-R[6]);}
+  else if(c>0){ph=0;ps=Math.atan2(R[3],R[0]);} else {ph=0;ps=Math.atan2(R[3],R[4]);}
+  const w=a=>{a=((a*180/Math.PI)%360+360)%360;return a>=359.9999?0:a;};
+  return {th:th*180/Math.PI,ph:w(ph),ps:w(ps)};
+}
+function det3(M){return M[0]*(M[4]*M[8]-M[5]*M[7])-M[1]*(M[3]*M[8]-M[5]*M[6])+M[2]*(M[3]*M[7]-M[4]*M[6]);}
+/* Relabel principal axes so that z holds the eigenvalue farthest from the mean (Haeberlen). */
+function canonicalize(e,R){
+  const b=e[0]+e[1]+e[2],d=e.map(v=>v-b/3);
+  let z=2;for(const i of [0,1]) if(Math.abs(d[i])>Math.abs(d[z])+1e-9) z=i;
+  const r=[0,1,2].filter(i=>i!==z);let x=r[0],y=r[1];
+  if(Math.abs(d[y])>Math.abs(d[x])+1e-9){x=r[1];y=r[0];}
+  const p=[x,y,z],N=new Array(9);
+  for(let k=0;k<3;k++)for(let i=0;i<3;i++)N[3*i+k]=R[3*i+p[k]];
+  if(det3(N)<0)for(let i=0;i<3;i++)N[3*i]*=-1;
+  return {e:p.map(i=>e[i]),R:N};
+}
+
+/* Weighted samples of D_B over distribution × encodings, binned. */
+const NBIN=2400, XMAX=D_MAX*3*1.0001; // λ∥ can reach 3·D_iso
+function binned(dist,encs){
+  const W=new Float64Array(NBIN), WX=new Float64Array(NBIN), we=1/encs.length;
+  let m=0, m2=0;
+  for(const B of encs){
+    for(let i=0;i<dist.count;i++){
+      const v=dist.n[i];
+      const q=v[0]*(B[0]*v[0]+B[1]*v[1]+B[2]*v[2])+v[1]*(B[3]*v[0]+B[4]*v[1]+B[5]*v[2])+v[2]*(B[6]*v[0]+B[7]*v[1]+B[8]*v[2]);
+      const x=dist.lpe[i]+(dist.lpa[i]-dist.lpe[i])*q, ww=dist.w[i]*we;
+      const k=Math.min(NBIN-1,Math.max(0,Math.floor(x/XMAX*NBIN)));
+      W[k]+=ww; WX[k]+=ww*x; m+=ww*x; m2+=ww*x*x;
+    }
+  }
+  const xs=[],ws=[];
+  for(let k=0;k<NBIN;k++) if(W[k]>0){xs.push(WX[k]/W[k]);ws.push(W[k]);}
+  return {xs,ws,mean:m,varr:Math.max(0,m2-m*m)};
+}
+function sigAt(bin,b){let s=0;for(let k=0;k<bin.xs.length;k++)s+=bin.ws[k]*Math.exp(-b*bin.xs[k]);return s;}
+
+/* Mean tensor and microscopic measures. */
+function meanTensor(dist){
+  const M=[0,0,0,0,0,0,0,0,0];
+  for(let i=0;i<dist.count;i++){const d=dist.lpa[i]-dist.lpe[i],v=dist.n[i],w=dist.w[i];
+    for(let a=0;a<3;a++)for(let c=0;c<3;c++)M[3*a+c]+=w*((a===c?dist.lpe[i]:0)+d*v[a]*v[c]);}
+  return M;
+}
+function eigSym3(A){ // Jacobi; returns eigenvalues
+  const a=A.slice();
+  for(let it=0;it<50;it++){
+    let p=0,q=1;const off=[[0,1],[0,2],[1,2]];let mx=0;
+    for(const [i,j] of off) if(Math.abs(a[3*i+j])>mx){mx=Math.abs(a[3*i+j]);p=i;q=j;}
+    if(mx<1e-14)break;
+    const th=0.5*Math.atan2(2*a[3*p+q],a[3*q+q]-a[3*p+p]),c=Math.cos(th),s=Math.sin(th);
+    const J=[1,0,0,0,1,0,0,0,1];J[3*p+p]=c;J[3*q+q]=c;J[3*p+q]=s;J[3*q+p]=-s;
+    const r=mul(mul(tr(J),a),J);for(let k=0;k<9;k++)a[k]=r[k];
+  }
+  return [a[0],a[4],a[8]];
+}
+function faOf(e){const m=(e[0]+e[1]+e[2])/3,num=(e[0]-m)**2+(e[1]-m)**2+(e[2]-m)**2,den=e[0]**2+e[1]**2+e[2]**2;return den>0?Math.sqrt(1.5*num/den):0;}
+function microStats(dist){
+  let md=0,v=0,d2=0;
+  for(let i=0;i<dist.count;i++){const w=dist.w[i],d=dist.diso[i],dl=dist.lpa[i]-dist.lpe[i];md+=w*d;v+=w*2*dl*dl/9;d2+=w*d*d;}
+  return {md,ufa:(v+d2)>0?Math.sqrt(1.5*v/(v+d2)):0};
+}
+
+/* ==================== PRESETS ==================== */
+const PRESETS=[
+  {id:'single', name:'Single anisotropic tensor', T:{Diso:0.8,sig:0,DD:0.7,ori:'aligned',disp:0,ffw:0},
+   note:'One Gaussian compartment. The signal is a straight line on the log axis for <b>every</b> encoding: S = exp(−b·B̂:D). Rotate an LTE encoding to see the slope change with orientation. Powder averaging turns the LTE curve convex even though the tissue is a single tensor.'},
+  {id:'disp', name:'Dispersed bundle', T:{Diso:0.8,sig:0,DD:0.8,ori:'aligned',disp:25,ffw:0},
+   note:'The same tensors, fanned around z. Along z the LTE signal bends because each tensor contributes its own decay rate. STE stays monoexponential: it cannot see orientation.'},
+  {id:'cross', name:'Crossing populations', T:{Diso:0.8,sig:0,DD:0.8,ori:'crossing',disp:8,ffw:0},
+   note:'Two populations at 90°. The mean tensor ⟨D⟩ is oblate even though every compartment is prolate, so FA of ⟨D⟩ underestimates the microscopic anisotropy. Compare FA with µFA.'},
+  {id:'powder', name:'Randomly oriented sticks', T:{Diso:0.7,sig:0,DD:0.9,ori:'random',disp:0,ffw:0},
+   note:'Microscopic anisotropy with no orientational order: FA of ⟨D⟩ is zero, µFA is high. <b>LTE</b> curves strongly, <b>STE</b> is a straight line. The gap between them at high b is the signature of microscopic anisotropy that tensor-valued encoding exploits.'},
+  {id:'isohet', name:'Isotropic heterogeneity', T:{Diso:0.9,sig:0.6,DD:0,ori:'random',disp:0,ffw:0},
+   note:'Spheres with a spread of diffusivities. All encodings give the same curve, and it bends (positive kurtosis). STE is not straight here: its curvature measures isotropic variance only.'},
+  {id:'mixed', name:'Sticks and isotropic heterogeneity', T:{Diso:0.8,sig:0.4,DD:0.85,ori:'random',disp:0,ffw:0},
+   note:'Both sources of non-Gaussian signal. LTE curvature has contributions from anisotropy and isotropic variance; STE curvature only from isotropic variance. Their difference isolates µFA.'},
+  {id:'isosticks', name:'Isotropic spread plus random sticks', T:{Diso:1.0,sig:0,DD:0.9,ori:'random',disp:0,ffw:0,isoFrac:0.5,isoD:0.9,isoSig:0.75},
+   note:'Half the tensors are spheres with a wide spread of diffusivity (grey, size ∝ √D), half are randomly oriented sticks. Raise b and watch the voxel: the <b>fast spheres fade first</b>, the sticks follow, and at the highest b mainly the <b>small, slow spheres</b> remain. With STE every stick sees its mean diffusivity and fades evenly; with LTE the sticks perpendicular to the encoding survive too, which is why LTE keeps more signal at high b.'},
+  {id:'fw', name:'Bundle with free water', T:{Diso:0.8,sig:0,DD:0.75,ori:'aligned',disp:10,ffw:0.2},
+   note:'A fast isotropic compartment (D = 3 µm²/ms) adds a steep initial drop. At high b it has decayed and the curve follows the tissue alone.'},
+  {id:'water', name:'Free water only', T:{Diso:3.0,sig:0,DD:0,ori:'aligned',disp:0,ffw:0},
+   note:'Isotropic Gaussian diffusion: S = exp(−b·D) for every b-tensor shape and orientation. All curves coincide.'},
+  {id:'oblate', name:'Random planar tensors', T:{Diso:0.8,sig:0,DD:-0.45,ori:'random',disp:0,ffw:0},
+   note:'Oblate (pancake-like) compartments at random orientations. Microscopic anisotropy is present, but now PTE rather than LTE sees the narrowest spread of diffusivities.'},
+];
+/* ==================== STATE ==================== */
+const S={b:1.0, bD:1, bE:0, th:0, ph:0, ps:0, powder:false, powderView:false, scaleB:true, bmax:2.0,
+  e:[0,0,1], R:[1,0,0,0,1,0,0,0,1],
+  T:null, layout:'two', fadeMap:'log', decades:1, preset:'powder', fade:true, ref:true, gauss:true, mono:false};
+S.T=Object.assign({},PRESETS.find(p=>p.id==='powder').T);
+let dist=null, mstats=null, curves=null;
+const VIEW0={yaw:-0.6,pitch:0.42};
+let view=Object.assign({},VIEW0);
+let PX=1;                                   // drawing scale: 1 on screen, larger for video frames
+const FONT=px=>`${(px*PX).toFixed(2)}px ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace`;
+
+/* ==================== DOM: controls ==================== */
+const $=id=>document.getElementById(id);
+const ctl={};
+function addSlider(parent,id,label,min,max,step,fmt,on){
+  const d=document.createElement('div');d.className='ctl';
+  d.innerHTML=`<div class="lab"><span>${label}</span><span class="val" id="v_${id}"></span></div><input type="range" id="${id}" min="${min}" max="${max}" step="${step}" aria-label="${label.replace(/<[^>]+>/g,'')}">`;
+  parent.appendChild(d);
+  const inp=d.querySelector('input'),out=d.querySelector('.val');
+  const c={el:d,inp,set(v){inp.value=v;out.textContent=fmt(+v);},enable(on){inp.disabled=!on;d.classList.toggle('off',!on);}};
+  inp.addEventListener('input',()=>{out.textContent=fmt(+inp.value);on(+inp.value);});
+  ctl[id]=c;return c;
+}
+const f2=v=>(v<-0.004?'−':'')+Math.abs(v).toFixed(2), deg=v=>Math.round(v)+'°';
+const bfmt=v=>Math.round(v*1000)+' s/mm²';
+function encEdit(){ if(sweep.playing) stopSweep(); }
+function fromSliders(){ S.e=bEig(S.bD,S.bE); S.R=rotZYZ(S.th*Math.PI/180,S.ph*Math.PI/180,S.ps*Math.PI/180); }
+addSlider($('encCtl'),'sB','b (marker)',0,2,0.01,bfmt,v=>{encEdit();S.b=v;update(false);});
+addSlider($('encCtl'),'sBD','b<sub>Δ</sub> (shape)',-0.5,1,0.01,f2,v=>{encEdit();S.bD=v;const m=maxBE(v);if(S.bE>m){S.bE=m;ctl.sBE.set(m);}fromSliders();update(true);});
+addSlider($('encCtl'),'sBE','b<sub>η</sub> (asymmetry)',0,1,0.01,f2,v=>{encEdit();S.bE=Math.min(v,maxBE(S.bD));if(v!==S.bE)ctl.sBE.set(S.bE);fromSliders();update(true);});
+addSlider($('encCtl'),'sTh','polar θ',0,180,1,deg,v=>{encEdit();S.th=v;fromSliders();update(true);});
+addSlider($('encCtl'),'sPh','azimuth φ',0,360,1,deg,v=>{encEdit();S.ph=v;fromSliders();update(true);});
+addSlider($('encCtl'),'sPs','spin ψ',0,360,1,deg,v=>{encEdit();S.ps=v;fromSliders();update(true);});
+const D_fmt=v=>v.toFixed(2)+' µm²/ms';
+const tis=k=>v=>{S.T[k]=v;S.preset='custom';$('preset').value='custom';rebuild();};
+addSlider($('tisCtl'),'tD','Mean diffusivity D<sub>iso</sub>',0.1,3,0.01,D_fmt,tis('Diso'));
+addSlider($('tisCtl'),'tS','Spread of D<sub>iso</sub> (σ<sub>ln</sub>)',0,1,0.01,v=>v.toFixed(2),tis('sig'));
+addSlider($('tisCtl'),'tDD','Tensor shape D<sub>Δ</sub>',-0.5,1,0.01,f2,tis('DD'));
+addSlider($('tisCtl2'),'tDisp','Orientation dispersion',0,60,1,deg,tis('disp'));
+addSlider($('tisCtl2'),'tF','Free-water fraction',0,0.8,0.01,v=>Math.round(v*100)+' %',tis('ffw'));
+addSlider($('tisCtl2'),'tIF','Isotropic population',0,1,0.01,v=>Math.round(v*100)+' %',v=>{tis('isoFrac')(v);syncTissue();});
+addSlider($('tisCtl2'),'tID','&nbsp;&nbsp;↳ its D<sub>iso</sub>',0.1,3,0.01,D_fmt,tis('isoD'));
+addSlider($('tisCtl2'),'tIS','&nbsp;&nbsp;↳ its spread (σ<sub>ln</sub>)',0,1,0.01,v=>v.toFixed(2),tis('isoSig'));
+
+PRESETS.forEach(p=>{const o=document.createElement('option');o.value=p.id;o.textContent=p.name;$('preset').appendChild(o);});
+{const o=document.createElement('option');o.value='custom';o.textContent='Custom';$('preset').appendChild(o);}
+$('preset').addEventListener('change',e=>{const p=PRESETS.find(q=>q.id===e.target.value);if(!p)return;S.preset=p.id;S.T=Object.assign({},p.T);syncTissue();rebuild();});
+$('ori').addEventListener('change',e=>{S.T.ori=e.target.value;S.preset='custom';$('preset').value='custom';syncTissue();rebuild();});
+function setShape(bD){encEdit();S.bD=bD;S.bE=0;ctl.sBD.set(bD);ctl.sBE.set(0);fromSliders();update(true);}
+$('shLTE').addEventListener('click',()=>setShape(1));
+$('shPTE').addEventListener('click',()=>setShape(-0.5));
+$('shSTE').addEventListener('click',()=>setShape(0));
+$('powder').addEventListener('change',e=>{S.powder=e.target.checked;update(true);});
+$('powderView').addEventListener('change',e=>{S.powderView=e.target.checked;update(false);});
+$('brange').addEventListener('change',e=>{S.bmax=+e.target.value/1000;ctl.sB.inp.max=S.bmax;if(S.b>S.bmax)S.b=S.bmax;ctl.sB.set(S.b);update(false);});
+function setLayout(m){S.layout=m;document.body.classList.toggle('one',m==='one');
+  $('layTwo').setAttribute('aria-pressed',String(m==='two'));$('layOne').setAttribute('aria-pressed',String(m==='one'));if(curves)draw();}
+$('layTwo').addEventListener('click',()=>setLayout('two'));
+$('layOne').addEventListener('click',()=>setLayout('one'));
+$('cScaleB').addEventListener('change',e=>{S.scaleB=e.target.checked;update(false);});
+$('cFade').addEventListener('change',e=>{S.fade=e.target.checked;syncFadeUI();update(false);});
+$('fadeMap').addEventListener('change',e=>{S.fadeMap=e.target.value;syncFadeUI();update(false);});
+addSlider($('fadeCtl'),'sDec','&nbsp;&nbsp;↳ log range',0.5,3,0.1,v=>v.toFixed(1)+' decades',v=>{S.decades=v;update(false);});
+function syncFadeUI(){$('fadeMap').disabled=!S.fade;ctl.sDec.enable(S.fade&&S.fadeMap==='log');}
+$('cRef').addEventListener('change',e=>{S.ref=e.target.checked;update(true);});
+$('cGauss').addEventListener('change',e=>{S.gauss=e.target.checked;update(true);});
+$('cMono').addEventListener('change',e=>{S.mono=e.target.checked;update(true);});
+
+function syncTissue(){
+  const T=S.T;T.isoFrac=T.isoFrac||0;if(T.isoD===undefined)T.isoD=0.9;if(T.isoSig===undefined)T.isoSig=0.6;
+  ctl.tD.set(T.Diso);ctl.tS.set(T.sig);ctl.tDD.set(T.DD);ctl.tDisp.set(T.disp);ctl.tF.set(T.ffw);
+  ctl.tIF.set(T.isoFrac);ctl.tID.set(T.isoD);ctl.tIS.set(T.isoSig);ctl.tID.enable(T.isoFrac>0);ctl.tIS.enable(T.isoFrac>0);
+  $('ori').value=T.ori;$('preset').value=S.preset;ctl.tDisp.enable(T.ori!=='random');
+}
+/* Slider positions from the current encoding (used while a sweep drives it). */
+function encodingToSliders(){
+  const v=lamToInv(S.e), a=eulFromMat(S.R);
+  ctl.sB.set(S.b);ctl.sBD.set(v.bD);ctl.sBE.set(v.bE);ctl.sTh.set(a.th);ctl.sPh.set(a.ph);ctl.sPs.set(a.ps);
+}
+/* After a sweep: relabel axes (Haeberlen) so the sliders describe exactly this tensor. */
+function settleEncoding(){
+  const c=canonicalize(S.e,S.R);S.e=c.e;S.R=c.R;
+  const v=lamToInv(S.e),a=eulFromMat(S.R);
+  S.bD=v.bD;S.bE=Math.min(v.bE,maxBE(v.bD));S.th=a.th;S.ph=a.ph;S.ps=a.ps;
+  encodingToSliders();
+}
+function syncEncodingUI(){
+  const v=lamToInv(S.e), sym=Math.abs(v.bD)<1e-6;
+  ctl.sTh.enable(!S.powder&&!sym);ctl.sPh.enable(!S.powder&&!sym);ctl.sPs.enable(!S.powder&&v.bE>1e-6&&!sym);
+  ctl.sBE.enable(v.bD<1-1e-6&&!sym);
+  const near=(a,b)=>Math.abs(a-b)<1e-6;
+  $('shLTE').setAttribute('aria-pressed',String(near(v.bD,1)));
+  $('shPTE').setAttribute('aria-pressed',String(near(v.bD,-0.5)&&near(v.bE,0)));
+  $('shSTE').setAttribute('aria-pressed',String(sym));
+  $('hintB').textContent=(S.powderView?`${Math.ceil(N_POW/12)} of the ${N_POW} averaged orientations`:'same view as the voxel')+
+    (S.powder?' · signal powder-averaged':'');
+  $('hintVox').textContent='drag to orbit · radii ∝ √λ · colour = direction'+(S.fade?` · opacity = ${S.fadeMap==='log'?'log signal ('+S.decades.toFixed(1)+' dec)':'signal'} at b = ${Math.round(S.b*1000)}`:'');
+}
+
+/* ==================== COMPUTE ==================== */
+function rebuild(){dist=buildDist(S.T);mstats=microStats(dist);dist.meanT=meanTensor(dist);dist.faMean=faOf(eigSym3(dist.meanT));buildGlyphs();update(true);}
+const E_LTE=[0,0,1], E_PTE=[0.5,0.5,0], E_STE=[1/3,1/3,1/3];
+function compute(){
+  const enc=encodingSet(S.e,S.R,S.powder);
+  const main=binned(dist,enc), refs={};
+  if(S.ref){refs.lte=binned(dist,encodingSet(E_LTE,S.R,S.powder));refs.pte=binned(dist,encodingSet(E_PTE,S.R,S.powder));refs.ste=binned(dist,encodingSet(E_STE,S.R,S.powder));}
+  let gauss=null;
+  if(S.gauss){const M=dist.meanT, ev=enc.map(B=>{let s=0;for(let k=0;k<9;k++)s+=B[k]*M[k];return s;});gauss={xs:ev,ws:ev.map(()=>1/ev.length)};}
+  curves={main,refs,gauss,enc};
+}
+function update(recompute){
+  syncEncodingUI();
+  if(recompute||!curves) compute();
+  readout();draw();
+}
+function readout(){
+  const m=curves.main, s=sigAt(m,S.b);
+  $('rB').textContent=bfmt(S.b);
+  $('rS').textContent=s<1e-3?s.toExponential(2):s.toFixed(4);
+  $('rADC').textContent=S.b>1e-6?(-Math.log(s)/S.b).toFixed(3):'—';
+  $('rK').textContent=m.mean>0?(3*m.varr/(m.mean*m.mean)).toFixed(3):'—';
+  $('rMD').textContent=mstats.md.toFixed(3);
+  $('rFA').textContent=dist.faMean.toFixed(3);
+  $('rUFA').textContent=mstats.ufa.toFixed(3);
+  const p=PRESETS.find(q=>q.id===S.preset);
+  $('note').innerHTML=p?p.note:'Custom distribution. Compare the LTE and STE references: a gap between them at high b means microscopic anisotropy, curvature of STE means isotropic heterogeneity.';
+}
+
+/* ==================== DRAWING ==================== */
+const C={};
+function readTheme(){const cs=getComputedStyle(document.documentElement);
+  for(const k of ['bg','panel','panel2','rule','text','muted','dim','axis','grid','sig','gauss','lte','pte','ste','iso','accent'])C[k]=cs.getPropertyValue('--'+k).trim();}
+function hexRgb(h){h=h.replace('#','');if(h.length===3)h=h.split('').map(c=>c+c).join('');const n=parseInt(h,16);return [(n>>16)&255,(n>>8)&255,n&255];}
+const rgbs=(c,a)=>a===undefined?`rgb(${c[0]|0},${c[1]|0},${c[2]|0})`:`rgba(${c[0]|0},${c[1]|0},${c[2]|0},${a})`;
+const mix=(a,b,t)=>[a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t,a[2]+(b[2]-a[2])*t];
+
+function fit(cv){const r=cv.getBoundingClientRect(),dpr=Math.min(window.devicePixelRatio||1,2);
+  const w=Math.max(2,Math.round(r.width*dpr)),h=Math.max(2,Math.round(r.height*dpr));
+  if(cv.width!==w||cv.height!==h){cv.width=w;cv.height=h;}
+  const x=cv.getContext('2d');x.setTransform(dpr,0,0,dpr,0,0);return {x,W:r.width,H:r.height};}
+
+// world (x,y,z), z up -> camera (x right, y up, z towards the viewer)
+function viewMat(){return mul(Rx(-(Math.PI/2-view.pitch)),Rz(view.yaw));}
+
+/* Ellipsoid with shape matrix A (world) drawn by its exact orthographic outline. */
+function drawEllipsoid(x,V,A,cx,cy,sc,ox,oy,col,alpha){
+  const Ac=mul(mul(V,A),tr(V)), p=Ac[0], q=Ac[1], r=Ac[4];
+  const mn=(p+r)/2, dd=Math.sqrt(((p-r)/2)**2+q*q), l1=Math.max(mn+dd,1e-12), l2=Math.max(mn-dd,1e-12);
+  const ang=0.5*Math.atan2(2*q,p-r), r1=Math.sqrt(l1)*sc, r2=Math.sqrt(l2)*sc;
+  const X=cx+ox*sc, Y=cy-oy*sc;
+  const lx=-0.42, ly=-0.48, ca=Math.cos(ang), sa=Math.sin(ang);
+  let ux=(lx*ca-ly*sa), uy=(lx*sa+ly*ca);
+  const L=Math.hypot(ux,uy);if(L>0.62){ux*=0.62/L;uy*=0.62/L;}
+  x.save();x.translate(X,Y);x.rotate(-ang);x.scale(Math.max(r1,0.4),Math.max(r2,0.4));
+  const g=x.createRadialGradient(ux,uy,0.02,0,0,1.08);
+  g.addColorStop(0,rgbs(mix(col,[255,255,255],0.6),alpha));
+  g.addColorStop(0.5,rgbs(col,alpha));
+  g.addColorStop(1,rgbs(mix(col,[0,0,0],0.55),alpha));
+  x.beginPath();x.arc(0,0,1,0,2*Math.PI);x.fillStyle=g;x.fill();x.restore();
+}
+
+/* Superquadric (superellipsoid) glyph with semi-axes a along the columns of R and
+   exponent ε (1 = ellipsoid, → 0 = box). Rendered as a shaded mesh; the shape is
+   convex, so back-face culling alone gives the correct visibility. */
+const SQ_NU=72, SQ_NV=36;
+const spow=(v,e)=>v===0?0:(v<0?-Math.pow(-v,e):Math.pow(v,e));
+function drawSuperquadric(x,V,R,a,eps,cx,cy,sc,col){
+  const M=mul(V,R), L=norm3([-0.45,0.55,0.75]), H=norm3([L[0],L[1],L[2]+1]);
+  const P=[],N=[];
+  for(let j=0;j<=SQ_NV;j++){
+    const eta=-Math.PI/2+Math.PI*j/SQ_NV, ce=Math.cos(eta), se=Math.sin(eta);
+    for(let i=0;i<=SQ_NU;i++){
+      const om=-Math.PI+2*Math.PI*i/SQ_NU, co=Math.cos(om), so=Math.sin(om);
+      const p=[a[0]*spow(ce,eps)*spow(co,eps),a[1]*spow(ce,eps)*spow(so,eps),a[2]*spow(se,eps)];
+      let n=[spow(ce,2-eps)*spow(co,2-eps)/a[0],spow(ce,2-eps)*spow(so,2-eps)/a[1],spow(se,2-eps)/a[2]];
+      const pc=[M[0]*p[0]+M[1]*p[1]+M[2]*p[2],M[3]*p[0]+M[4]*p[1]+M[5]*p[2],M[6]*p[0]+M[7]*p[1]+M[8]*p[2]];
+      const nc=norm3([M[0]*n[0]+M[1]*n[1]+M[2]*n[2],M[3]*n[0]+M[4]*n[1]+M[5]*n[2],M[6]*n[0]+M[7]*n[1]+M[8]*n[2]]);
+      P.push(pc);N.push(nc);
+    }
+  }
+  const W=SQ_NU+1, white=[255,255,255];
+  x.lineJoin='round';x.lineWidth=0.7*PX;
+  for(let j=0;j<SQ_NV;j++)for(let i=0;i<SQ_NU;i++){
+    const k=[j*W+i,j*W+i+1,(j+1)*W+i+1,(j+1)*W+i];
+    let n=[0,0,0];for(const q of k){n[0]+=N[q][0];n[1]+=N[q][1];n[2]+=N[q][2];}
+    n=norm3(n);if(n[2]<=0)continue;
+    const dif=Math.max(0,n[0]*L[0]+n[1]*L[1]+n[2]*L[2]), spec=Math.pow(Math.max(0,n[0]*H[0]+n[1]*H[1]+n[2]*H[2]),28);
+    const c=mix(mix(col,[0,0,0],0.62*(1-dif)),white,0.45*spec), s=rgbs(c);
+    x.beginPath();
+    k.forEach((q,m)=>{const px=cx+P[q][0]*sc,py=cy-P[q][1]*sc;m?x.lineTo(px,py):x.moveTo(px,py);});
+    x.closePath();x.fillStyle=s;x.strokeStyle=s;x.fill();x.stroke();
+  }
+}
+
+let glyphs=[];
+function buildGlyphs(){
+  const r=mulberry32(77), nfw=dist.count>N_T?Math.round(S.T.ffw*N_VIS):0;
+  const order=[...Array(N_VIS).keys()];for(let i=N_VIS-1;i>0;i--){const j=Math.floor(r()*(i+1));[order[i],order[j]]=[order[j],order[i]];}
+  glyphs=[];
+  for(let s=0;s<N_VIS;s++){
+    const gi=s%4, gj=Math.floor(s/4)%4, gk=Math.floor(s/16);
+    const pos=[(gi+0.5)/4-0.5+(r()-0.5)*0.06,(gj+0.5)/4-0.5+(r()-0.5)*0.06,(gk+0.5)/4-0.5+(r()-0.5)*0.06];
+    const isFW=order[s]<nfw;
+    glyphs.push({pos,i:isFW?dist.count-1:Math.floor(order[s]*N_T/N_VIS)%N_T});
+  }
+}
+const CELL=0.25, GK=0.44*CELL/Math.sqrt(D_MAX);
+function glyphColor(i){
+  const a=dist.lpa[i],p=dist.lpe[i],v=dist.n[i], fa=faOf([a,p,p]), grey=hexRgb(C.iso);
+  const dir=[Math.abs(v[0])*255,Math.abs(v[1])*255,Math.abs(v[2])*255].map(c=>40+0.82*c);
+  return mix(grey,dir,Math.min(1,fa*1.25));
+}
+function drawTriad(x,V,ox,oy,len){
+  x.font=FONT(11);x.textAlign='center';x.textBaseline='middle';
+  for(const [a,b,c,t] of [[1,0,0,'x'],[0,1,0,'y'],[0,0,1,'z']]){
+    const px=V[0]*a+V[1]*b+V[2]*c,py=V[3]*a+V[4]*b+V[5]*c;
+    x.strokeStyle=C.axis;x.lineWidth=1.2*PX;x.beginPath();x.moveTo(ox,oy);x.lineTo(ox+px*len,oy-py*len);x.stroke();
+    x.fillStyle=C.muted;x.fillText(t,ox+px*(len+9*PX),oy-py*(len+9*PX));
+  }
+}
+function drawVoxelTo(x,W,H){
+  const V=viewMat(), sc=Math.min(W,H)*0.56, cx=W/2, cy=H/2+8*PX;
+  const P=p=>[V[0]*p[0]+V[1]*p[1]+V[2]*p[2],V[3]*p[0]+V[4]*p[1]+V[5]*p[2],V[6]*p[0]+V[7]*p[1]+V[8]*p[2]];
+  const h=0.5, cs=[];for(let i=0;i<8;i++)cs.push([(i&1?h:-h),(i&2?h:-h),(i&4?h:-h)]);
+  const edges=[];for(let i=0;i<8;i++)for(let j=i+1;j<8;j++){const d=(i^j);if(d===1||d===2||d===4)edges.push([i,j]);}
+  const cc=cs.map(P);
+  const drawEdges=front=>{x.lineWidth=PX;for(const [i,j] of edges){const z=(cc[i][2]+cc[j][2])/2;if((z>0)!==front)continue;
+    x.strokeStyle=front?C.axis:C.rule;x.beginPath();x.moveTo(cx+cc[i][0]*sc,cy-cc[i][1]*sc);x.lineTo(cx+cc[j][0]*sc,cy-cc[j][1]*sc);x.stroke();}};
+  drawEdges(false);
+  const encs=curves.enc, FLOOR=0.06;
+  const remain=i=>{let s=0;const v=dist.n[i];for(const B of encs){
+      const q=v[0]*(B[0]*v[0]+B[1]*v[1]+B[2]*v[2])+v[1]*(B[3]*v[0]+B[4]*v[1]+B[5]*v[2])+v[2]*(B[6]*v[0]+B[7]*v[1]+B[8]*v[2]);
+      s+=Math.exp(-S.b*(dist.lpe[i]+(dist.lpa[i]-dist.lpe[i])*q));}return s/encs.length;};
+  /* Opacity: the signal each tensor still gives, optionally divided by the strongest shown tensor's,
+     raised to γ to stretch the contrast, with a faint floor so attenuated tensors stay visible. */
+  /* Opacity from the signal each tensor still gives, in absolute terms so that the whole voxel fades as b grows.
+     Linear: opacity = S. Log: opacity = 1 + log10(S)/N over N decades, so S = 1 is opaque and S = 10^−N is gone;
+     this stretches the contrast between tensors that keep, say, 60 % and 15 % of their signal.
+     A faint floor keeps fully attenuated tensors visible as ghosts. */
+  const rem=new Map();
+  const alphaOf=i=>{
+    if(!S.fade)return 1;
+    if(!rem.has(i))rem.set(i,remain(i));
+    const v=rem.get(i);
+    const o=S.fadeMap==='log'?Math.max(0,Math.min(1,1+Math.log10(Math.max(v,1e-12))/S.decades)):v;
+    return FLOOR+(1-FLOOR)*o;};
+  const items=glyphs.map(g=>({g,c:P(g.pos)})).sort((a,b)=>a.c[2]-b.c[2]);
+  for(const {g,c} of items){
+    const i=g.i, ap=GK*Math.sqrt(dist.lpa[i]), ae=GK*Math.sqrt(dist.lpe[i]), v=dist.n[i];
+    const A=[0,0,0,0,0,0,0,0,0];for(let a=0;a<3;a++)for(let b=0;b<3;b++)A[3*a+b]=(a===b?ae*ae:0)+(ap*ap-ae*ae)*v[a]*v[b];
+    drawEllipsoid(x,V,A,cx,cy,sc,c[0],c[1],glyphColor(i),alphaOf(i));
+  }
+  drawEdges(true);
+  drawTriad(x,V,34*PX,H-30*PX,22*PX);
+}
+function shapeCol(g){const a=hexRgb(C.pte),s=hexRgb(C.ste),l=hexRgb(C.lte);return g<0?mix(a,s,(g+0.5)/0.5):mix(s,l,g);}
+let scratch=null;
+function drawBTo(x,W,H){
+  const V=viewMat(), sc=Math.min(W,H)*0.36, cx=W/2, cy=H/2+8*PX;
+  // glyph size follows B = b·B̂: the largest semi-axis is b/b_max of full size (or always full size if switched off)
+  const f=S.scaleB?Math.max(0,Math.min(1,S.b/S.bmax)):1;
+  const emax=Math.max(...S.e), a=S.e.map(v=>f*Math.max(v/emax,0.05));
+  const tau=triax(S.e), eps=1-0.85*tau, col=shapeCol(shapeCoord(S.e));
+  if(f<0.004){/* b = 0: no encoding, nothing to draw */}
+  else if(S.powderView){
+    // faint copies at a subset of the averaged orientations, composited through a scratch canvas
+    const w=x.canvas.width,h=x.canvas.height;
+    if(!scratch)scratch=document.createElement('canvas');
+    if(scratch.width!==w||scratch.height!==h){scratch.width=w;scratch.height=h;}
+    const sx=scratch.getContext('2d');
+    for(let k=0;k<N_POW;k+=12){
+      sx.setTransform(1,0,0,1,0,0);sx.clearRect(0,0,w,h);sx.setTransform(x.getTransform());
+      drawSuperquadric(sx,V,POW[k],a,eps,cx,cy,sc,col);
+      x.save();x.setTransform(1,0,0,1,0,0);x.globalAlpha=0.2;x.drawImage(scratch,0,0);x.restore();
+    }
+  } else {
+    drawSuperquadric(x,V,S.R,a,eps,cx,cy,sc,col);
+  }
+  drawTriad(x,V,30*PX,H-30*PX,20*PX);
+  const v=lamToInv(S.e);
+  x.textAlign='left';x.textBaseline='alphabetic';x.fillStyle=C.muted;
+  const sym=(t,sub,val,xx,yy)=>{x.font=FONT(12);x.fillText(t,xx,yy);xx+=x.measureText(t).width;
+    x.font=FONT(9);x.fillText(sub,xx,yy+4*PX);xx+=x.measureText(sub).width+3*PX;
+    x.font=FONT(12);x.fillText(val,xx,yy);return xx+x.measureText(val).width;};
+  const y0=40*PX;
+  let xe=sym('b','',' '+bfmt(S.b),12*PX,y0);
+  xe=sym('b','Δ',' '+f2(v.bD),12*PX,y0+17*PX); sym('b','η',' '+f2(v.bE),xe+14*PX,y0+17*PX);
+  sym('τ','',' '+tau.toFixed(2),12*PX,y0+34*PX);
+}
+function sup(d){const m={'-':'⁻','0':'⁰','1':'¹','2':'²','3':'³','4':'⁴','5':'⁵','6':'⁶','7':'⁷','8':'⁸','9':'⁹'};return String(d).split('').map(c=>m[c]).join('');}
+function drawSigTo(x,W,H){
+  const L=62*PX, Rm=18*PX, B=40*PX, pw=W-L-Rm;
+  const ph=Math.max(60*PX,Math.min(H-30*PX-B,0.62*pw)), T=Math.max(30*PX,(H-ph-B)/2+6*PX);
+  const nb=241, bs=[...Array(nb).keys()].map(k=>k*S.bmax/(nb-1));
+  const series=[];
+  if(S.ref){series.push(['lte',C.lte,curves.refs.lte,'LTE',1.3,[]]);series.push(['pte',C.pte,curves.refs.pte,'PTE',1.3,[]]);series.push(['ste',C.ste,curves.refs.ste,'STE',1.3,[]]);}
+  if(S.gauss) series.push(['gauss',C.gauss,curves.gauss,'⟨D⟩ only',1.3,[5,4]]);
+  if(S.mono){series.push(['mono',C.dim,{xs:[curves.main.mean],ws:[1]},'exp(−b⟨D_B⟩)',1.2,[2,3]]);}
+  series.push(['main',C.sig,curves.main,'This encoding',2.4,[]]);
+  const ys=series.map(s=>bs.map(b=>sigAt(s[2],b)));
+  let mn=1;for(const y of ys)for(const v of y)if(v>0)mn=Math.min(mn,v);
+  const lo=Math.min(-1,Math.max(-4,Math.floor(Math.log10(Math.max(mn,1e-6))-0.0001))), hi=0;
+  const X=b=>L+b/S.bmax*pw, Y=v=>T+(hi-Math.log10(Math.max(v,10**lo)))/(hi-lo)*ph;
+  x.lineWidth=PX;x.font=FONT(11);
+  for(let d=lo;d<=hi;d++){
+    for(let m=1;m<10;m++){const v=m*10**d;if(v>1)break;const yy=Y(v);x.strokeStyle=m===1?C.rule:C.grid;x.beginPath();x.moveTo(L,yy);x.lineTo(L+pw,yy);x.stroke();}
+    x.fillStyle=C.muted;x.textAlign='right';x.textBaseline='middle';x.fillText(d===0?'1':`10${sup(d)}`,L-8*PX,Y(10**d));
+  }
+  const step=S.bmax<=2?0.5:1;
+  for(let b=0;b<=S.bmax+1e-9;b+=step){const xx=X(b);x.strokeStyle=C.grid;x.beginPath();x.moveTo(xx,T);x.lineTo(xx,T+ph);x.stroke();
+    x.fillStyle=C.muted;x.textAlign='center';x.textBaseline='top';x.fillText(String(Math.round(b*1000)),xx,T+ph+7*PX);}
+  x.strokeStyle=C.axis;x.strokeRect(L+0.5,T+0.5,pw,ph);
+  x.fillStyle=C.dim;x.textAlign='right';x.textBaseline='top';x.fillText('b  [s/mm²]',L+pw,T+ph+22*PX);
+  x.save();x.beginPath();x.rect(L,T,pw,ph);x.clip();
+  series.forEach((s,si)=>{x.strokeStyle=s[1];x.lineWidth=s[4]*PX;x.setLineDash(s[5].map(v=>v*PX));x.beginPath();
+    ys[si].forEach((v,k)=>{const px=X(bs[k]),py=Y(v);k?x.lineTo(px,py):x.moveTo(px,py);});x.stroke();});
+  x.setLineDash([]);
+  const xm=X(S.b);x.strokeStyle=C.accent;x.lineWidth=PX;x.beginPath();x.moveTo(xm,T);x.lineTo(xm,T+ph);x.stroke();
+  series.forEach(s=>{const v=sigAt(s[2],S.b);x.beginPath();x.arc(xm,Y(v),(s[0]==='main'?4:2.6)*PX,0,2*Math.PI);x.fillStyle=s[1];x.fill();});
+  x.restore();
+  x.font=FONT(11);x.textBaseline='middle';x.textAlign='left';
+  const rows=series.slice().reverse(), lw=Math.max(...rows.map(s=>x.measureText(s[3]).width))+40*PX, lh=16*PX;
+  const lx=L+pw-lw-8*PX, ly=T+8*PX;
+  x.fillStyle=C.panel;x.globalAlpha=0.88;x.fillRect(lx,ly,lw,rows.length*lh+8*PX);x.globalAlpha=1;
+  x.strokeStyle=C.rule;x.lineWidth=PX;x.strokeRect(lx+0.5,ly+0.5,lw,rows.length*lh+8*PX);
+  rows.forEach((s,k)=>{const yy=ly+12*PX+k*lh;x.strokeStyle=s[1];x.lineWidth=s[4]*PX;x.setLineDash(s[5].map(v=>v*PX));x.beginPath();x.moveTo(lx+8*PX,yy);x.lineTo(lx+28*PX,yy);x.stroke();x.setLineDash([]);
+    x.fillStyle=s[0]==='main'?C.text:C.muted;x.fillText(s[3],lx+34*PX,yy);});
+}
+function paint(id,fn){const {x,W,H}=fit($(id));x.clearRect(0,0,W,H);PX=1;fn(x,W,H);}
+function draw(){paint('cvB',drawBTo);paint('cvVox',drawVoxelTo);paint('cvSig',drawSigTo);}
+
+/* ==================== SWEEP ==================== */
+/* Keyframe: {b, e (unit-trace eigenvalues in the principal frame), q (rotation as quaternion)}.
+   Interpolation is linear in b and in the eigenvalues (always a valid b-tensor) and a slerp of
+   the orientation, taking the shortest of the rotations that describe the same tensor. */
+let keys=[];
+const sweep={playing:false,t:0,dur:2.5,hold:0.4,closed:true,loop:true,ease:true,orbit:false,seg:-1};
+addSlider($('swCtl'),'swDur','transition',0.3,8,0.1,v=>v.toFixed(1)+' s',v=>{sweep.dur=v;});
+addSlider($('swCtl'),'swHold','hold',0,4,0.1,v=>v.toFixed(1)+' s',v=>{sweep.hold=v;});
+const keyNow=()=>{const c=canonicalize(S.e,S.R);return {b:S.b,e:c.e.slice(),q:qFromMat(c.R)};};
+const keyOf=(b,bD,bE,R)=>({b,e:bEig(bD,bE),q:qFromMat(R)});
+function randomRot(r){ // uniform random rotation (Shoemake)
+  const u1=r(),u2=2*Math.PI*r(),u3=2*Math.PI*r(),a=Math.sqrt(1-u1),c=Math.sqrt(u1);
+  return matFromQ([c*Math.cos(u3),a*Math.sin(u2),a*Math.cos(u2),c*Math.sin(u3)]);
+}
+let sweepSeed=1;
+function generate(){
+  encEdit();
+  const kind=$('swPreset').value, n=Math.max(2,Math.min(60,Math.round(+$('swN').value||12)));
+  const r=mulberry32(1000+(sweepSeed++)), b=S.b>0?S.b:S.bmax/2;
+  keys=[];
+  if(kind==='tour'){
+    for(const [bD,bE] of [[1,0],[0,0],[-0.5,0],[0.5,0.5],[0.5,1]]) keys.push(keyOf(b,bD,bE,randomRot(r)));
+    setChk('swClosed',true);
+  } else if(kind==='bramp'){
+    const k=keyNow();keys.push({b:0,e:k.e,q:k.q});keys.push({b:S.bmax,e:k.e.slice(),q:k.q.slice()});
+    setChk('swClosed',true);
+  } else if(kind==='dirs'){
+    const ga=Math.PI*(3-Math.sqrt(5));
+    // keep the current shape (and its spin ψ); only the symmetry axis visits the hemisphere
+    const c=canonicalize(S.e,S.R), ps=eulFromMat(c.R).ps*Math.PI/180;
+    for(let i=0;i<n;i++){const z=1-(i+0.5)/n;keys.push({b,e:c.e.slice(),q:qFromMat(rotZYZ(Math.acos(z),i*ga,ps))});}
+  } else if(kind==='rots'){
+    const c=canonicalize(S.e,S.R);
+    for(let i=0;i<n;i++) keys.push({b,e:c.e.slice(),q:qFromMat(randomRot(r))});
+  } else {
+    for(let i=0;i<n;i++){const bD=-0.5+1.5*r(),bE=r()*maxBE(bD);keys.push(keyOf(b,bD,bE,randomRot(r)));}
+  }
+  renderKeys();
+  $('recStatus').textContent=`${keys.length} keyframes, ${totalTime().toFixed(1)} s. Press Play to preview.`;
+}
+function setChk(id,v){$(id).checked=v;sweep[{swClosed:'closed',swLoop:'loop',swEase:'ease',swOrbit:'orbit'}[id]]=v;}
+[['swClosed','closed'],['swLoop','loop'],['swEase','ease'],['swOrbit','orbit']].forEach(([id,k])=>$(id).addEventListener('change',e=>{sweep[k]=e.target.checked;}));
+$('swPreset').addEventListener('change',()=>{$('swN').disabled=['tour','bramp'].includes($('swPreset').value);});
+$('swGen').addEventListener('click',generate);
+$('swAdd').addEventListener('click',()=>{encEdit();keys.push(keyNow());renderKeys();});
+$('swClear').addEventListener('click',()=>{encEdit();keys=[];renderKeys();});
+function shapeName(e){const v=lamToInv(e);if(v.bD>0.985)return 'LTE';if(Math.abs(v.bD)<0.015)return 'STE';if(v.bD<-0.49&&v.bE<0.01)return 'PTE';
+  return `b_Δ ${f2(v.bD)}${v.bE>0.005?' b_η '+f2(v.bE):''}`;}
+function renderKeys(){
+  const ol=$('keys');ol.innerHTML='';
+  if(!keys.length) ol.innerHTML='<li class="empty">No keyframes. Generate a sweep or add the current b-tensor.</li>';
+  keys.forEach((k,i)=>{
+    const a=eulFromMat(matFromQ(k.q)),li=document.createElement('li');li.dataset.i=i;
+    li.innerHTML=`<span class="k">${i+1}</span><button type="button" class="d" title="Go to this keyframe"></button><button type="button" class="x" aria-label="Remove keyframe ${i+1}">×</button>`;
+    li.querySelector('.d').textContent=`${shapeName(k.e)}, b ${Math.round(k.b*1000)}, θ ${Math.round(a.th)}° φ ${Math.round(a.ph)}°`;
+    li.querySelector('.d').addEventListener('click',()=>{encEdit();applyKey(k);settleEncoding();update(true);});
+    li.querySelector('.x').addEventListener('click',()=>{encEdit();keys.splice(i,1);renderKeys();});
+    ol.appendChild(li);
+  });
+  $('swPlay').disabled=keys.length<2;$('recBtn').disabled=keys.length<2&&!rec;
+}
+function applyKey(k){S.b=k.b;S.e=k.e.slice();S.R=matFromQ(k.q);}
+function nSeg(){return sweep.closed?keys.length:keys.length-1;}
+function totalTime(){return nSeg()*(sweep.hold+sweep.dur)+(sweep.closed?0:sweep.hold);}
+function sweepAt(t){
+  const per=sweep.hold+sweep.dur, ns=nSeg(), seg=Math.floor(t/per);
+  if(seg>=ns){applyKey(keys[sweep.closed?0:keys.length-1]);highlight(-1);return;}
+  const loc=t-seg*per;let u=loc<sweep.hold?0:Math.min(1,(loc-sweep.hold)/sweep.dur);
+  if(sweep.ease)u=u*u*u*(u*(u*6-15)+10);
+  const A=keys[seg],B=keys[(seg+1)%keys.length];
+  S.b=A.b+(B.b-A.b)*u;
+  S.e=[0,1,2].map(i=>A.e[i]+(B.e[i]-A.e[i])*u);
+  S.R=matFromQ(qSlerp(A.q,nearestEquiv(A.q,B.q),u));
+  if(seg!==sweep.seg){sweep.seg=seg;highlight(seg);}
+}
+function highlight(i){document.querySelectorAll('#keys li').forEach(li=>li.classList.toggle('cur',+li.dataset.i===i));}
+function startSweep(){if(keys.length<2)return;sweep.playing=true;sweep.t=0;sweep.seg=-1;$('swPlay').textContent='Stop';}
+function stopSweep(){sweep.playing=false;$('swPlay').textContent='Play';highlight(-1);settleEncoding();update(true);}
+$('swPlay').addEventListener('click',()=>{if(rec)return;sweep.playing?stopSweep():startSweep();});
+const ORBIT_RATE=0.2;  // rad/s while sweeping with orbit on
+let last=0;
+function frame(now){
+  const dt=Math.min(0.1,(now-(last||now))/1000);last=now;
+  if(sweep.playing&&!rec){
+    const total=totalTime();sweep.t+=dt;
+    if(sweep.t>=total){if(sweep.loop)sweep.t%=total;else{sweepAt(total);stopSweep();requestAnimationFrame(frame);return;}}
+    sweepAt(sweep.t);if(sweep.orbit)view.yaw+=ORBIT_RATE*dt;
+    encodingToSliders();update(true);
+  }
+  requestAnimationFrame(frame);
+}
+
+/* ==================== RECORDING ==================== */
+/* Minimal MP4 muxer, as in Field sim: one H.264 track, one chunk, constant frame rate
+   (media timescale = fps, stts declares one tick per sample). Layout ftyp, mdat, moov. */
+function cat(parts){let n=0;for(const p of parts)n+=p.length;const out=new Uint8Array(n);let o=0;for(const p of parts){out.set(p,o);o+=p.length;}return out;}
+function u32(v){return new Uint8Array([(v>>>24)&255,(v>>>16)&255,(v>>>8)&255,v&255]);}
+function u16(v){return new Uint8Array([(v>>>8)&255,v&255]);}
+function str4(s){return new Uint8Array([s.charCodeAt(0),s.charCodeAt(1),s.charCodeAt(2),s.charCodeAt(3)]);}
+function box(type,...parts){const body=cat(parts);return cat([u32(body.length+8),str4(type),body]);}
+function fullBox(type,version,flags,...parts){return box(type,new Uint8Array([version,(flags>>16)&255,(flags>>8)&255,flags&255]),...parts);}
+const UNITY=cat([u32(0x00010000),u32(0),u32(0),u32(0),u32(0x00010000),u32(0),u32(0),u32(0),u32(0x40000000)]);
+function muxMP4({width,height,fps,samples,avcC}){
+  const n=samples.length;
+  if(!n)throw new Error('no samples to mux');
+  if(!avcC||!avcC.length)throw new Error('missing H.264 decoder configuration');
+  const MOVIE_TS=1000, mediaDur=n, movieDur=Math.round(n*MOVIE_TS/fps);
+  const ftyp=box('ftyp',str4('isom'),u32(0x200),str4('isom'),str4('iso2'),str4('avc1'),str4('mp41'));
+  const mdat=box('mdat',cat(samples.map(s=>s.data)));
+  const chunkOffset=ftyp.length+8;
+  const mvhd=fullBox('mvhd',0,0,u32(0),u32(0),u32(MOVIE_TS),u32(movieDur),u32(0x00010000),u16(0x0100),u16(0),u32(0),u32(0),UNITY,u32(0),u32(0),u32(0),u32(0),u32(0),u32(0),u32(2));
+  const tkhd=fullBox('tkhd',0,3,u32(0),u32(0),u32(1),u32(0),u32(movieDur),u32(0),u32(0),u16(0),u16(0),u16(0),u16(0),UNITY,u32(width<<16),u32(height<<16));
+  const mdhd=fullBox('mdhd',0,0,u32(0),u32(0),u32(fps),u32(mediaDur),u16(0x55c4),u16(0));
+  const hdlr=fullBox('hdlr',0,0,u32(0),str4('vide'),u32(0),u32(0),u32(0),new Uint8Array([...Array.from('VideoHandler').map(c=>c.charCodeAt(0)),0]));
+  const vmhd=fullBox('vmhd',0,1,u16(0),u16(0),u16(0),u16(0));
+  const dinf=box('dinf',fullBox('dref',0,0,u32(1),fullBox('url ',0,1)));
+  const avc1=box('avc1',new Uint8Array(6),u16(1),u16(0),u16(0),u32(0),u32(0),u32(0),u16(width),u16(height),u32(0x00480000),u32(0x00480000),u32(0),u16(1),new Uint8Array(32),u16(0x0018),u16(0xffff),box('avcC',avcC));
+  const stsd=fullBox('stsd',0,0,u32(1),avc1);
+  const stts=fullBox('stts',0,0,u32(1),u32(n),u32(1));
+  const kf=[];samples.forEach((s,i)=>{if(s.key)kf.push(i+1);});
+  const stss=fullBox('stss',0,0,u32(kf.length),...kf.map(u32));
+  const stsc=fullBox('stsc',0,0,u32(1),u32(1),u32(n),u32(1));
+  const stsz=fullBox('stsz',0,0,u32(0),u32(n),...samples.map(s=>u32(s.data.length)));
+  const stco=fullBox('stco',0,0,u32(1),u32(chunkOffset));
+  const moov=box('moov',mvhd,box('trak',tkhd,box('mdia',mdhd,hdlr,box('minf',vmhd,dinf,box('stbl',stsd,stts,stss,stsc,stsz,stco)))));
+  return cat([ftyp,mdat,moov]);
+}
+async function pickH264(width,height,fps,bitrate){
+  if(typeof VideoEncoder==='undefined'||typeof VideoFrame==='undefined')return null;
+  const mb=Math.ceil(width/16)*Math.ceil(height/16);
+  const levels=[['28',245760,8192],['2A',522240,8704],['33',983040,36864],['34',2073600,36864]].filter(l=>mb*fps<=l[1]&&mb<=l[2]).map(l=>l[0]);
+  for(const prof of ['6400','4D00','42E0'])for(const lv of levels){
+    const config={codec:'avc1.'+prof+lv,width,height,framerate:fps,bitrate,avc:{format:'avc'},latencyMode:'quality'};
+    try{const r=await VideoEncoder.isConfigSupported(config);if(r&&r.supported)return config;}catch(e){/* next */}
+  }
+  return null;
+}
+/* One video frame: the panels chosen under Recording, in the order b-tensor, voxel, signal.
+   Two rows puts the 3D views above the signal; one row places everything side by side. */
+const PANELS={b:{tag:'b-tensor B̂',fn:()=>drawBTo,w1:1,w2:1},
+              v:{tag:'Voxel — diffusion tensors',fn:()=>drawVoxelTo,w1:1.35,w2:1.35},
+              s:{tag:'Signal — S(b)/S₀, log scale',fn:()=>drawSigTo,w1:2,w2:1}};
+function recPanels(){return ['b','v','s'].filter(k=>$({b:'incB',v:'incV',s:'incS'}[k]).checked);}
+function layoutRects(sel,mode,W,H){
+  const rows=[];
+  if(mode==='two'){const top=sel.filter(k=>k!=='s');if(top.length)rows.push(top);if(sel.includes('s'))rows.push(['s']);}
+  else rows.push(sel);
+  const rects=[], hs=rows.length===2?[Math.round(H*0.6),H-Math.round(H*0.6)]:[H];
+  let y=0;
+  rows.forEach((row,ri)=>{
+    const wk=mode==='two'?'w2':'w1', tot=row.reduce((a,k)=>a+PANELS[k][wk],0);let x0=0;
+    row.forEach((k,ci)=>{const w=ci===row.length-1?W-x0:Math.round(W*PANELS[k][wk]/tot);rects.push({k,x:x0,y,w,h:hs[ri]});x0+=w;});
+    y+=hs[ri];
+  });
+  return rects;
+}
+function composeFrame(x,W,H,sel,mode){
+  sel=sel||['b','v','s'];mode=mode||'two';
+  x.setTransform(1,0,0,1,0,0);x.fillStyle=C.bg;x.fillRect(0,0,W,H);
+  const rects=layoutRects(sel,mode,W,H);
+  // one text and line scale for the whole frame, set by the smallest panel, so labels match across panels
+  const px=Math.max(0.6,Math.min(...rects.map(r=>Math.min(r.h/420,r.w/380))));
+  for(const r of rects){
+    PX=px;
+    x.save();x.translate(r.x,r.y);x.beginPath();x.rect(0,0,r.w,r.h);x.clip();PANELS[r.k].fn()(x,r.w,r.h);
+    x.font=FONT(10);x.fillStyle=C.dim;x.textAlign='left';x.textBaseline='top';
+    if('letterSpacing' in x)x.letterSpacing=(1.3*PX)+'px';x.fillText(PANELS[r.k].tag.toUpperCase(),12*PX,9*PX);if('letterSpacing' in x)x.letterSpacing='0px';
+    x.restore();
+  }
+  x.strokeStyle=C.rule;x.lineWidth=Math.max(1,H/760);x.beginPath();
+  for(const r of rects){if(r.x>0){x.moveTo(r.x+0.5,r.y);x.lineTo(r.x+0.5,r.y+r.h);}if(r.y>0){x.moveTo(0,r.y+0.5);x.lineTo(W,r.y+0.5);}}
+  x.stroke();PX=1;
+}
+let rec=null;
+async function recordSweep(){
+  if(rec){rec.cancel=true;return;}
+  if(keys.length<2){$('recStatus').textContent='Add at least two keyframes, or generate a sweep.';return;}
+  const sel=recPanels(), mode=S.layout;
+  if(!sel.length){$('recStatus').textContent='Choose at least one panel to include.';return;}
+  if(sweep.playing){sweep.playing=false;$('swPlay').textContent='Play';}
+  const [W,H]=$('recSize').value.split('x').map(Number), fps=+$('recFps').value;
+  const bitrate=Math.min(60e6,Math.round(W*H*fps*0.1));
+  const config=await pickH264(W,H,fps,bitrate);
+  if(!config){$('recStatus').textContent='This browser has no H.264 encoder (WebCodecs). Use a recent Chrome, Edge or Safari.';return;}
+  rec={cancel:false};
+  const btn=$('recBtn');btn.innerHTML='<span class="dot"></span>Cancel';
+  const canvas=document.createElement('canvas');canvas.width=W;canvas.height=H;const x=canvas.getContext('2d');
+  const samples=[];let avcC=null,failed=null;
+  const enc=new VideoEncoder({
+    output:(chunk,meta)=>{const d=meta&&meta.decoderConfig&&meta.decoderConfig.description;if(d&&!avcC)avcC=new Uint8Array(d.buffer?d.buffer.slice(d.byteOffset||0,(d.byteOffset||0)+d.byteLength):d);
+      const bytes=new Uint8Array(chunk.byteLength);chunk.copyTo(bytes);samples.push({data:bytes,key:chunk.type==='key'});},
+    error:e=>{failed=e;}});
+  enc.configure(config);
+  const total=totalTime(), n=Math.max(2,Math.round(total*fps)+1), gop=fps, yaw0=view.yaw;
+  sweep.seg=-1;
+  try{
+    for(let k=0;k<n&&!failed&&!rec.cancel;k++){
+      const t=Math.min(total,k/fps);
+      sweepAt(t);if(sweep.orbit)view.yaw=yaw0+ORBIT_RATE*t;
+      compute();composeFrame(x,W,H,sel,mode);
+      const vf=new VideoFrame(canvas,{timestamp:Math.round(k*1e6/fps),duration:Math.round(1e6/fps)});
+      enc.encode(vf,{keyFrame:k%gop===0});vf.close();
+      if(enc.encodeQueueSize>6)await new Promise(r=>setTimeout(r,0));
+      if(k%8===0){
+        $('recStatus').textContent=`Rendering frame ${k+1} of ${n}.`;
+        encodingToSliders();syncEncodingUI();readout();draw();
+        await new Promise(r=>requestAnimationFrame(r));
+      }
+    }
+    if(failed)throw failed;
+    if(rec.cancel){try{enc.close();}catch(e){}$('recStatus').textContent='Recording cancelled.';}
+    else{
+      await enc.flush();enc.close();
+      if(!samples.length)throw new Error('the encoder produced no frames');
+      const blob=new Blob([muxMP4({width:W,height:H,fps,samples,avcC})],{type:'video/mp4'});
+      const url=URL.createObjectURL(blob),a=document.createElement('a');
+      a.href=url;a.download=`diffsim_sweep_${new Date().toISOString().replace(/[:.]/g,'-').slice(0,19)}.mp4`;
+      document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);
+      $('recStatus').textContent=`Saved ${(blob.size/1048576).toFixed(1)} MB, MP4 (H.264), ${samples.length} frames at ${fps} fps, ${(n/fps).toFixed(1)} s, ${W}×${H}.`;
+    }
+  }catch(e){try{enc.close();}catch(_){}$('recStatus').textContent='Recording failed: '+(e&&e.message?e.message:e);}
+  rec=null;btn.innerHTML='<span class="dot"></span>Record sweep';
+  highlight(-1);settleEncoding();update(true);renderKeys();
+}
+$('recBtn').addEventListener('click',recordSweep);
+function syncRecUI(){const sel=recPanels();if(!rec)$('recStatus').textContent=sel.length?'':'Choose at least one panel to include.';}
+['incB','incV','incS'].forEach(id=>$(id).addEventListener('change',syncRecUI));
+
+/* ==================== INTERACTION ==================== */
+for(const id of ['cvVox','cvB']){
+  const cv=$(id);let drag=null;
+  cv.addEventListener('pointerdown',e=>{if(rec)return;drag={x:e.clientX,y:e.clientY};cv.setPointerCapture(e.pointerId);cv.classList.add('drag');});
+  cv.addEventListener('pointermove',e=>{if(!drag)return;view.yaw+=(e.clientX-drag.x)*0.01;view.pitch=Math.max(-1.45,Math.min(1.45,view.pitch+(e.clientY-drag.y)*0.01));drag={x:e.clientX,y:e.clientY};paint('cvVox',drawVoxelTo);paint('cvB',drawBTo);});
+  const end=()=>{drag=null;cv.classList.remove('drag');};
+  cv.addEventListener('pointerup',end);cv.addEventListener('pointercancel',end);
+  cv.addEventListener('dblclick',()=>{view=Object.assign({},VIEW0);paint('cvVox',drawVoxelTo);paint('cvB',drawBTo);});
+}
+document.addEventListener('keydown',e=>{
+  if(e.key!==' '||rec)return;
+  if(e.target.closest&&e.target.closest('input[type=number],select,textarea,button'))return;
+  e.preventDefault();if(keys.length<2)return;sweep.playing?stopSweep():startSweep();
+});
+new ResizeObserver(()=>{if(curves)draw();}).observe(document.querySelector('main'));
+$('theme').addEventListener('click',()=>{
+  const root=document.documentElement,dark=root.getAttribute('data-theme')!=='light';
+  root.setAttribute('data-theme',dark?'light':'dark');$('theme').textContent=dark?'Dark':'Light';readTheme();if(curves)draw();
+});
+
+/* ==================== ABOUT ==================== */
+const VERSION='0.6.4';
+const AUTHORS='Designed by Filip Sz (Lund University) and coded by Claude (Anthropic)';
+const CHANGELOG=[
+  ['0.6.4','2026-10-01',
+   'Fixed the tensor fading. Since 0.6.1 the default "relative" opacity divided each tensor\'s signal by that of the '+
+   'strongest tensors, which cancels the decay whenever all tensors decay alike (free water, a single tensor): they '+
+   'stayed fully opaque at any b. Opacity is absolute again, with a choice of linear (opacity = S) or logarithmic '+
+   'mapping over an adjustable range (default one decade: S = 1 opaque, S = 0.1 gone), which keeps the contrast between '+
+   'slow and fast compartments. The relative option and the contrast exponent are removed.'],
+  ['0.6.3','2026-10-01',
+   'The b-tensor glyph grows with b (largest semi-axis ∝ b/b_max, as B = b·B̂), so a b ramp or the b slider is visible '+
+   'in the b-tensor panel; at b = 0 the glyph vanishes. Switch under Display to keep a fixed size.'],
+  ['0.6.2','2026-10-01',
+   'The powder average is split into two switches: one averages the signal over all b-tensor orientations, the other '+
+   'shows several orientations at once in the b-tensor view. Either can be used without the other. The orientation '+
+   'sliders stay active as long as the signal is not powder-averaged.'],
+  ['0.6.1','2026-10-01',
+   'Contrast options for the signal-weighted opacity: relative to the strongest tensors shown (the signal is divided by '+
+   'the 90th percentile of the 64 shown tensors, so the tenth that keeps the most signal is fully opaque) and a contrast exponent γ applied to the remaining signal (default 2). '+
+   'Opacity is no longer a direct read-out of S at high contrast; the voxel hint states the mapping in use.'],
+  ['0.6.0','2026-10-01',
+   'A second, isotropic tensor population with its own fraction, mean diffusivity and log-normal spread (Tissue). '+
+   'New preset "Isotropic spread plus random sticks": half spheres with a wide spread of D, half randomly oriented '+
+   'sticks. With the signal-weighted opacity, raising b shows the fast spheres fading first and the slow spheres '+
+   'remaining at high b.'],
+  ['0.5.0','2026-10-01',
+   'Layout is now a general Display option: two rows (3D views above the signal) or one row with all panels side by '+
+   'side. Recordings follow it; the separate recording layout menu is gone. The signal row is shorter (3D row to '+
+   'signal row 1.5 : 1), and the plot height is capped at 0.62 of its width and centred, so in the one-row layout the '+
+   'graph keeps a landscape shape next to the 3D views instead of stretching to full height.'],
+  ['0.4.2','2026-10-01','Removed the principal-axis lines from the b-tensor panel; the rotation is read from the glyph itself.'],
+  ['0.4.1','2026-10-01',
+   'The hemisphere sweep keeps the current b-tensor shape instead of switching to LTE, so it can rotate spherical, '+
+   'planar and asymmetric encodings too. New sweep preset: random rotations of the current shape.'],
+  ['0.4.0','2026-10-01',
+   'Recording options: choose which panels go into the video (b-tensor, voxel, signal, any combination) and whether '+
+   'they sit on two rows (3D views above the signal) or side by side on one row. Text and line widths share one scale across the '+
+   'frame. Added a 1920 × 640 strip size that suits the one-row layout.'],
+  ['0.3.0','2026-10-01',
+   'Panels reordered to follow the measurement: b-tensor, diffusion tensors, signal. The b-tensor is drawn as a shaded '+
+   'superquadric that is an ellipsoid when the encoding is axisymmetric and grows boxier with triaxiality '+
+   'τ = 4b_Δ²b_η² (exponent ε = 1 − 0.85τ), coloured continuously by shape, with b, b_Δ, b_η and τ printed in the panel. '+
+   'New Sweep section: keyframes of b, b-tensor shape and orientation, generated (shapes with random rotations, a b ramp, '+
+   'directions on a hemisphere, random b-tensors) or added by hand, played with transition and hold times, easing, loop '+
+   'and an optional slow orbit of the view. Eigenvalues and b are interpolated linearly and orientations along the '+
+   'shortest rotation. New Recording section: the programmed sweep is rendered offline, frame by frame, to a '+
+   'constant-frame-rate H.264 MP4 with all three panels, using the same built-in muxer as Field sim.'],
+  ['0.2.0','2026-10-01',
+   'Each tensor in the voxel is drawn with an opacity equal to the signal it still contributes at the marked b-value, '+
+   'exp(−b·B̂:D) for the current encoding (averaged over orientations when the powder average is on), with a faint floor '+
+   'so that fully attenuated compartments stay visible as ghosts. Can be switched off under Display.'],
+  ['0.1.0','2026-10-01',
+   'First version. A voxel of axisymmetric diffusion tensors drawn from a chosen distribution (mean diffusivity, '+
+   'log-normal spread of D_iso, tensor shape D_Δ, aligned, crossing or random orientation with dispersion, and a free-water '+
+   'fraction), with nine presets. The b-tensor is set by its shape (b_Δ, b_η) and orientation, with LTE, PTE and STE '+
+   'shortcuts and an optional powder average. The signal S(b) = ⟨exp(−B:D)⟩ is plotted on a log axis from b = 0 to '+
+   '2000 s/mm² (or 3000/5000), with LTE, PTE and STE references, the mean-tensor (single Gaussian) curve and an optional '+
+   'monoexponential at the mean. Readout of S, ADC(b), the encoding-specific kurtosis, MD, FA of the mean tensor and µFA.']
+];
+$('ver').textContent='v'+VERSION;
+$('credit').textContent=`Diffusion sim v${VERSION} · ${AUTHORS}`;
+document.querySelector('#about .by').textContent=AUTHORS;
+$('changelog').innerHTML=CHANGELOG.map(([v,d,t],i)=>`<div class="rel"><h5>${v} <em>· ${i===0?'current, ':''}${d}</em></h5><p>${t}</p></div>`).join('');
+{
+  const about=$('about'), close=()=>{about.hidden=true;$('ver').focus();};
+  $('ver').addEventListener('click',()=>{about.hidden=false;about.querySelector('.sheet').scrollTop=0;$('aboutClose').focus({preventScroll:true});});
+  $('aboutClose').addEventListener('click',close);
+  about.addEventListener('click',e=>{if(e.target===about)close();});
+  document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!about.hidden)close();});
+}
+
+/* ==================== GO ==================== */
+readTheme();
+ctl.sB.set(S.b);ctl.sBD.set(S.bD);ctl.sBE.set(S.bE);ctl.sTh.set(S.th);ctl.sPh.set(S.ph);ctl.sPs.set(S.ps);
+ctl.sDec.set(S.decades);syncFadeUI();ctl.swDur.set(sweep.dur);ctl.swHold.set(sweep.hold);$('swN').disabled=true;
+fromSliders();syncTissue();rebuild();generate();
+requestAnimationFrame(frame);
+</script>
+<script>
+/* House style (shared by the MRI simulators): one light/dark preference for the
+   whole suite. The saved choice (or the operating-system setting on a first
+   visit) is applied by clicking the app's own theme button, so each app redraws
+   through its usual path. The button always names the theme it switches TO. */
+(function () {
+  "use strict";
+  var KEY = "mrisim.theme", LEGACY = [];
+  function saved() {
+    try {
+      var keys = [KEY].concat(LEGACY);
+      for (var i = 0; i < keys.length; i++) {
+        var v = localStorage.getItem(keys[i]);
+        if (v === "light" || v === "dark") return v;
+      }
+    } catch (e) { /* storage can be unavailable for file:// pages */ }
+    return null;
+  }
+  window.addEventListener("load", function () {
+    setTimeout(function () {
+      var btn = document.getElementById("theme");
+      if (!btn) return;
+      var root = document.documentElement;
+      var cur = function () { return root.getAttribute("data-theme") === "light" ? "light" : "dark"; };
+      var label = function () { btn.textContent = cur() === "dark" ? "Light" : "Dark"; };
+      var want = saved() || (window.matchMedia &&
+        window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark");
+      if (want !== cur()) btn.click();
+      label();
+      btn.addEventListener("click", function () {
+        label();
+        try { localStorage.setItem(KEY, cur()); } catch (e) { /* file:// */ }
+      });
+    }, 0);
+  });
+})();
+</script>
+</body>
+</html>
