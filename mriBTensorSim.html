@@ -2365,9 +2365,13 @@ const X=new THREE.Vector3(1,0,0), Y=new THREE.Vector3(0,1,0), Z=new THREE.Vector
 const MONO='ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace';
 
 /* ---------------- version ---------------- */
-const VERSION="0.1.1";
+const VERSION="0.1.2";
 const AUTHORS="Designed by Filip Sz (Lund University) and coded by Claude (Anthropic)";
 const CHANGELOG=[
+  ["0.1.2","2026-10-22",
+   "Fixed a thin slit along one meridian of the glyph, most visible for sharp-edged linear or planar shapes. "+
+   "Floating-point round-off in sin(2π) and cos(π/2), raised to the small superquadric exponent, left the seam "+
+   "vertices about 0.6 % apart; those values are now exact zeros."],
   ["0.1.1","2026-10-22",
    "Fixed the glyph shrinking or vanishing halfway through waveform sweeps. Between two different source waveforms "+
    "the sweep crossfades their samples, and where the two had largely opposite sign the crossfade cancelled, so b "+
@@ -2566,7 +2570,10 @@ function buildGlyph(){
   const A=[0,1,2].map(n=>{const c=ids[n];return [R[0][c]*r[n]*k,R[1][c]*r[n]*k,R[2][c]*r[n]*k];});
   const out=[0,0,0];
   function f(t,p,o){
-    const ct=Math.cos(t),st=Math.sin(t),cf=Math.cos(p);let sf=Math.sin(p);if(Math.abs(sf)<1e-12)sf=0;let u,v,w;
+    // Round-off zeros (sin 2π ≈ −2e-16) must be exact zeros: raised to a small superquadric exponent they become
+    // ~0.006 and split the seam at t = 2π, or kink the surface at t = π/2, π, 3π/2.
+    const z=x=>Math.abs(x)<1e-12?0:x;
+    const ct=z(Math.cos(t)),st=z(Math.sin(t)),cf=z(Math.cos(p)),sf=z(Math.sin(p));let u,v,w;
     if(linCase){const sb=spow(sf,be);u=spow(cf,be);v=-spow(st,al)*sb;w=spow(ct,al)*sb;}
     else{const sb=spow(sf,be);u=spow(ct,al)*sb;v=spow(st,al)*sb;w=spow(cf,be);}
     o[0]=u*A[0][0]+v*A[1][0]+w*A[2][0];o[1]=u*A[0][1]+v*A[1][1]+w*A[2][1];o[2]=u*A[0][2]+v*A[1][2]+w*A[2][2];return o;
