@@ -14,7 +14,9 @@ Claude (Anthropic)
 - Generated code and revisions for several versions of the Induction bench.
 - Generated code and revisions for the Slice sim.
 - Generated code and revisions for the Artifact sim.
-- Harmonised the interface style across all six simulators (header, control rail,
+- Generated code and revisions for the B-tensor sim (formerly the stand-alone
+  b-tensor glyph viewer).
+- Harmonised the interface style across the simulators (header, control rail,
   palette, controls and dialog), including in the Readout sim (formerly K-space sim).
 
 ChatGPT (OpenAI)
@@ -36,7 +38,8 @@ THIRD-PARTY SOFTWARE
 
 Some self-contained simulator files bundle third-party open-source software,
 including Three.js and OrbitControls (bundled in the Field sim, Induction
-bench and Slice sim). Those components remain subject to their
+bench and Slice sim; Three.js also in the B-tensor sim) and mp4-muxer (MIT,
+bundled in the B-tensor sim). Those components remain subject to their
 own copyright notices and license terms. Existing third-party notices must be
 retained where required.
 

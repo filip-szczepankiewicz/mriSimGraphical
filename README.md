@@ -1,12 +1,12 @@
 # MRI simulators for visualization
 Designed by Filip Sz (Lund University) and coded by Claude (Anthropic) and ChatGPT (OpenAI).
 
-Seven interactive MRI physics visualisations. Each is a single self-contained HTML
+Eight interactive MRI physics visualisations. Each is a single self-contained HTML
 file with no build step, no server and no network access, and should run well on
 both PCs and phones. The 3D views use WebGL, with Three.js bundled inside the
 file.
 
-All seven share one look: the simulator name in capitals at the top left of the
+All eight share one look: the simulator name in capitals at the top left of the
 control rail, a version chip and a light/dark chip at the right of the same line,
 a one-line description underneath, and uppercase section headings below that. The
 light/dark choice is shared between the files and remembered, and follows the
@@ -29,6 +29,7 @@ that are not corrected for field strength.
 | [`mriSliceSim.html`](#mrislicesimhtml--slice-sim) | Slice-selective excitation and the rewinder |
 | [`mriReadoutSim.html`](#mrireadoutsimhtml--readout-sim) | K-space trajectories in spin-echo imaging |
 | [`mriArtifactSim.html`](#mriartifactsimhtml--artifact-sim) | Image artifacts: chemical shift, aliasing, Gibbs ringing |
+| [`mriBTensorSim.html`](#mribtensorsimhtml--b-tensor-sim) | b-tensor glyphs from tensors or gradient waveforms |
 
 ## How to use
 
@@ -48,6 +49,7 @@ No installation, server or internet connection is needed; everything runs
 inside the file. A recent version of Chrome, Edge, Firefox or Safari is
 recommended. Video recording in the Sequence sim and Field sim relies on the
 WebCodecs API, which is best supported in Chromium-based browsers (Chrome, Edge).
+The same applies to the B-tensor sim.
 
 On a phone, save the file to the device and open it from the file manager in a
 browser. Some mobile file viewers show the source instead of running the page.
@@ -220,6 +222,33 @@ bending is not modelled. Eddy currents are linear fields with one exponential
 per axis and no cross-terms, and diffusion lobes drive eddy currents without
 attenuating the signal. Flow is plug flow through the slice in a single
 vessel, without velocity profiles or turbulence.
+
+## `mriBTensorSim.html` — B-tensor sim
+
+![B-tensor sim](docs/img/mriBTensorSim.png)
+
+The diffusion encoding b-tensor drawn as a superquadric glyph (Kindlmann 2004),
+coloured by shape from planar through spherical to linear, or by direction. The
+tensor can be set directly, by size and shape (b, b<sub>Δ</sub>, b<sub>η</sub>)
+or by its eigenvalues, with an orientation, and optionally constrained to
+axisymmetric or linear shapes. A readout gives b, b<sub>Δ</sub>, b<sub>η</sub>,
+the triaxiality τ and the eigenvalues.
+
+In waveform mode the tensor is computed from a gradient waveform instead,
+B = ∫q(t)q(t)ᵀdt with q(t) = γ∫rf·G dt′, following the conventions of the fwf
+toolbox. Waveforms are pasted or opened as text (gx gy gz t, or a fixed dt,
+optionally with an rf column or a refocusing time) or as JSON exported from
+MATLAB, and kept in a small library. The played gradient is G(t) = a·R·K·g(t):
+amplitude, per-axis scaling and mixing, and rotation of the imported waveform,
+so it can be seen how changing the waveform changes the encoding. The waveform
+can be plotted on the view against a per-axis gradient limit and saved back as
+JSON with its b-tensor.
+
+Keyframe sweeps (preset tours, shape ramps, directions on a hemisphere, random
+configurations, or a waveform showcase) interpolate smoothly between tensors or
+waveform transforms. Sweeps are rendered frame by frame to H.264 MP4 at up to
+3840 × 2160, live interaction can be recorded, and stills can be saved as PNG
+with a transparent or slide-matched background.
 
 ## Licence
 
