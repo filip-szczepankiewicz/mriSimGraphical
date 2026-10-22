@@ -2365,9 +2365,17 @@ const X=new THREE.Vector3(1,0,0), Y=new THREE.Vector3(0,1,0), Z=new THREE.Vector
 const MONO='ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace';
 
 /* ---------------- version ---------------- */
-const VERSION="0.1.0";
+const VERSION="0.1.1";
 const AUTHORS="Designed by Filip Sz (Lund University) and coded by Claude (Anthropic)";
 const CHANGELOG=[
+  ["0.1.1","2026-10-22",
+   "Fixed the glyph shrinking or vanishing halfway through waveform sweeps. Between two different source waveforms "+
+   "the sweep crossfades their samples, and where the two had largely opposite sign the crossfade cancelled, so b "+
+   "collapsed mid-transition. Since g and −g give the same b-tensor, each keyframe now gets a polarity, chained "+
+   "along the sweep so that consecutive waveforms add. With aligned polarity the midpoint b cannot drop below about "+
+   "a quarter of the end points before the existing rescaling, which now always restores the linear change in b "+
+   "(the 4× amplitude cap that let it fail is gone). Only the sign of the plotted waveform can differ from the "+
+   "imported one during a sweep; it returns to the imported polarity when the sweep stops."],
   ["0.1.0","2026-10-22",
    "First version in the simulator suite, ported from the stand-alone b-tensor glyph viewer. The physics, "+
    "glyph geometry, waveform import, keyframe sweeps and MP4 recording are unchanged. The interface now follows "+
@@ -2664,7 +2672,8 @@ function srcData(){
   }
   if(!blendOk.get(key)) return bl.u<0.5?wa:wb;
   const N=Math.max(wa.N,wb.N), u=bl.u, cols=[0,1,2].map(i=>{const a=new Float64Array(N);
-    for(let n=0;n<N;n++)a[n]=(1-u)*(n<wa.N?wa.cols[i][n]:0)+u*(n<wb.N?wb.cols[i][n]:0);return a;});
+    const ua=(1-u)*(bl.sa||1), ub=u*(bl.sb||1);
+    for(let n=0;n<N;n++)a[n]=ua*(n<wa.N?wa.cols[i][n]:0)+ub*(n<wb.N?wb.cols[i][n]:0);return a;});
   const lw=wa.N>=wb.N?wa:wb;
   return {name:`${wa.name} → ${wb.name}`,dt:wa.dt,N,cols,rf:lw.rf,wa,wb,u,blendText:`Blending ${wa.name} → ${wb.name} (${Math.round(100*u)} %). `};
 }
@@ -2678,7 +2687,7 @@ function updateWave(){
   if(S.wmode!=='wave') return {lam:S.lam,q:S.q};
   const w=srcData();
   if(!w){setWfMsg('Import a waveform below to start.',false);WF.disp={lam:[0,0,0],q:new THREE.Quaternion()};return WF.disp;}
-  const M=xfMatrix(XF), c=w.cols, N=w.N, g=new Float64Array(3*N), peak=[0,0,0];
+  const sg=w.wa?1:(XF.sgn||1), M=xfMatrix(XF).map(r=>r.map(v=>v*sg)), c=w.cols, N=w.N, g=new Float64Array(3*N), peak=[0,0,0];
   let qx=0,qy=0,qz=0,xx=0,xy=0,xz=0,yy=0,yz=0,zz=0;
   for(let n=0;n<N;n++){
     const a=c[0][n],b=c[1][n],d=c[2][n];
@@ -2694,7 +2703,7 @@ function updateWave(){
     // that b moves linearly between the two end points (same transform), capped at 4x amplitude.
     const tb=x=>{const T=mm(mm(M,x.B0),tr3(M));return T[0][0]+T[1][1]+T[2][2];};
     const want=(1-w.u)*tb(w.wa)+w.u*tb(w.wb), have=B[0][0]+B[1][1]+B[2][2];
-    const f=have>0?Math.min(4,Math.sqrt(want/have)):1;
+    const f=have>1e-12*want?Math.sqrt(want/have):1;
     if(f!==1){for(let n=0;n<3*N;n++)g[n]*=f;for(let i=0;i<3;i++)peak[i]*=f;B=B.map(r=>r.map(v=>v*f*f));}
   }
   const E=jacobi3(B), V=E.vec; if(det3(V)<0)for(let i=0;i<3;i++)V[i][0]*=-1;
@@ -2870,7 +2879,7 @@ function applyInv(){
 function applyEig(){ userEdit(); S.lam=project(S.lam,S.constraint); dirty=true; updateReadout(); }
 function applyEul(){ userEdit(); S.q=eulToQ(S.eul.th,S.eul.ph,S.eul.ps); dirty=true; }
 function settle(){
-  if(S.wmode==='wave'){XF.eul=qToEul(XF.q);if(WF.blend){WF.src=WF.blend.u<0.5?WF.blend.a:WF.blend.b;WF.blend=null;$('#wfSrc').value=String(WF.src);}return;}
+  if(S.wmode==='wave'){XF.eul=qToEul(XF.q);XF.sgn=1;if(WF.blend){WF.src=WF.blend.u<0.5?WF.blend.a:WF.blend.b;WF.blend=null;$('#wfSrc').value=String(WF.src);}return;}
   const c=canonicalize(S.lam,S.q); S.lam=project(c.lam,S.constraint); S.q=c.q;
   S.inv=lamToInv(S.lam); if(S.constraint!=='all') S.inv.bE=0; if(S.constraint==='lin') S.inv.bD=1;
   S.eul=qToEul(S.q);
@@ -3086,14 +3095,43 @@ function stopSweep(finished){
   sweep.playing=false;settle();dirty=true;syncUI();updateButtons();highlightKey(-1);
   if(rec.active&&rec.mode==='sweep') setTimeout(stopRec,finished?350:0);
 }
+// Waveform polarity. g and -g give the same b-tensor, but a crossfade (1-u) g_A + u g_B between two sources
+// of largely opposite sign cancels, and b collapses mid-transition (the glyph vanishes). Each keyframe therefore
+// gets a polarity +-1, chained so that consecutive sources add: sign of the cross term tr(M C M^T),
+// C = sum q_A q_B^T dt, evaluated at the transition midpoint transform. The polarity only changes the sign of
+// the plotted waveform, never the b-tensor.
+function wfCross(wa,wb,M){
+  const N=Math.max(wa.N,wb.N), rf=wa.N>=wb.N?wa.rf:wb.rf; let a=[0,0,0],b=[0,0,0],c=0;
+  for(let n=0;n<N;n++){
+    const r=rf[n]*wa.dt;
+    for(let i=0;i<3;i++){a[i]+=(n<wa.N?wa.cols[i][n]:0)*r;b[i]+=(n<wb.N?wb.cols[i][n]:0)*r;}
+    const ma=[0,1,2].map(i=>M[i][0]*a[0]+M[i][1]*a[1]+M[i][2]*a[2]), mb=[0,1,2].map(i=>M[i][0]*b[0]+M[i][1]*b[1]+M[i][2]*b[2]);
+    c+=ma[0]*mb[0]+ma[1]*mb[1]+ma[2]*mb[2];
+  }
+  return c;
+}
+let sigCache={keys:null,n:-1,lib:-1,sig:[]};
+function keySigns(){
+  if(sigCache.keys===keys&&sigCache.n===keys.length&&sigCache.lib===WF.lib.length) return sigCache.sig;
+  const sig=keys.map(()=>1);
+  for(let i=1;i<keys.length;i++){
+    const A=keys[i-1].xf,B=keys[i].xf; sig[i]=sig[i-1];
+    if(!A||!B||A.src==null||B.src==null||A.src===B.src) continue;
+    const wa=WF.lib.find(w=>w.id===A.src), wb=WF.lib.find(w=>w.id===B.src);
+    if(!wa||!wb||Math.abs(wa.dt-wb.dt)>1e-6*wa.dt) continue;
+    if(wfCross(wa,wb,xfMatrix(lerpXf(A,B,0.5)))<0) sig[i]=-sig[i-1];
+  }
+  sigCache={keys,n:keys.length,lib:WF.lib.length,sig}; return sig;
+}
 function sweepAt(t){
   const per=sweep.hold+sweep.dur, ns=nSeg();
   const seg=Math.floor(t/per);
-  if(seg>=ns){const k=keys[sweep.closed?0:keys.length-1];if(k.xf)setXf(k.xf);else{S.lam=[...k.lam];S.q=k.q.clone();}dirty=true;return;}
+  if(seg>=ns){const ki=sweep.closed?0:keys.length-1,k=keys[ki];if(k.xf){setXf(k.xf);XF.sgn=keySigns()[ki];}else{S.lam=[...k.lam];S.q=k.q.clone();}dirty=true;return;}
   const loc=t-seg*per;let u=loc<sweep.hold?0:Math.min(1,(loc-sweep.hold)/sweep.dur);
   if(sweep.ease)u=u*u*u*(u*(u*6-15)+10);
   const A=keys[seg],B=keys[(seg+1)%keys.length];
-  if(A.xf){setXf(lerpXf(A.xf,B.xf,u));if(seg!==sweep.seg){sweep.seg=seg;highlightKey(seg);}dirty=true;return;}
+  if(A.xf){const sig=keySigns(),sa=sig[seg],sb=sig[(seg+1)%keys.length],x=lerpXf(A.xf,B.xf,u);
+    if(x.blend){x.blend.sa=sa;x.blend.sb=sb;} x.sgn=u<0.5?sa:sb; setXf(x);if(seg!==sweep.seg){sweep.seg=seg;highlightKey(seg);}dirty=true;return;}
   S.lam=[0,1,2].map(i=>A.lam[i]+(B.lam[i]-A.lam[i])*u);
   S.q=A.q.clone().slerp(nearestEquiv(A.q,B.q),u);
   if(seg!==sweep.seg){sweep.seg=seg;highlightKey(seg);}
@@ -3502,7 +3540,7 @@ function lerpXf(A,B,u){
     src:diff&&u>=0.5?B.src:A.src,blend:diff&&u>0&&u<1?{a:A.src,b:B.src,u}:null};
 }
 function setXf(x){
-  XF.amp=x.amp;XF.s=[...x.s];XF.m=[...x.m];XF.q=x.q.clone();XF.eul={...x.eul};
+  XF.amp=x.amp;XF.s=[...x.s];XF.m=[...x.m];XF.q=x.q.clone();XF.eul={...x.eul};XF.sgn=x.sgn||1;
   if(x.src!=null&&WF.lib.some(w=>w.id===x.src)&&x.src!==WF.src){WF.src=x.src;$('#wfSrc').value=String(x.src);}
   WF.blend=x.blend||null;
 }
