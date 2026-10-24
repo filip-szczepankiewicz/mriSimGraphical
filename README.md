@@ -16,6 +16,7 @@ credits and changelog under the version chip in its header.
 | [`mriSeqSim.html`](#mriseqsimhtml--sequence-sim) | Bloch simulation of common sequences |
 | [`mriFieldSim.html`](#mrifieldsimhtml--field-sim) | Gradient and concomitant (Maxwell) fields |
 | [`mriInductSim.html`](#mriinductsimhtml--induction-sim) | Signal induction in a receive coil |
+| [`mriExciteSim.html`](#mriexcitesimhtml--excitation-sim) | RF excitation, circular and linear B₁ |
 | [`mriSliceSim.html`](#mrislicesimhtml--slice-sim) | Slice-selective excitation and the rewinder |
 | [`mriReadoutSim.html`](#mrireadoutsimhtml--readout-sim) | K-space trajectories in spin-echo imaging |
 | [`mriArtifactSim.html`](#mriartifactsimhtml--artifact-sim) | Image artifacts from the signal equation |
@@ -71,6 +72,21 @@ induced current, and how they depend on flip angle and distance. It switches
 between a classical bar-magnet view and a spin-½ density-operator view. The
 spin view shows an exaggerated measurement-probability surface and the live
 2×2 density matrix.
+
+## `mriExciteSim.html` — Excitation sim
+
+![Excitation sim](docs/img/mriExciteSim.png)
+
+How a rotating B₁ tips the magnetisation, in the lab and rotating frames side by
+side. B₁ can be circular (quadrature), linear, or circular in the wrong sense,
+played as a continuous wave or as a rectangular, sinc or Gaussian pulse. A
+linear field splits into a co-rotating part, which stands still in the rotating
+frame and does the tipping, and a counter-rotating part at −2ω, which averages
+out. Both are shown in each view, along a travelling-wave picture of the field
+and in its spectrum at +ω and −ω. The Bloch equation is solved in the lab frame
+without the rotating-wave approximation, so the 2ω wobble and the Bloch–Siegert
+shift appear when B₁ is exaggerated. Lecture steps, and MP4 recording of one
+pass.
 
 ## `mriSliceSim.html` — Slice sim
 

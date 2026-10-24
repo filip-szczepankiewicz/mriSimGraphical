@@ -1,0 +1,1341 @@
+<!doctype html>
+<!--
+  Excitation sim — how a rotating B1 field tips the magnetisation, seen in the
+  lab and rotating frames, and why a linearly polarised RF field is the sum of
+  a co-rotating (resonant) and a counter-rotating (off-resonant) circular field.
+  Designed by Filip Sz (Lund University) and coded by Claude (Anthropic).
+
+  Single self-contained file: no build step, no network, no dependencies.
+  Version history lives in the CHANGELOG constant in the script below and is
+  shown in the version dialog; bump VERSION whenever you change the physics or the UI.
+  VERSION is the single source of truth — this header deliberately does not repeat it.
+  The file name carries no version (mriExciteSim.html); git tracks the history.
+-->
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Excitation sim — rotating B1, circular and linear polarisation</title>
+<meta name="author" content="Filip Sz (Lund University); Claude (Anthropic)">
+<meta name="description" content="Interactive visualisation of RF excitation in the lab and rotating frames, and of circular versus linear B1 polarisation as continuous waves and pulses.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23151b24'/%3E%3Cg fill='none' stroke-width='2.2' stroke-linecap='round'%3E%3Cellipse cx='16' cy='20' rx='10' ry='4' stroke='%234d5a6b' stroke-width='1.4'/%3E%3Cpath d='M16 20 L16 7' stroke='%232fb6b0'/%3E%3Cpath d='M16 20 L25 17' stroke='%23e0a441'/%3E%3C/g%3E%3C/svg%3E">
+<style>
+:root{
+  --bg:#0e1219; --panel:#151b24; --panel2:#1b2230; --rule:#26303f;
+  --text:#ccd6e4; --muted:#7c8a9d; --dim:#4d5a6b;
+  --accent:#2fb6b0;
+  --btn:#1b2230; --btnh:#232c3c; --btna:#2a3547;
+  /* physics colours: B1 total amber as in Sequence sim, the two circular
+     components green (with the spins) and violet (against them) */
+  --b1:#e0a441; --co:#5fc493; --ctr:#a382e8;
+  --mxy:#e2554d; --mz:#5b8cff; --net:#ffffff; --axis:#7c8a9d;
+}
+html[data-theme="light"]{
+  --bg:#f2f4f7; --panel:#ffffff; --panel2:#f7f9fb; --rule:#d7dde5;
+  --text:#1b2430; --muted:#5f6c7d; --dim:#9aa5b3;
+  --accent:#0f8f8a;
+  --btn:#eef1f5; --btnh:#e4e9f0; --btna:#d9e0ea;
+  --b1:#b57a12; --co:#22795a; --ctr:#6b3fc0;
+  --mxy:#9e1810; --mz:#123a9e; --net:#000000; --axis:#5f6c7d;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0; background:var(--bg); color:var(--text);
+  font:13px/1.45 ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
+  -webkit-font-smoothing:antialiased;
+  display:grid; grid-template-columns:300px 1fr; height:100vh; overflow:hidden;
+}
+/* ------------------------------------------------------------- rail */
+#rail{background:var(--panel); border-right:1px solid var(--rule); overflow-y:auto; overflow-x:hidden; padding:0 0 24px}
+#rail::-webkit-scrollbar{width:9px}
+#rail::-webkit-scrollbar-thumb{background:var(--rule)}
+section{border-bottom:1px solid var(--rule); padding:11px 14px 13px}
+h2{font-size:10px; font-weight:400; letter-spacing:.18em; text-transform:uppercase; color:var(--dim); margin:0 0 9px}
+.row{display:flex; gap:6px; flex-wrap:wrap}
+button{
+  font:inherit; font-size:11.5px; color:var(--text); background:var(--btn);
+  border:1px solid var(--rule); border-radius:3px; padding:5px 9px; cursor:pointer;
+}
+button:hover{background:var(--btnh)}
+button:active{background:var(--btna)}
+button.primary,button.primary:hover{background:var(--btn); color:var(--accent); border-color:var(--accent)}
+button.on{border-color:var(--accent); color:var(--accent)}
+button:disabled{opacity:.5; cursor:default}
+:focus-visible{outline:2px solid var(--accent); outline-offset:2px}
+.ctl{margin:0 0 11px}
+.ctl:last-child{margin-bottom:0}
+.ctl.off{opacity:.45}
+.lab{display:flex; justify-content:space-between; align-items:baseline; gap:8px; margin-bottom:3px}
+.lab span:first-child{color:var(--muted); font-size:12px}
+.val{color:var(--text); font-size:12px; font-variant-numeric:tabular-nums; white-space:nowrap}
+.sub{color:var(--dim); font-size:10.5px; line-height:1.4; margin:3px 0 0}
+input[type=range]{-webkit-appearance:none; appearance:none; width:100%; height:18px; margin:0; background:transparent; cursor:pointer}
+input[type=range]::-webkit-slider-runnable-track{height:2px; background:var(--rule)}
+input[type=range]::-moz-range-track{height:2px; background:var(--rule)}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none; width:12px; height:12px; margin-top:-5px; border:0; border-radius:50%; background:var(--accent)}
+input[type=range]::-moz-range-thumb{width:12px; height:12px; border:0; border-radius:50%; background:var(--accent)}
+input[type=range]:disabled{cursor:default; opacity:.5}
+label.chk{display:flex; align-items:center; gap:7px; padding:2.5px 0; cursor:pointer; font-size:11.5px; color:var(--text)}
+label.chk.off{opacity:.45}
+input[type=checkbox]{accent-color:var(--accent); margin:0; cursor:pointer}
+select{
+  font:inherit; font-size:12px; color:var(--text); background:var(--panel2);
+  border:1px solid var(--rule); border-radius:3px; padding:4px 6px; width:100%; cursor:pointer;
+}
+.preset{display:block; width:100%; text-align:left; margin:0 0 5px}
+.preset:last-child{margin-bottom:0}
+table.read{width:100%; border-collapse:collapse; font-size:11.5px; font-variant-numeric:tabular-nums}
+table.read td{padding:2px 0; color:var(--muted)}
+table.read td:last-child{text-align:right; color:var(--text)}
+.k{display:inline-block; width:9px; height:9px; border-radius:2px; margin-right:5px}
+#note{color:var(--muted); font-size:11px; line-height:1.55; margin:0}
+#note b{color:var(--text); font-weight:600}
+#note p{margin:0 0 7px}
+#note p:last-child{margin:0}
+.c-co{color:var(--co)} .c-ctr{color:var(--ctr)} .c-b1{color:var(--b1)}
+#rec .dot{display:inline-block; width:8px; height:8px; border-radius:50%; background:var(--mxy); margin-right:7px; vertical-align:middle}
+#rec.rec{color:var(--mxy); border-color:var(--mxy)}
+#rec.rec .dot{animation:blink 1s steps(2,start) infinite}
+@keyframes blink{50%{opacity:0}}
+#recStatus{margin:6px 0 0; font-size:10.5px; color:var(--dim); line-height:1.4}
+#recStatus.bad{color:var(--mxy)}
+#recStatus.good{color:var(--accent)}
+.two{display:grid; grid-template-columns:1fr 1fr; gap:6px; margin-bottom:8px}
+.two label{display:block; color:var(--muted); font-size:11px; margin-bottom:2px}
+/* header */
+#rail .brand{
+  position:sticky; top:0; z-index:3; background:var(--panel);
+  border-bottom:1px solid var(--rule); padding:13px 14px 11px; margin:0;
+  display:flex; flex-wrap:wrap; align-items:baseline; gap:0 5px;
+}
+#rail .brand h1{margin:0 auto 0 0; font-size:12px; font-weight:600; line-height:1.45; letter-spacing:.16em; text-transform:uppercase; white-space:nowrap}
+#rail .brand .brand-sub{flex:1 0 100%; margin:6px 0 0; font-size:11px; line-height:1.4; color:var(--muted)}
+.themebtn,button.themebtn{
+  appearance:none; background:transparent; border:1px solid var(--rule); color:var(--muted);
+  font:inherit; font-size:10px; line-height:1.45; letter-spacing:.1em; text-transform:uppercase;
+  padding:3px 7px; cursor:pointer; border-radius:2px;
+}
+.themebtn:hover,button.themebtn:hover{background:transparent; color:var(--text); border-color:var(--muted)}
+.credit{margin:14px 14px 0; font-size:10px; line-height:1.6; color:var(--dim); letter-spacing:.02em}
+/* ------------------------------------------------------------- views */
+main{display:grid; grid-template-rows:minmax(0,1.15fr) minmax(0,1fr); min-width:0; min-height:0; overflow:hidden}
+.prow{display:grid; min-height:0}
+#top{grid-template-columns:1fr 1fr; border-bottom:1px solid var(--rule)}
+#bot{grid-template-columns:1.5fr 1fr}
+.pane{position:relative; min-width:0; min-height:0; background:var(--panel)}
+.pane+.pane{border-left:1px solid var(--rule)}
+.pane canvas{position:absolute; inset:0; width:100%; height:100%; display:block}
+.tag{position:absolute; top:9px; left:12px; z-index:2; pointer-events:none; font-size:10px; letter-spacing:.13em; text-transform:uppercase; color:var(--dim)}
+.hint{position:absolute; bottom:8px; right:12px; z-index:2; pointer-events:none; font-size:10px; color:var(--dim)}
+canvas.orbit{cursor:grab; touch-action:none}
+canvas.orbit.drag{cursor:grabbing}
+@media (max-width:1000px){
+  body{grid-template-columns:1fr; grid-template-rows:auto auto; height:auto; overflow:auto}
+  #rail{border-right:none; border-bottom:1px solid var(--rule); overflow:visible}
+  #rail .brand{position:static}
+  main{display:block; overflow:visible}
+  .prow{display:block; border:0}
+  .pane{height:min(78vw,460px); border-bottom:1px solid var(--rule)}
+  .pane+.pane{border-left:none}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important; animation:none!important}}
+/* about dialog */
+#about[hidden]{display:none}
+#about{position:fixed; inset:0; z-index:40; display:grid; place-items:center; background:rgba(0,0,0,.5); padding:20px}
+#about .sheet{background:var(--panel); border:1px solid var(--rule); border-radius:4px; padding:20px 22px; max-width:540px; width:100%; max-height:82vh; overflow-y:auto}
+#about h3{margin:0 0 3px; font-size:13px; letter-spacing:.16em; text-transform:uppercase}
+#about .by{margin:0 0 12px; color:var(--accent); font-size:12px}
+#about .note{margin:0 0 12px; color:var(--muted); font-size:11.5px; line-height:1.6}
+#about .note b{color:var(--text); font-weight:600}
+#about .rel{border-top:1px solid var(--rule); padding-top:9px; margin-top:9px}
+#about .rel h5{margin:0 0 5px; font-size:11px; letter-spacing:.1em; font-weight:600; color:var(--text)}
+#about .rel h5 em{color:var(--dim); font-style:normal; font-weight:400; letter-spacing:0}
+#about .rel p{margin:0; color:var(--muted); font-size:11.5px; line-height:1.6}
+#about #aboutClose{margin-top:18px}
+</style>
+</head>
+<body>
+
+<div id="rail">
+  <div class="brand">
+    <h1>Excitation sim</h1>
+    <button class="themebtn" id="ver" type="button" title="Version, credits and changelog"></button>
+    <button class="themebtn" id="theme" type="button" title="Switch colour theme">Light</button>
+    <p class="brand-sub">How a rotating B₁ tips the magnetisation, and why a linear field is two circular ones</p>
+  </div>
+
+  <section>
+    <h2>Playback</h2>
+    <div class="row">
+      <button id="play" class="primary" type="button">Pause</button>
+      <button id="restart" type="button">Restart</button>
+      <label class="chk" style="margin-left:auto"><input type="checkbox" id="cLoop"> Loop</label>
+    </div>
+    <div class="ctl" style="margin-top:11px">
+      <div class="lab"><span>Speed</span><span class="val" id="vSpeed"></span></div>
+      <input type="range" id="sSpeed" min="0" max="100" value="50" aria-label="Playback speed">
+    </div>
+    <div class="ctl">
+      <div class="lab"><span>Time</span><span class="val" id="vTime"></span></div>
+      <input type="range" id="sTime" min="0" max="1000" value="0" aria-label="Time">
+    </div>
+    <p class="sub">Space plays/pauses · R restarts. Time is counted in RF periods T<sub>RF</sub> = 1/f<sub>RF</sub>.</p>
+  </section>
+
+  <section>
+    <h2>Lecture steps</h2>
+    <button class="preset" type="button" data-p="circCW">1  Circular B₁, continuous</button>
+    <button class="preset" type="button" data-p="linCW">2  Linear B₁ = two circular</button>
+    <button class="preset" type="button" data-p="linBig">3  Linear, exaggerated B₁</button>
+    <button class="preset" type="button" data-p="anti">4  Circular, wrong sense</button>
+    <button class="preset" type="button" data-p="rect">5  90° rectangular pulse</button>
+    <button class="preset" type="button" data-p="sinc">6  90° sinc pulse, linear</button>
+    <button class="preset" type="button" data-p="offres">7  Off resonance</button>
+  </section>
+
+  <section>
+    <h2>RF field</h2>
+    <div class="two">
+      <div><label for="pol">Polarisation</label>
+        <select id="pol">
+          <option value="circ">Circular</option>
+          <option value="lin">Linear</option>
+          <option value="anti">Circular, wrong sense</option>
+        </select></div>
+      <div><label for="wave">Waveform</label>
+        <select id="wave">
+          <option value="cw">Continuous</option>
+          <option value="rect">Rect pulse</option>
+          <option value="sinc">Sinc pulse</option>
+          <option value="gauss">Gauss pulse</option>
+        </select></div>
+    </div>
+    <div class="ctl" id="ctlAlpha">
+      <div class="lab"><span>Flip angle</span><span class="val" id="vAlpha"></span></div>
+      <input type="range" id="sAlpha" min="10" max="360" step="5" value="90" aria-label="Flip angle">
+    </div>
+    <div class="ctl">
+      <div class="lab"><span>B₁ strength</span><span class="val" id="vN90"></span></div>
+      <input type="range" id="sN90" min="0" max="100" value="40" aria-label="B1 strength">
+      <p class="sub" id="subN90"></p>
+    </div>
+    <div class="ctl">
+      <div class="lab"><span>Off resonance Δω</span><span class="val" id="vOff"></span></div>
+      <input type="range" id="sOff" min="-300" max="300" step="5" value="0" aria-label="Off resonance">
+      <p class="sub">Spin Larmor frequency minus RF frequency, in units of the peak ω₁ = γB₁.</p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Display</h2>
+    <label class="chk" id="lDecomp"><input type="checkbox" id="cDecomp" checked> Split linear B₁ into its circular parts</label>
+    <label class="chk"><input type="checkbox" id="cBeff" checked> Effective field (rotating frame)</label>
+    <label class="chk"><input type="checkbox" id="cAxes" checked> Rotating axes x′, y′ in the lab view</label>
+    <label class="chk"><input type="checkbox" id="cTrail" checked> Trace of the tip of M</label>
+    <label class="chk"><input type="checkbox" id="cRotAx"> Spectrum axis in the rotating frame</label>
+    <div class="ctl" style="margin-top:9px">
+      <div class="lab"><span>Wave window</span><span class="val" id="vWin"></span></div>
+      <input type="range" id="sWin" min="0" max="100" value="30" aria-label="Wave window">
+    </div>
+    <div class="row"><button id="resetView" type="button">Reset view</button></div>
+  </section>
+
+  <section>
+    <h2>Readout</h2>
+    <table class="read">
+      <tr><td>t</td><td id="rT"></td></tr>
+      <tr><td>Tip of M from z</td><td id="rTip"></td></tr>
+      <tr><td><i class="k" style="background:var(--mxy)"></i>|M<sub>xy</sub>|</td><td id="rMxy"></td></tr>
+      <tr><td><i class="k" style="background:var(--mz)"></i>M<sub>z</sub></td><td id="rMz"></td></tr>
+      <tr><td>Pulse duration</td><td id="rDur"></td></tr>
+      <tr><td>ω₁ / ω₀ here</td><td id="rRatio"></td></tr>
+      <tr><td>RF power for this ω₁</td><td id="rPow"></td></tr>
+    </table>
+  </section>
+
+  <section>
+    <h2>What to look for</h2>
+    <div id="note"></div>
+  </section>
+
+  <section>
+    <h2>Recording</h2>
+    <div class="two">
+      <div><label for="recFps">Frame rate</label>
+        <select id="recFps"><option>30</option><option selected>60</option></select></div>
+      <div><label for="recSize">Resolution</label>
+        <select id="recSize">
+          <option value="1280">1280 × 720</option>
+          <option value="1600" selected>1600 × 900</option>
+          <option value="1920">1920 × 1080</option>
+        </select></div>
+    </div>
+    <button id="rec" type="button"><span class="dot"></span>Record one pass</button>
+    <p id="recStatus">H.264 MP4 at the current speed, from t = 0 to the end. Needs WebCodecs (Chrome, Edge, recent Safari).</p>
+  </section>
+
+  <p class="credit" id="credit"></p>
+</div>
+
+<main>
+  <div class="prow" id="top">
+    <div class="pane">
+      <div class="tag">Lab frame</div>
+      <canvas id="cvLab" class="orbit"></canvas>
+      <div class="hint">drag to orbit</div>
+    </div>
+    <div class="pane">
+      <div class="tag">Rotating frame — x′y′ turn at ω<sub>RF</sub></div>
+      <canvas id="cvRot" class="orbit"></canvas>
+      <div class="hint">drag to orbit</div>
+    </div>
+  </div>
+  <div class="prow" id="bot">
+    <div class="pane">
+      <div class="tag">B₁ as a travelling wave arriving at the spin</div>
+      <canvas id="cvWave" class="orbit"></canvas>
+      <div class="hint">drag to orbit</div>
+    </div>
+    <div class="pane">
+      <div class="tag">Spectrum of B₁⁺ = B<sub>x</sub> + iB<sub>y</sub></div>
+      <canvas id="cvSpec"></canvas>
+    </div>
+  </div>
+</main>
+
+<div id="about" hidden>
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="aboutTitle">
+    <h3 id="aboutTitle">Excitation sim</h3>
+    <p class="by"></p>
+    <p class="note">
+      RF excitation of one isochromat by a B₁ field perpendicular to B₀, shown in the
+      lab frame and in a frame rotating at the RF frequency. The B₁ field can be
+      circularly polarised (quadrature drive), linearly polarised (one channel), or
+      circular in the wrong sense, and played as a continuous wave or as a
+      rectangular, sinc or Gaussian pulse. A linear field is the sum of a co-rotating
+      and a counter-rotating circular field of half its amplitude; only the
+      co-rotating one is resonant.
+    </p>
+    <p class="note">
+      <b>Physics.</b> The Bloch equation is integrated numerically in the lab frame
+      with the full field, so the counter-rotating component is not dropped (no
+      rotating-wave approximation): its 2ω wobble and the Bloch–Siegert shift are
+      real, just exaggerated by the large ω₁/ω₀ used here. The rotating-frame view is
+      the same trajectory, rotated back at ω<sub>RF</sub>. No relaxation: excitation
+      is assumed much shorter than T1 and T2.
+    </p>
+    <p class="note">
+      <b>Simplifications.</b> B₁ is drawn hugely enlarged. In a scanner B₁ is about
+      10 µT against a B₀ of 1.5–3 T, so ω₁/ω₀ is of order 10⁻⁶ and a 90° pulse spans
+      some 10⁵ Larmor periods rather than the handful shown. The travelling-wave panel
+      is an analogy: the RF coil works in the near field, and at 64–128 MHz the
+      wavelength in tissue is comparable to the body. The panel lays out the field the
+      spin experiences over time along a line, exactly as a plane wave travelling
+      along B₀ would carry it. Precession is drawn anticlockwise seen from +z, as in
+      the other simulators; for protons the true sense is clockwise. Mirroring it
+      changes nothing here: "co-rotating" always means turning with the spins.
+    </p>
+    <div id="changelog"></div>
+    <button class="themebtn" id="aboutClose" type="button">Close</button>
+  </div>
+</div>
+
+<script>
+"use strict";
+/* ==================== PHYSICS CORE (pure, no DOM) ==================== */
+/*  Units: time in RF periods (T_RF = 1), angular frequency in rad per period,
+ *  so the RF carrier is w_RF = 2*pi. M is normalised to M0 = 1.
+ *
+ *  Field convention: dM/dt = Omega x M, Omega = (w1x, w1y, w0), i.e. M turns
+ *  anticlockwise about the field direction, as in the other simulators.
+ *  A circular field with unit envelope a(t) and peak w1 is
+ *      co-rotating      w1*a(t)*( cos(wt),  sin(wt) )   (turns with the spins)
+ *      counter-rotating w1*a(t)*( cos(wt), -sin(wt) )
+ *  and a linear field along x is their sum, 2*w1*a(t)*cos(wt).  So "B1 = w1"
+ *  always means the amplitude of each circular component; the linear coil has to
+ *  produce twice that amplitude, which costs twice the power of a quadrature coil.
+ */
+const TWO_PI = 2*Math.PI;
+const W_RF   = TWO_PI;          // carrier, rad per period
+const SPP    = 128;             // integration steps per RF period
+
+// envelope shapes on u in [0,1], peak 1
+const SHAPES = {
+  rect : u => 1,
+  sinc : u => {                 // time-bandwidth product 6, Hann windowed
+    const x = (u-0.5)*6*Math.PI;
+    const s = Math.abs(x) < 1e-9 ? 1 : Math.sin(x)/x;
+    return s*0.5*(1 + Math.cos(TWO_PI*(u-0.5)));
+  },
+  gauss: u => Math.exp(-0.5*Math.pow((u-0.5)/0.16, 2))
+};
+const AREA = {};                // mean of each envelope over [0,1]
+for(const k in SHAPES){
+  let s = 0; const n = 4000;
+  for(let i=0;i<n;i++) s += SHAPES[k]((i+0.5)/n);
+  AREA[k] = s/n;
+}
+
+/* Derived timing for a parameter set P = {pol, wave, alpha(deg), n90, off}.
+   n90 = Larmor (RF) periods needed for a 90° rotation at peak B1. */
+function design(P){
+  const w1 = (Math.PI/2)/P.n90;                 // rad per period
+  const dw = P.off*w1;                          // spin minus RF frequency
+  const D = {w1, dw, w0:W_RF + dw, pre:0, T:Infinity, post:0};
+  if(P.wave === "cw"){
+    D.tEnd = 4*P.n90 + 4*P.n90;                 // one full nutation, 360°
+  } else {
+    D.T    = (P.alpha*Math.PI/180)/(w1*AREA[P.wave]);
+    D.pre  = 1.5;
+    D.post = Math.max(3, 0.2*D.T);
+    D.tEnd = D.pre + D.T + D.post;
+  }
+  return D;
+}
+
+function envelope(P, D, t){
+  if(P.wave === "cw") return t >= 0 ? 1 : 0;
+  const u = (t - D.pre)/D.T;
+  return (u < 0 || u > 1) ? 0 : SHAPES[P.wave](u);
+}
+
+/* The two circular parts and their sum at time t, per unit w1. */
+function fieldAt(P, D, t){
+  const a = envelope(P, D, t), c = Math.cos(W_RF*t), s = Math.sin(W_RF*t);
+  const co  = P.pol !== "anti" ? [a*c,  a*s] : [0, 0];
+  const ctr = P.pol !== "circ" ? [a*c, -a*s] : [0, 0];
+  return {a, co, ctr, tot:[co[0]+ctr[0], co[1]+ctr[1]]};
+}
+
+/* Integrate the lab-frame Bloch equation (no relaxation) with the full field,
+   midpoint rule, exact rotation per step. Returns M at every step. */
+function simulate(P, D){
+  const dt = 1/SPP, Nt = Math.ceil(D.tEnd*SPP);
+  const M = new Float64Array(3*(Nt+1));
+  let mx = 0, my = 0, mz = 1;
+  M[0] = mx; M[1] = my; M[2] = mz;
+  for(let k=0;k<Nt;k++){
+    const f = fieldAt(P, D, (k+0.5)*dt);
+    const ox = D.w1*f.tot[0], oy = D.w1*f.tot[1], oz = D.w0;
+    const om = Math.hypot(ox, oy, oz);
+    if(om > 1e-12){
+      const nx = ox/om, ny = oy/om, nz = oz/om, ang = om*dt;
+      const c = Math.cos(ang), s = Math.sin(ang), d = (nx*mx + ny*my + nz*mz)*(1-c);
+      const x = mx*c + (ny*mz - nz*my)*s + nx*d;
+      const y = my*c + (nz*mx - nx*mz)*s + ny*d;
+      const z = mz*c + (nx*my - ny*mx)*s + nz*d;
+      mx = x; my = y; mz = z;
+    }
+    M[3*k+3] = mx; M[3*k+4] = my; M[3*k+5] = mz;
+  }
+  return {M, Nt, dt};
+}
+
+/* |spectrum| of the envelope, normalised to 1 at zero offset; nu in cycles per
+   period, offset from the carrier. The envelopes are real and symmetric, so this
+   is even in nu and the two circular components are mirror images. */
+function envSpectrum(P, D, nus){
+  const out = new Float64Array(nus.length);
+  if(P.wave === "cw") return out;
+  const N = Math.max(256, Math.min(1600, Math.round(D.T*24)));
+  const a = new Float64Array(N), t = new Float64Array(N);
+  let sum = 0;
+  for(let k=0;k<N;k++){ t[k] = (k+0.5)/N*D.T; a[k] = SHAPES[P.wave]((k+0.5)/N); sum += a[k]; }
+  for(let i=0;i<nus.length;i++){
+    const w = -TWO_PI*nus[i];
+    let re = 0, im = 0;
+    for(let k=0;k<N;k++){ re += a[k]*Math.cos(w*t[k]); im += a[k]*Math.sin(w*t[k]); }
+    out[i] = Math.hypot(re, im)/Math.abs(sum);
+  }
+  return out;
+}
+/* ================== END PHYSICS CORE ================== */
+
+
+/* ---------------------------------------------------------- version */
+const VERSION = "0.1.0";
+const AUTHORS = "Designed by Filip Sz (Lund University) and coded by Claude (Anthropic)";
+const CHANGELOG = [
+  ["0.1.0", "2026-10-24",
+   "First version. One isochromat excited by a B₁ field, shown in the lab and rotating " +
+   "frames side by side with a shared orbit. B₁ can be circular, linear, or circular in " +
+   "the wrong sense, as a continuous wave or a rectangular, sinc (time-bandwidth 6, Hann window) or " +
+   "Gaussian pulse. A linear field can be split into its co-rotating (green) and counter-rotating (violet) " +
+   "halves in every view. A travelling-wave panel lays the field out along the propagation " +
+   "axis, and a spectrum panel shows the two components at +ω and −ω with the spin " +
+   "resonance marked. The Bloch equation is integrated in the lab frame without the " +
+   "rotating-wave approximation. Seven lecture steps, readouts, and H.264 MP4 recording " +
+   "of one pass."]
+];
+
+/* ------------------------------------------------------------ state */
+const $ = id => document.getElementById(id);
+const P = {pol:"circ", wave:"cw", alpha:90, n90:4, off:0};
+const S = {
+  t:0, playing:true, speed:1, loop:false,
+  decomp:true, beff:true, axes:true, trail:true, rotAx:false,
+  win:4, dirty:true, recording:false
+};
+let D = null, SIM = null, SPEC = null;
+
+const speedOf  = s => 0.1*Math.pow(60, s/100);          // 0.1 … 6 periods per second
+const speedInv = v => 100*Math.log(v/0.1)/Math.log(60);
+const n90Of    = s => 1.5*Math.pow(20, s/100);          // 1.5 … 30 periods per 90°
+const n90Inv   = v => 100*Math.log(v/1.5)/Math.log(20);
+const winOf    = s => 1.5*Math.pow(200, s/100);         // ±1.5 … ±300 periods
+const winInv   = v => Math.max(0, Math.min(100, 100*Math.log(v/1.5)/Math.log(200)));
+
+function rebuild(keepTime){
+  D = design(P);
+  SIM = simulate(P, D);
+  const NF = 801, f = new Float64Array(NF);
+  for(let i=0;i<NF;i++) f[i] = -2.2 + 4.4*i/(NF-1);
+  const nu = f.map(v => v - 1);                  // offset from the co-rotating carrier
+  SPEC = {f, g:envSpectrum(P, D, nu)};           // ctr(f) = g at -f, by symmetry
+  if(!keepTime) S.t = 0;
+  S.t = Math.min(S.t, D.tEnd);
+  S.dirty = true;
+  syncLabels();
+}
+
+/* Wave window: the whole pulse, or a few periods for a continuous wave. */
+function autoWindow(){
+  S.win = P.wave === "cw" ? 3 : Math.max(3, 0.62*(D.T + 2));
+  $("sWin").value = Math.round(winInv(S.win));
+  S.win = winOf(+$("sWin").value);
+}
+
+/* M at time t in the lab frame (linear interpolation between steps). */
+function mLab(t){
+  const x = Math.max(0, Math.min(SIM.Nt, t/SIM.dt));
+  const k = Math.min(SIM.Nt-1, Math.floor(x)), f = x - k, M = SIM.M;
+  let mx = M[3*k]  *(1-f) + M[3*k+3]*f;
+  let my = M[3*k+1]*(1-f) + M[3*k+4]*f;
+  let mz = M[3*k+2]*(1-f) + M[3*k+5]*f;
+  const n = Math.hypot(mx,my,mz) || 1;
+  return [mx/n, my/n, mz/n];
+}
+const toRot = (v, t) => {                        // rotate back by the RF phase
+  const c = Math.cos(W_RF*t), s = Math.sin(W_RF*t);
+  return [v[0]*c + v[1]*s, -v[0]*s + v[1]*c, v[2]];
+};
+
+/* ---------------------------------------------------------- colours */
+let TH = {};
+function readTheme(){
+  const cs = getComputedStyle(document.documentElement);
+  const v = n => cs.getPropertyValue(n).trim();
+  TH = {bg:v("--bg"), panel:v("--panel"), rule:v("--rule"), text:v("--text"), muted:v("--muted"),
+        dim:v("--dim"), accent:v("--accent"), b1:v("--b1"), co:v("--co"), ctr:v("--ctr"),
+        mxy:v("--mxy"), mz:v("--mz"), net:v("--net"), axis:v("--axis")};
+  S.dirty = true;
+}
+function hex2rgb(h){
+  h = h.replace("#","");
+  if(h.length === 3) h = h.split("").map(c=>c+c).join("");
+  return [parseInt(h.slice(0,2),16), parseInt(h.slice(2,4),16), parseInt(h.slice(4,6),16)];
+}
+function rgba(h, a){ const c = hex2rgb(h); return `rgba(${c[0]},${c[1]},${c[2]},${a})`; }
+const FONT = "10.5px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace";
+
+/* ------------------------------------------------------------ canvas */
+function fitCanvas(cv){
+  if(cv._fixed){                                 // offscreen recording panel
+    const f = cv._fixed, c = cv.getContext("2d");
+    c.setTransform(f.scale, 0, 0, f.scale, 0, 0);
+    c.fillStyle = TH.panel; c.fillRect(0, 0, f.w, f.h);
+    return {ctx:c, w:f.w, h:f.h};
+  }
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const r = cv.getBoundingClientRect();
+  const cw = Math.min(Math.max(r.width, 1), 4000), ch = Math.min(Math.max(r.height, 1), 4000);
+  const w = Math.round(cw*dpr), h = Math.round(ch*dpr);
+  if(cv.width !== w || cv.height !== h){ cv.width = w; cv.height = h; }
+  const ctx = cv.getContext("2d");
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  ctx.clearRect(0,0,cw,ch);
+  return {ctx, w:cw, h:ch};
+}
+function arrow(ctx, x0,y0,x1,y1, lw, col, head, alpha){
+  const dx = x1-x0, dy = y1-y0, L = Math.hypot(dx,dy);
+  ctx.save();
+  ctx.globalAlpha = alpha === undefined ? 1 : alpha;
+  ctx.strokeStyle = col; ctx.fillStyle = col; ctx.lineWidth = lw; ctx.lineCap = "round";
+  if(L < 1){ ctx.beginPath(); ctx.arc(x0,y0,lw*0.7,0,7); ctx.fill(); ctx.restore(); return; }
+  const h = Math.min(head, L*0.55), a = Math.atan2(dy,dx);
+  ctx.beginPath(); ctx.moveTo(x0,y0); ctx.lineTo(x1-h*0.7*Math.cos(a), y1-h*0.7*Math.sin(a)); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(x1,y1);
+  ctx.lineTo(x1-h*Math.cos(a-0.4), y1-h*Math.sin(a-0.4));
+  ctx.lineTo(x1-h*Math.cos(a+0.4), y1-h*Math.sin(a+0.4));
+  ctx.closePath(); ctx.fill();
+  ctx.restore();
+}
+
+/* Orbit cameras: one shared by the lab and rotating views so the two frames
+   are always seen from the same direction, one for the wave panel. */
+const CAM0  = {az:0.62, el:0.36}, WCAM0 = {az:0.95, el:0.32};
+const CAM   = Object.assign({}, CAM0), WCAM = Object.assign({}, WCAM0);
+function projector(cam, cx, cy, R){
+  const ca = Math.cos(cam.az), sa = Math.sin(cam.az), ce = Math.cos(cam.el), se = Math.sin(cam.el);
+  const r = [-sa, ca, 0], u = [-ca*se, -sa*se, ce], d = [ca*ce, sa*ce, se];
+  const P3 = (x,y,z) => [cx + R*(r[0]*x + r[1]*y), cy - R*(u[0]*x + u[1]*y + u[2]*z),
+                         d[0]*x + d[1]*y + d[2]*z];
+  return P3;
+}
+
+/* Which B1 vectors to draw, in the frame being shown (unit = w1 = one circular
+   component at full envelope). Returns a list of {v:[x,y], col, lw, label}. */
+function b1Vectors(t, rot){
+  const f = fieldAt(P, D, t);
+  const R = v => rot ? toRot([v[0], v[1], 0], t) : [v[0], v[1], 0];
+  const out = [];
+  if(f.a === 0) return out;
+  if(P.pol === "circ") out.push({v:R(f.co),  col:TH.co,  lw:2.6, label:"B₁"});
+  else if(P.pol === "anti") out.push({v:R(f.ctr), col:TH.ctr, lw:2.6, label:"B₁"});
+  else {
+    if(S.decomp){
+      out.push({v:R(f.co),  col:TH.co,  lw:2.0, label:""});
+      out.push({v:R(f.ctr), col:TH.ctr, lw:2.0, label:""});
+    }
+    out.push({v:R(f.tot), col:TH.b1, lw:2.6, label:"B₁"});
+  }
+  return out;
+}
+
+/* ------------------------------------------------------- 3-D views */
+const B1_LEN = 0.5;                             // drawn length of one circular part at peak
+
+function draw3D(cv, rot){
+  const {ctx, w, h} = fitCanvas(cv);
+  const cx = w/2, cy = h/2 + 10, R = Math.min(w, h)*0.34;
+  const P3 = projector(CAM, cx, cy, R);
+  const t = S.t;
+  ctx.font = FONT;
+
+  // reference sphere: equator and two meridians
+  const circle = (f, col) => {
+    ctx.strokeStyle = col; ctx.beginPath();
+    for(let i=0;i<=96;i++){ const a = i/96*TWO_PI, p = P3(...f(a)); i ? ctx.lineTo(p[0],p[1]) : ctx.moveTo(p[0],p[1]); }
+    ctx.stroke();
+  };
+  ctx.lineWidth = 1;
+  circle(a => [Math.cos(a), Math.sin(a), 0], rgba(TH.muted, 0.34));
+  circle(a => [Math.cos(a), 0, Math.sin(a)], rgba(TH.muted, 0.14));
+  circle(a => [0, Math.cos(a), Math.sin(a)], rgba(TH.muted, 0.14));
+
+  // fixed axes of the frame being shown
+  const pr = rot ? "′" : "";
+  const axis = (v, lab) => {
+    const a = P3(-1.12*v[0], -1.12*v[1], -1.12*v[2]), b = P3(1.12*v[0], 1.12*v[1], 1.12*v[2]);
+    ctx.strokeStyle = rgba(TH.muted, 0.5); ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(a[0],a[1]); ctx.lineTo(b[0],b[1]); ctx.stroke();
+    const q = P3(1.27*v[0], 1.27*v[1], 1.27*v[2]);
+    ctx.fillStyle = TH.muted; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.fillText(lab, q[0], q[1]);
+  };
+  axis([1,0,0], "x"+pr); axis([0,1,0], "y"+pr); axis([0,0,1], "z ∥ B₀");
+
+  // the rotating axes, turning inside the lab view
+  if(!rot && S.axes){
+    const c = Math.cos(W_RF*t), s = Math.sin(W_RF*t);
+    ctx.setLineDash([3,4]); ctx.lineWidth = 1;
+    for(const [v, lab] of [[[c, s], "x′"], [[-s, c], "y′"]]){
+      const a = P3(0,0,0), b = P3(1.05*v[0], 1.05*v[1], 0), q = P3(1.17*v[0], 1.17*v[1], 0);
+      ctx.strokeStyle = rgba(TH.accent, 0.55);
+      ctx.beginPath(); ctx.moveTo(a[0],a[1]); ctx.lineTo(b[0],b[1]); ctx.stroke();
+      ctx.fillStyle = rgba(TH.accent, 0.8); ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      ctx.fillText(lab, q[0], q[1]);
+    }
+    ctx.setLineDash([]);
+  }
+
+  // trace of the tip, fading towards the past
+  if(S.trail && t > 0){
+    const span = rot ? D.tEnd : Math.min(t, 40);
+    const t0 = Math.max(0, t - span);
+    const n = Math.max(2, Math.min(2400, Math.round((t - t0)*(rot ? 40 : 60))));
+    const SEG = 8;
+    ctx.lineWidth = 1.3;
+    for(let sg=0; sg<SEG; sg++){
+      ctx.strokeStyle = rgba(TH.net, 0.08 + 0.5*(sg+1)/SEG);
+      ctx.beginPath();
+      const i0 = Math.floor(n*sg/SEG), i1 = Math.ceil(n*(sg+1)/SEG);
+      for(let i=i0;i<=i1;i++){
+        const tt = t0 + (t - t0)*i/n;
+        let m = mLab(tt); if(rot) m = toRot(m, tt);
+        const p = P3(m[0], m[1], m[2]);
+        i === i0 ? ctx.moveTo(p[0],p[1]) : ctx.lineTo(p[0],p[1]);
+      }
+      ctx.stroke();
+    }
+  }
+
+  // effective field in the rotating frame: B1 along x′ plus the offset along z
+  const f = fieldAt(P, D, t);
+  // on resonance it coincides with the co-rotating B1, so it is drawn only off resonance
+  if(rot && S.beff && Math.abs(P.off) > 0.01){
+    const co = P.pol === "anti" ? 0 : f.a;   // only the resonant part is static here
+    let ex = B1_LEN*co, ez = B1_LEN*P.off;
+    const L = Math.hypot(ex, ez), cap = 1.2;
+    if(L > cap){ ex *= cap/L; ez *= cap/L; }
+    if(L > 0.06){
+      const a = P3(0,0,0), b = P3(ex, 0, ez);
+      ctx.setLineDash([5,4]);
+      arrow(ctx, a[0],a[1], b[0],b[1], 1.6, TH.muted, 0, 1);
+      ctx.setLineDash([]);
+      ctx.fillStyle = TH.muted; ctx.textAlign = "left"; ctx.textBaseline = "middle";
+      ctx.fillText("B_eff", b[0]+6, b[1]-8);
+    }
+  }
+
+  // B1 vectors
+  for(const b of b1Vectors(t, rot)){
+    const a = P3(0,0,0), p = P3(B1_LEN*b.v[0], B1_LEN*b.v[1], 0);
+    arrow(ctx, a[0],a[1], p[0],p[1], b.lw, b.col, 9);
+    if(b.label && Math.hypot(p[0]-a[0], p[1]-a[1]) > 14){
+      ctx.fillStyle = b.col; ctx.textAlign = "left"; ctx.textBaseline = "middle";
+      ctx.fillText(b.label, p[0]+6, p[1]+8);
+    }
+  }
+
+  // M: drop line to the transverse plane, then the vector
+  let m = mLab(t); if(rot) m = toRot(m, t);
+  const o = P3(0,0,0), tip = P3(m[0], m[1], m[2]), foot = P3(m[0], m[1], 0);
+  ctx.strokeStyle = rgba(TH.muted, 0.45); ctx.lineWidth = 1; ctx.setLineDash([2,3]);
+  ctx.beginPath(); ctx.moveTo(tip[0],tip[1]); ctx.lineTo(foot[0],foot[1]); ctx.lineTo(o[0],o[1]); ctx.stroke();
+  ctx.setLineDash([]);
+  arrow(ctx, o[0],o[1], tip[0],tip[1], 3.4, TH.net, 13, 0.92);
+  ctx.fillStyle = TH.net; ctx.textAlign = "left"; ctx.textBaseline = "middle";
+  ctx.fillText("M", tip[0]+8, tip[1]-6);
+
+  legend3D(ctx, w, h, rot);
+}
+
+function legend3D(ctx, w, h, rot){
+  const items = [["M", TH.net]];
+  if(P.pol === "circ") items.push(["B₁ co-rotating", TH.co]);
+  else if(P.pol === "anti") items.push(["B₁ counter-rotating", TH.ctr]);
+  else {
+    items.push(["B₁ linear", TH.b1]);
+    if(S.decomp) items.push(["co", TH.co], ["counter", TH.ctr]);
+  }
+  if(rot && S.beff && Math.abs(P.off) > 0.01) items.push(["B_eff", TH.muted]);
+  ctx.font = FONT; ctx.textAlign = "left"; ctx.textBaseline = "middle";
+  let x = 12; const y = h - 13;
+  for(const [lab, col] of items){
+    ctx.fillStyle = col; ctx.fillRect(x, y-1, 10, 2.4);
+    ctx.fillStyle = TH.muted; ctx.fillText(lab, x+14, y);
+    x += 14 + ctx.measureText(lab).width + 14;
+  }
+}
+
+/* ---------------------------------------------------- wave panel */
+/* World axes for this panel: (x, y, z) = (B1y, s, B1x), so s runs left to right
+   on screen and B1x points up. (B1x, B1y, s) is a cyclic permutation of (x, y, z),
+   so the handedness of the helix is drawn correctly. A plane wave travelling in
+   +s holds, at position s, the field the spin (at s = 0) will see at t − s:
+   the left half is what is still arriving, the right half what has passed. */
+function drawWave(cv){
+  const {ctx, w, h} = fitCanvas(cv);
+  const cx = w/2, cy = h/2 + 10, R = Math.min(w/3.8, h/2.05);
+  const P3 = projector(WCAM, cx, cy, R);
+  const SPAN = 1.7, AMP = 0.24;                 // world half-length, one circular part
+  const H = S.win, t = S.t;
+  const at = (s, bx, by) => P3(AMP*by, SPAN*s/H, AMP*bx);
+  ctx.font = FONT;
+
+  // propagation axis with arrowhead
+  const a0 = at(-H*1.06, 0, 0), a1 = at(H*1.12, 0, 0);
+  arrow(ctx, a0[0],a0[1], a1[0],a1[1], 1, rgba(TH.muted, 0.6), 7);
+  ctx.fillStyle = TH.muted; ctx.textBaseline = "middle"; ctx.textAlign = "left";
+  ctx.fillText("s ∥ B₀", a1[0]+6, a1[1]);
+  ctx.fillStyle = TH.dim; ctx.textBaseline = "top";
+  ctx.fillText(w > 560 ? "left of the spin: field still arriving · right: field already passed"
+                       : "left: still arriving · right: passed", 12, 27);
+
+  // the transverse plane at the spin
+  ctx.strokeStyle = rgba(TH.accent, 0.5); ctx.setLineDash([3,4]); ctx.lineWidth = 1;
+  ctx.beginPath();
+  for(let i=0;i<=64;i++){
+    const q = i/64*TWO_PI, p = at(0, 1.25*Math.cos(q), 1.25*Math.sin(q));
+    i ? ctx.lineTo(p[0],p[1]) : ctx.moveTo(p[0],p[1]);
+  }
+  ctx.stroke(); ctx.setLineDash([]);
+  {
+    const ax = at(0, 1.42, 0), ay = at(0, 0, 1.42), o = at(0,0,0);
+    ctx.strokeStyle = rgba(TH.muted, 0.4);
+    ctx.beginPath(); ctx.moveTo(o[0],o[1]); ctx.lineTo(ax[0],ax[1]); ctx.moveTo(o[0],o[1]); ctx.lineTo(ay[0],ay[1]); ctx.stroke();
+    ctx.fillStyle = TH.muted; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    const lx = at(0, 1.58, 0), ly = at(0, 0, 1.6), ls = at(0, -1.7, 0);
+    ctx.fillText("x", lx[0], lx[1]); ctx.fillText("y", ly[0], ly[1]);
+    ctx.fillStyle = TH.accent; ctx.fillText("spin", ls[0], ls[1]);
+  }
+
+  // sample the field along s (retarded time t − s)
+  const N = Math.max(240, Math.min(5000, Math.round(2*H*56)));
+  const S_ = new Float64Array(N+1), F = [];
+  for(let i=0;i<=N;i++){
+    const s = -H + 2*H*i/N;
+    S_[i] = s; F.push(fieldAt(P, D, t - s));
+  }
+  // helices read as helices only with a depth cue: the half behind the axis is faint
+  const curve = (key, col, lw, alpha, cue) => {
+    ctx.strokeStyle = col; ctx.lineWidth = lw; ctx.lineJoin = "round";
+    let prev = null, back = null;
+    for(let i=0;i<=N;i++){
+      const v = F[i][key];
+      if(F[i].a === 0 && (i === 0 || F[i-1].a === 0)){ if(prev) ctx.stroke(); prev = null; continue; }
+      const p = at(S_[i], v[0], v[1]), q = at(S_[i], 0, 0);
+      const isBack = cue && p[2] < q[2] - 1e-9;
+      if(prev && isBack !== back){ ctx.stroke(); prev = null; }
+      if(!prev){
+        ctx.globalAlpha = alpha*(isBack ? 0.32 : 1); ctx.beginPath();
+        ctx.moveTo(...(i > 0 && F[i-1].a !== 0 ? at(S_[i-1], F[i-1][key][0], F[i-1][key][1]) : p));
+      }
+      ctx.lineTo(p[0], p[1]); prev = p; back = isBack;
+    }
+    if(prev) ctx.stroke();
+    ctx.globalAlpha = 1;
+  };
+  const main = P.pol === "circ" ? ["co", TH.co] : P.pol === "anti" ? ["ctr", TH.ctr] : ["tot", TH.b1];
+
+  // envelope guide for pulses (±a in the vertical plane)
+  if(P.wave !== "cw"){
+    const amp = P.pol === "lin" ? 2 : 1;
+    ctx.strokeStyle = rgba(TH.muted, 0.35); ctx.setLineDash([2,4]); ctx.lineWidth = 1;
+    for(const sg of [1,-1]){
+      ctx.beginPath();
+      for(let i=0;i<=N;i++){
+        const p = at(S_[i], sg*amp*F[i].a, 0);
+        i ? ctx.lineTo(p[0],p[1]) : ctx.moveTo(p[0],p[1]);
+      }
+      ctx.stroke();
+    }
+    ctx.setLineDash([]);
+  }
+
+  // stems of the total field, thinned to a few pixels apart
+  const pxPer = Math.abs(at(1,0,0)[0] - at(0,0,0)[0]);   // screen px per period
+  const every = Math.max(1, Math.round(N/(2*H) / Math.max(1, pxPer/6)));
+  ctx.lineWidth = 1;
+  for(let i=0;i<=N;i+=every){
+    if(F[i].a === 0) continue;
+    const v = F[i][main[0]], o = at(S_[i], 0, 0), p = at(S_[i], v[0], v[1]);
+    ctx.strokeStyle = rgba(main[1], 0.28);
+    ctx.beginPath(); ctx.moveTo(o[0],o[1]); ctx.lineTo(p[0],p[1]); ctx.stroke();
+  }
+  if(P.pol === "lin" && S.decomp){
+    curve("co",  TH.co,  1.3, 0.9, true);
+    curve("ctr", TH.ctr, 1.3, 0.9, true);
+  }
+  curve(main[0], main[1], 1.9, 1, main[0] !== "tot");   // the linear field is planar
+
+  // the field at the spin right now
+  const f = fieldAt(P, D, t), o = at(0,0,0);
+  if(f.a !== 0){
+    if(P.pol === "lin" && S.decomp){
+      for(const [k, col] of [["co", TH.co], ["ctr", TH.ctr]]){
+        const p = at(0, f[k][0], f[k][1]); arrow(ctx, o[0],o[1], p[0],p[1], 2, col, 8);
+      }
+    }
+    const v = f[main[0]], p = at(0, v[0], v[1]);
+    arrow(ctx, o[0],o[1], p[0],p[1], 2.8, main[1], 10);
+  }
+
+  // legend
+  const items = P.pol === "lin"
+    ? [["linear B₁", TH.b1]].concat(S.decomp ? [["co-rotating", TH.co], ["counter-rotating", TH.ctr]] : [])
+    : P.pol === "circ" ? [["co-rotating B₁", TH.co]] : [["counter-rotating B₁", TH.ctr]];
+  ctx.textAlign = "left"; ctx.textBaseline = "middle";
+  let x = 12; const y = h - 13;
+  for(const [lab, col] of items){
+    ctx.fillStyle = col; ctx.fillRect(x, y-1, 10, 2.4);
+    ctx.fillStyle = TH.muted; ctx.fillText(lab, x+14, y);
+    x += 14 + ctx.measureText(lab).width + 14;
+  }
+}
+
+/* ------------------------------------------------------ spectrum */
+function drawSpec(cv){
+  const {ctx, w, h} = fitCanvas(cv);
+  const L = 16, Rm = 16, T = 84, B = 58;
+  const x0 = L, x1 = w - Rm, y0 = T, y1 = h - B;
+  if(x1 - x0 < 40 || y1 - y0 < 30) return;
+  const X = f => x0 + (f + 2.2)/4.4*(x1 - x0);
+  const Y = v => y1 - v*(y1 - y0);
+  ctx.font = FONT;
+
+  // halves: against the spins (negative) and with them (positive)
+  ctx.fillStyle = rgba(TH.ctr, 0.05); ctx.fillRect(x0, y0-6, X(0)-x0, y1-y0+6);
+  ctx.fillStyle = rgba(TH.co, 0.05);  ctx.fillRect(X(0), y0-6, x1-X(0), y1-y0+6);
+
+  // frequency axis
+  ctx.strokeStyle = TH.axis; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(x0, y1); ctx.lineTo(x1, y1); ctx.stroke();
+  ctx.textAlign = "center"; ctx.textBaseline = "top";
+  const labs = S.rotAx
+    ? {"-2":"−3ω", "-1":"−2ω", "0":"−ω", "1":"0", "2":"+ω"}
+    : {"-2":"−2ω", "-1":"−ω",  "0":"0",  "1":"+ω", "2":"+2ω"};
+  for(const k of [-2,-1,0,1,2]){
+    ctx.strokeStyle = rgba(TH.muted, k === 0 ? 0.5 : 0.25);
+    ctx.beginPath(); ctx.moveTo(X(k), y0-6); ctx.lineTo(X(k), y1+4); ctx.stroke();
+    ctx.fillStyle = TH.muted; ctx.fillText(labs[k], X(k), y1+7);
+  }
+  ctx.fillStyle = TH.dim;
+  ctx.fillText(S.rotAx ? "ω − ω_RF   (rotating frame)" : "ω   (lab frame, ω ≈ ω_RF ≈ ω₀)", (x0+x1)/2, y1+22);
+  ctx.textAlign = "left";  ctx.fillText("↻ against the spins", x0+2, y1+38);
+  ctx.textAlign = "right"; ctx.fillText("with the spins ↺", x1-2, y1+38);
+
+  // the components present, each normalised to 1 at its carrier
+  const comps = [];
+  if(P.pol !== "anti") comps.push({c: 1, col:TH.co,  name:"co-rotating", sub:"on resonance"});
+  if(P.pol !== "circ") comps.push({c:-1, col:TH.ctr, name:"counter-rotating", sub:"2ω off resonance"});
+  const NF = SPEC.f.length;
+  for(const C of comps){
+    if(P.wave === "cw"){
+      arrow(ctx, X(C.c), y1, X(C.c), Y(1), 2.4, C.col, 9);
+    } else {
+      ctx.beginPath(); ctx.moveTo(X(-2.2), y1);
+      for(let i=0;i<NF;i++){
+        const f = SPEC.f[i], g = C.c > 0 ? SPEC.g[i] : SPEC.g[NF-1-i];   // mirror image
+        ctx.lineTo(X(f), Y(g));
+      }
+      ctx.lineTo(X(2.2), y1); ctx.closePath();
+      ctx.fillStyle = rgba(C.col, 0.22); ctx.fill();
+      ctx.strokeStyle = C.col; ctx.lineWidth = 1.5; ctx.stroke();
+      // a narrow lobe can fall between grid samples: always mark its peak
+      ctx.beginPath(); ctx.moveTo(X(C.c), y1); ctx.lineTo(X(C.c), Y(1)); ctx.stroke();
+    }
+    ctx.fillStyle = C.col; ctx.textAlign = "center"; ctx.textBaseline = "bottom";
+    ctx.fillText(C.name, X(C.c), Y(1)-17);
+    ctx.fillStyle = TH.muted; ctx.fillText(C.sub, X(C.c), Y(1)-5);
+  }
+
+  // where the spin resonates
+  const fs = 1 + D.dw/W_RF;
+  ctx.strokeStyle = TH.net; ctx.globalAlpha = 0.75; ctx.setLineDash([4,3]); ctx.lineWidth = 1.2;
+  ctx.beginPath(); ctx.moveTo(X(fs), y1); ctx.lineTo(X(fs), Y(0.55)); ctx.stroke();
+  ctx.setLineDash([]); ctx.globalAlpha = 1;
+  const right = fs > 1.5;
+  ctx.fillStyle = TH.net; ctx.textAlign = right ? "right" : "left"; ctx.textBaseline = "bottom";
+  ctx.fillText("spin ω₀", X(fs) + (right ? -6 : 6), Y(0.55) + 2);
+  ctx.textAlign = "left"; ctx.textBaseline = "top"; ctx.fillStyle = TH.dim;
+  ctx.fillText(P.wave === "cw" ? "|B₁⁺(ω)| of a continuous wave: one line per circular part"
+                               : "|B₁⁺(ω)|, each circular part normalised to 1", x0+2, 27);
+}
+
+/* ------------------------------------------------------------ loop */
+function render(){
+  draw3D($("cvLab"), false);
+  draw3D($("cvRot"), true);
+  drawWave($("cvWave"));
+  drawSpec($("cvSpec"));
+}
+
+let lastNow = performance.now(), lastRead = 0;
+function tick(now){
+  const dtWall = Math.min(0.1, (now - lastNow)/1000); lastNow = now;
+  if(S.playing && !S.recording){
+    S.t += dtWall*S.speed;
+    if(S.t >= D.tEnd){
+      if(S.loop) S.t = 0;
+      else { S.t = D.tEnd; setPlaying(false); }
+    }
+    S.dirty = true;
+  }
+  if(S.dirty && !S.recording){
+    render(); S.dirty = false;
+    if(now - lastRead > 90 || !S.playing){ readout(); lastRead = now; }
+  }
+  requestAnimationFrame(tick);
+}
+
+function setPlaying(on){
+  S.playing = on;
+  $("play").textContent = on ? "Pause" : "Play";
+  if(on && S.t >= D.tEnd - 1e-9) S.t = 0;
+}
+
+/* ------------------------------------------------------- readouts */
+const fmtP = v => v >= 100 ? v.toFixed(0) : v >= 10 ? v.toFixed(1) : v.toFixed(2);
+const fmtN = v => String(+v.toPrecision(3));     // no trailing zeros
+function readout(){
+  const m = mLab(S.t), mxy = Math.hypot(m[0], m[1]);
+  $("rT").textContent   = S.t.toFixed(2) + " T_RF";
+  $("rTip").textContent = (Math.acos(Math.max(-1, Math.min(1, m[2])))*180/Math.PI).toFixed(1) + "°";
+  $("rMxy").textContent = mxy.toFixed(3);
+  $("rMz").textContent  = (m[2] >= 0 ? "+" : "") + m[2].toFixed(3);
+  $("rDur").textContent = P.wave === "cw" ? "continuous" : fmtP(D.T) + " T_RF";
+  $("rRatio").textContent = "1 : " + fmtN(W_RF/D.w1);
+  $("rPow").textContent = P.pol === "lin" ? "2× quadrature" : P.pol === "anti" ? "1×, no excitation" : "1× (quadrature)";
+  const fr = Math.min(1, S.t/D.tEnd);
+  $("sTime").value = Math.round(fr*1000);
+  $("vTime").textContent = S.t.toFixed(2) + " / " + fmtP(D.tEnd);
+}
+
+function syncLabels(){
+  $("vSpeed").textContent = fmtP(S.speed) + " T_RF / s";
+  $("vAlpha").textContent = P.alpha + "°";
+  $("vN90").textContent   = fmtP(P.n90) + " T_RF per 90°";
+  $("subN90").innerHTML   = `RF periods for a 90° turn at peak B₁, so ω₁/ω₀ = 1/${fmtN(4*P.n90)}. ` +
+    `In a scanner it is about 10⁵: a 1 ms 90° at 3 T spans 128 000 periods.`;
+  $("vOff").textContent   = (P.off === 0 ? "0" : (P.off > 0 ? "+" : "−") + Math.abs(P.off).toFixed(2)) + " ω₁";
+  $("vWin").textContent   = "±" + fmtP(S.win) + " T_RF";
+  const pulsed = P.wave !== "cw";
+  $("sAlpha").disabled = !pulsed; $("ctlAlpha").classList.toggle("off", !pulsed);
+  const lin = P.pol === "lin";
+  $("cDecomp").disabled = !lin; $("lDecomp").classList.toggle("off", !lin);
+  note();
+  readout();
+}
+
+function note(){
+  const ratio = 4*P.n90, out = [];
+  if(P.pol === "circ")
+    out.push(`<b>Circular (quadrature) B₁.</b> The field turns with the spins at ω<sub>RF</sub>. ` +
+      `In the lab it chases M round and round; in the rotating frame it stands still along x′, ` +
+      `and M simply turns about it. That is why the rotating frame is used.`);
+  else if(P.pol === "lin"){
+    out.push(`<b>Linear B₁</b> only swings back and forth along x. It is the sum of two circular ` +
+      `fields of half its amplitude: <span class="c-co">one turning with the spins</span> and ` +
+      `<span class="c-ctr">one turning against them</span>. In the rotating frame the first ` +
+      `stands still and does all the tipping; the second spins at −2ω and its push averages ` +
+      `out. The same flip therefore needs twice the RF power of a quadrature coil.`);
+    if(ratio < 12)
+      out.push(`At this exaggerated ω₁/ω₀ = 1/${fmtN(ratio)} the counter-rotating part is not ` +
+        `negligible: it leaves a wobble at 2ω on the rotating-frame trace and a small ` +
+        `Bloch–Siegert shift of the resonance, ≈ ω₁²/4ω₀ = ${(1/(4*ratio)).toFixed(3)} ω₁. ` +
+        `With ω₁/ω₀ ≈ 10⁻⁶ in a scanner both vanish.`);
+    else
+      out.push(`Look closely at the rotating-frame trace: the small ripple at 2ω is the ` +
+        `counter-rotating part. Make B₁ stronger to exaggerate it.`);
+  } else
+    out.push(`<b>Circular in the wrong sense.</b> The field turns against the spins. In the ` +
+      `rotating frame it spins at −2ω, so its push on M keeps reversing and nothing ` +
+      `accumulates: M barely leaves z. The two channels of a quadrature coil must be driven ` +
+      `in the right order.`);
+
+  if(P.wave === "cw")
+    out.push(`<b>Continuous wave.</b> B₁ never switches off, so M keeps turning: 90°, 180°, 270°, ` +
+      `and back to +z. In the spectrum each circular part is a single line.`);
+  else if(P.wave === "rect")
+    out.push(`<b>Rectangular pulse:</b> a burst of carrier. Its spectrum is a sinc of width ` +
+      `~1/duration around each carrier; the spin is excited if it sits under the ` +
+      `co-rotating lobe.`);
+  else if(P.wave === "sinc")
+    out.push(`<b>Sinc pulse.</b> The envelope changes sign, so in the rotating frame B₁ flips to ` +
+      `−x′ during the side lobes and M briefly turns back. The spectrum has a flat top: a ` +
+      `band of frequencies is excited about equally, which is the basis of slice selection.`);
+  else
+    out.push(`<b>Gaussian pulse.</b> Smooth on and off; its spectrum is also Gaussian, with no ` +
+      `side lobes but no flat top.`);
+
+  if(Math.abs(P.off) > 0.04){
+    const tilt = Math.atan2(1, Math.abs(P.off))*180/Math.PI;
+    out.push(`<b>Off resonance.</b> The spin precesses ${P.off > 0 ? "faster" : "slower"} than the ` +
+      `RF, so in the rotating frame it keeps turning about z. B₁ and this offset add to an ` +
+      `effective field tilted ${(90-tilt).toFixed(0)}° out of the transverse plane; M circles ` +
+      `about it on a cone and misses the intended flip angle.`);
+  }
+  $("note").innerHTML = out.map(s => `<p>${s}</p>`).join("");
+}
+
+/* -------------------------------------------------------- presets */
+const PRESETS = {
+  circCW : {pol:"circ", wave:"cw",    n90:4,   off:0, alpha:90,  decomp:true, speed:1.5},
+  linCW  : {pol:"lin",  wave:"cw",    n90:4,   off:0, alpha:90,  decomp:true, speed:1.5},
+  linBig : {pol:"lin",  wave:"cw",    n90:1.5, off:0, alpha:90,  decomp:true, speed:0.8},
+  anti   : {pol:"anti", wave:"cw",    n90:4,   off:0, alpha:90,  decomp:true, speed:1.5},
+  rect   : {pol:"circ", wave:"rect",  n90:4,   off:0, alpha:90,  decomp:true, speed:0.8},
+  sinc   : {pol:"lin",  wave:"sinc",  n90:2.5, off:0, alpha:90,  decomp:true, speed:1.2},
+  offres : {pol:"circ", wave:"rect",  n90:4,   off:1, alpha:90,  decomp:true, speed:0.8}
+};
+function applyPreset(name){
+  const p = PRESETS[name];
+  Object.assign(P, {pol:p.pol, wave:p.wave, n90:p.n90, off:p.off, alpha:p.alpha});
+  S.decomp = p.decomp; S.speed = p.speed;
+  pushControls();
+  rebuild(false); autoWindow(); syncLabels();
+  document.querySelectorAll(".preset").forEach(b => b.classList.toggle("on", b.dataset.p === name));
+  setPlaying(true);
+}
+function clearPreset(){ document.querySelectorAll(".preset").forEach(b => b.classList.remove("on")); }
+
+function pushControls(){
+  $("pol").value = P.pol; $("wave").value = P.wave;
+  $("sAlpha").value = P.alpha;
+  $("sN90").value = Math.round(n90Inv(P.n90));
+  $("sOff").value = Math.round(P.off*100);
+  $("sSpeed").value = Math.round(speedInv(S.speed));
+  $("cDecomp").checked = S.decomp;
+}
+
+/* ====================================================== recording */
+/* Minimal MP4 (ISO-BMFF) muxer for H.264 samples from WebCodecs, as in Sequence
+   sim: one video track, constant frame duration declared once in stts. */
+function mp4Mux(opt){
+  const {width, height, fps, samples, avcC} = opt;
+  const n = samples.length;
+  const u8  = a => new Uint8Array(a);
+  const u16 = v => { const a = new Uint8Array(2); new DataView(a.buffer).setUint16(0, v); return a; };
+  const u32 = v => { const a = new Uint8Array(4); new DataView(a.buffer).setUint32(0, v >>> 0); return a; };
+  const str = s => u8([...s].map(c => c.charCodeAt(0)));
+  const cat = arrs => {
+    let len = 0; for(const a of arrs) len += a.length;
+    const out = new Uint8Array(len); let o = 0;
+    for(const a of arrs){ out.set(a, o); o += a.length; }
+    return out;
+  };
+  const box = (type, ...parts) => { const body = cat(parts); return cat([u32(body.length + 8), str(type), body]); };
+  const full = (type, ver, flags, ...parts) =>
+    box(type, u8([ver, (flags >> 16) & 255, (flags >> 8) & 255, flags & 255]), ...parts);
+  const MATRIX = cat([u32(0x00010000), u32(0), u32(0), u32(0), u32(0x00010000), u32(0),
+                      u32(0), u32(0), u32(0x40000000)]);
+  const sizes = samples.map(s => s.data.length);
+  const payload = cat(samples.map(s => s.data));
+  const keys = [];
+  samples.forEach((s, i) => { if(s.key) keys.push(i + 1); });
+  const ftyp = box("ftyp", str("isom"), u32(0x200), str("isom"), str("iso2"), str("avc1"), str("mp41"));
+  const chunkOffset = ftyp.length + 8;
+  const mdat = cat([u32(payload.length + 8), str("mdat"), payload]);
+  const stts = full("stts", 0, 0, u32(1), u32(n), u32(1));
+  const stss = full("stss", 0, 0, u32(keys.length), ...keys.map(u32));
+  const stsc = full("stsc", 0, 0, u32(1), u32(1), u32(n), u32(1));
+  const stsz = full("stsz", 0, 0, u32(0), u32(n), ...sizes.map(u32));
+  const stco = full("stco", 0, 0, u32(1), u32(chunkOffset));
+  const avcCBox = box("avcC", avcC);
+  const avc1 = box("avc1", u8([0,0,0,0,0,0]), u16(1), u16(0), u16(0), u32(0), u32(0), u32(0),
+    u16(width), u16(height), u32(0x00480000), u32(0x00480000), u32(0), u16(1),
+    u8(new Array(32).fill(0)), u16(0x0018), u16(0xFFFF));
+  const avc1WithCfg = (() => {
+    const body = avc1.subarray(8);
+    return cat([u32(body.length + avcCBox.length + 8), str("avc1"), body, avcCBox]);
+  })();
+  const stsd = full("stsd", 0, 0, u32(1), avc1WithCfg);
+  const stbl = box("stbl", stsd, stts, stss, stsc, stsz, stco);
+  const dinf = box("dinf", full("dref", 0, 0, u32(1), full("url ", 0, 1)));
+  const vmhd = full("vmhd", 0, 1, u16(0), u16(0), u16(0), u16(0));
+  const minf = box("minf", vmhd, dinf, stbl);
+  const hdlr = full("hdlr", 0, 0, u32(0), str("vide"), u32(0), u32(0), u32(0), str("VideoHandler"), u8([0]));
+  const mdhd = full("mdhd", 0, 0, u32(0), u32(0), u32(fps), u32(n), u16(0x55c4), u16(0));
+  const mdia = box("mdia", mdhd, hdlr, minf);
+  const durMovie = Math.round(n * 1000 / fps);
+  const tkhd = full("tkhd", 0, 3, u32(0), u32(0), u32(1), u32(0), u32(durMovie),
+                    u32(0), u32(0), u16(0), u16(0), u16(0), u16(0), MATRIX,
+                    u32(width << 16), u32(height << 16));
+  const trak = box("trak", tkhd, mdia);
+  const mvhd = full("mvhd", 0, 0, u32(0), u32(0), u32(1000), u32(durMovie),
+                    u32(0x00010000), u16(0x0100), u16(0), u32(0), u32(0), MATRIX,
+                    u32(0), u32(0), u32(0), u32(0), u32(0), u32(0), u32(2));
+  return cat([ftyp, mdat, box("moov", mvhd, trak)]);
+}
+
+function offscreen(w, h, scale){
+  const cv = document.createElement("canvas");
+  cv.width = Math.round(w*scale); cv.height = Math.round(h*scale);
+  cv._fixed = {w, h, scale};
+  return cv;
+}
+
+async function recordPass(){
+  const st = $("recStatus"), btn = $("rec");
+  const say = (m, cls) => { st.textContent = m; st.className = cls || ""; };
+  if(S.recording) return;
+  if(typeof VideoEncoder === "undefined"){
+    say("This browser has no WebCodecs encoder. Use Chrome or Edge.", "bad"); return;
+  }
+  setPlaying(false);
+  const W = +$("recSize").value, H = Math.round(W*9/16), fps = +$("recFps").value;
+  const nF = Math.min(9000, Math.max(2, Math.round(D.tEnd/S.speed*fps) + 1));
+
+  // same 2×2 arrangement as on screen, panels at a fixed logical size
+  const scale = W/1000, pad = Math.round(10*scale), gap = Math.round(8*scale);
+  const topH = Math.round((H - 2*pad - gap)*0.53), botH = H - 2*pad - gap - topH;
+  const half = Math.round((W - 2*pad - gap)/2);
+  const wWave = Math.round((W - 2*pad - gap)*0.6), wSpec = W - 2*pad - gap - wWave;
+  const Lay = [
+    {x:pad, y:pad, w:half, h:topH, draw:cv => draw3D(cv, false), tag:"LAB FRAME"},
+    {x:pad+half+gap, y:pad, w:W-2*pad-gap-half, h:topH, draw:cv => draw3D(cv, true), tag:"ROTATING FRAME"},
+    {x:pad, y:pad+topH+gap, w:wWave, h:botH, draw:drawWave, tag:"B₁ AS A TRAVELLING WAVE"},
+    {x:pad+wWave+gap, y:pad+topH+gap, w:wSpec, h:botH, draw:drawSpec, tag:"SPECTRUM OF B₁⁺"}
+  ];
+  for(const r of Lay) r.cv = offscreen(Math.round(r.w/scale), Math.round(r.h/scale), scale);
+  const out = document.createElement("canvas"); out.width = W; out.height = H;
+  const octx = out.getContext("2d");
+
+  const CODECS = ["avc1.640028", "avc1.4d0028", "avc1.42e01e"];
+  let cfg = null;
+  for(const codec of CODECS){
+    const c = {codec, width:W, height:H, framerate:fps, bitrate:Math.round(W*H*fps*0.12), avc:{format:"avc"}};
+    try { if((await VideoEncoder.isConfigSupported(c)).supported){ cfg = c; break; } } catch(e){ /* next */ }
+  }
+  if(!cfg){ say("No H.264 encoder available in this browser.", "bad"); return; }
+
+  S.recording = true; btn.classList.add("rec");
+  btn.innerHTML = '<span class="dot"></span>Recording…';
+  const tSaved = S.t;
+  const samples = []; let avcC = null, failed = null;
+  try {
+    const enc = new VideoEncoder({
+      output:(chunk, meta) => {
+        if(meta && meta.decoderConfig && meta.decoderConfig.description && !avcC)
+          avcC = new Uint8Array(meta.decoderConfig.description);
+        const data = new Uint8Array(chunk.byteLength); chunk.copyTo(data);
+        samples.push({data, key:chunk.type === "key"});
+      },
+      error:e => { failed = e; }
+    });
+    enc.configure(cfg);
+    const us = Math.round(1e6/fps);
+    for(let i=0;i<nF;i++){
+      if(failed) throw failed;
+      S.t = Math.min(D.tEnd, i*S.speed/fps);
+      octx.fillStyle = TH.bg; octx.fillRect(0, 0, W, H);
+      for(const r of Lay){
+        r.draw(r.cv);
+        octx.drawImage(r.cv, r.x, r.y, r.w, r.h);
+        octx.strokeStyle = TH.rule; octx.lineWidth = 1;
+        octx.strokeRect(r.x+0.5, r.y+0.5, r.w-1, r.h-1);
+        octx.fillStyle = TH.dim; octx.font = `${Math.round(10*scale)}px ui-monospace,Menlo,monospace`;
+        octx.textAlign = "left"; octx.textBaseline = "top";
+        octx.fillText(r.tag, r.x + 12*scale, r.y + 9*scale);
+      }
+      const vf = new VideoFrame(out, {timestamp:i*us, duration:us});
+      enc.encode(vf, {keyFrame:i % 30 === 0}); vf.close();
+      if(i % 15 === 0){
+        say(`Encoding frame ${i+1} of ${nF}…`);
+        await new Promise(r => setTimeout(r, 0));
+        if(enc.encodeQueueSize > 30)
+          await new Promise(r => { const w = () => enc.encodeQueueSize > 8 ? setTimeout(w, 4) : r(); w(); });
+      }
+    }
+    await enc.flush(); enc.close();
+    if(failed) throw failed;
+    if(!avcC) throw new Error("encoder gave no avcC configuration");
+    const blob = new Blob([mp4Mux({width:W, height:H, fps, samples, avcC})], {type:"video/mp4"});
+    const name = `mriExciteSim_${P.pol}_${P.wave}_v${VERSION}.mp4`;
+    const url = URL.createObjectURL(blob), a = document.createElement("a");
+    a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+    say(`Saved ${name}: ${(blob.size/1048576).toFixed(1)} MB, ${nF} frames at ${fps} fps (${(nF/fps).toFixed(1)} s).`, "good");
+  } catch(err){
+    say("Recording failed: " + (err && err.message ? err.message : err), "bad");
+  } finally {
+    S.recording = false; S.t = tSaved; S.dirty = true;
+    btn.classList.remove("rec"); btn.innerHTML = '<span class="dot"></span>Record one pass';
+  }
+}
+
+/* --------------------------------------------------------- controls */
+function bindRange(id, fn){ $(id).addEventListener("input", () => { fn(+$(id).value); }); }
+bindRange("sSpeed", v => { S.speed = speedOf(v); syncLabels(); });
+bindRange("sTime",  v => { setPlaying(false); S.t = v/1000*D.tEnd; S.dirty = true; readout(); });
+bindRange("sAlpha", v => { P.alpha = v; clearPreset(); rebuild(true); autoWindow(); syncLabels(); });
+bindRange("sN90",   v => { P.n90 = n90Of(v); clearPreset(); rebuild(true); autoWindow(); syncLabels(); });
+bindRange("sOff",   v => { P.off = v/100; clearPreset(); rebuild(true); syncLabels(); });
+bindRange("sWin",   v => { S.win = winOf(v); S.dirty = true; syncLabels(); });
+$("pol").addEventListener("change", e => { P.pol = e.target.value; clearPreset(); rebuild(false); syncLabels(); });
+$("wave").addEventListener("change", e => { P.wave = e.target.value; clearPreset(); rebuild(false); autoWindow(); syncLabels(); });
+for(const [id, key] of [["cDecomp","decomp"],["cBeff","beff"],["cAxes","axes"],["cTrail","trail"],["cRotAx","rotAx"],["cLoop","loop"]])
+  $(id).addEventListener("change", e => { S[key] = e.target.checked; S.dirty = true; });
+$("play").addEventListener("click", () => setPlaying(!S.playing));
+$("restart").addEventListener("click", () => { S.t = 0; S.dirty = true; setPlaying(true); });
+$("resetView").addEventListener("click", () => { Object.assign(CAM, CAM0); Object.assign(WCAM, WCAM0); S.dirty = true; });
+document.querySelectorAll(".preset").forEach(b => b.addEventListener("click", () => applyPreset(b.dataset.p)));
+$("rec").addEventListener("click", recordPass);
+
+// orbit: the lab and rotating views share one camera
+function orbit(cv, cam){
+  let drag = null;
+  cv.addEventListener("pointerdown", e => {
+    drag = {x:e.clientX, y:e.clientY, az:cam.az, el:cam.el};
+    cv.setPointerCapture(e.pointerId); cv.classList.add("drag");
+  });
+  cv.addEventListener("pointermove", e => {
+    if(!drag) return;
+    cam.az = drag.az - (e.clientX - drag.x)*0.01;
+    cam.el = Math.max(-1.45, Math.min(1.45, drag.el + (e.clientY - drag.y)*0.01));
+    S.dirty = true;
+  });
+  const stop = () => { drag = null; cv.classList.remove("drag"); };
+  cv.addEventListener("pointerup", stop);
+  cv.addEventListener("pointercancel", stop);
+}
+orbit($("cvLab"), CAM); orbit($("cvRot"), CAM); orbit($("cvWave"), WCAM);
+window.addEventListener("resize", () => { S.dirty = true; });
+
+document.addEventListener("keydown", e => {
+  if(e.target.matches("input,select,button,textarea")) return;
+  if(e.code === "Space"){ e.preventDefault(); $("play").click(); }
+  else if(e.key.toLowerCase() === "r") $("restart").click();
+});
+
+$("theme").addEventListener("click", () => {
+  const dark = document.documentElement.dataset.theme === "dark";
+  document.documentElement.dataset.theme = dark ? "light" : "dark";
+  $("theme").textContent = dark ? "Dark" : "Light";
+  readTheme();
+});
+
+/* ------------------------------------------------------------- go */
+$("ver").textContent = "v" + VERSION;
+$("credit").textContent = `Excitation sim v${VERSION} · ${AUTHORS}`;
+document.querySelector("#about .by").textContent = AUTHORS;
+$("changelog").innerHTML = CHANGELOG.map(([v,d,t], i) =>
+  `<div class="rel"><h5>${v} <em>· ${i === 0 ? "current, " : ""}${d}</em></h5><p>${t}</p></div>`).join("");
+{
+  const about = $("about");
+  const close = () => { about.hidden = true; $("ver").focus(); };
+  $("ver").addEventListener("click", () => {
+    about.hidden = false; about.querySelector(".sheet").scrollTop = 0;
+    $("aboutClose").focus({preventScroll:true});
+  });
+  $("aboutClose").addEventListener("click", close);
+  about.addEventListener("click", e => { if(e.target === about) close(); });
+  document.addEventListener("keydown", e => { if(e.key === "Escape" && !about.hidden) close(); });
+}
+
+readTheme();
+applyPreset("circCW");
+requestAnimationFrame(t => { lastNow = t; tick(t); });
+</script>
+<script>
+/* House style (shared by the MRI simulators): one light/dark preference for the
+   whole suite. The saved choice (or the operating-system setting on a first
+   visit) is applied by clicking the app's own theme button, so each app redraws
+   through its usual path. The button always names the theme it switches TO. */
+(function () {
+  "use strict";
+  var KEY = "mrisim.theme", LEGACY = [];
+  function saved() {
+    try {
+      var keys = [KEY].concat(LEGACY);
+      for (var i = 0; i < keys.length; i++) {
+        var v = localStorage.getItem(keys[i]);
+        if (v === "light" || v === "dark") return v;
+      }
+    } catch (e) { /* storage can be unavailable for file:// pages */ }
+    return null;
+  }
+  window.addEventListener("load", function () {
+    setTimeout(function () {
+      var btn = document.getElementById("theme");
+      if (!btn) return;
+      var root = document.documentElement;
+      var cur = function () { return root.getAttribute("data-theme") === "light" ? "light" : "dark"; };
+      var label = function () { btn.textContent = cur() === "dark" ? "Light" : "Dark"; };
+      var want = saved() || (window.matchMedia &&
+        window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark");
+      if (want !== cur()) btn.click();
+      label();
+      btn.addEventListener("click", function () {
+        label();
+        try { localStorage.setItem(KEY, cur()); } catch (e) { /* file:// */ }
+      });
+    }, 0);
+  });
+})();
+</script>
+</body>
+</html>
