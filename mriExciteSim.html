@@ -188,7 +188,7 @@ canvas.orbit.drag{cursor:grabbing}
     <button class="preset" type="button" data-p="circCW">1  Circular B₁, continuous</button>
     <button class="preset" type="button" data-p="linCW">2  Linear B₁ = two circular</button>
     <button class="preset" type="button" data-p="linBig">3  Linear, exaggerated B₁</button>
-    <button class="preset" type="button" data-p="anti">4  Circular, off-resonance</button>
+    <button class="preset" type="button" data-p="anti">4  Circular, counter-rotating</button>
     <button class="preset" type="button" data-p="rect">5  90° rectangular pulse</button>
     <button class="preset" type="button" data-p="sinc">6  90° sinc pulse, linear</button>
     <button class="preset" type="button" data-p="offres">7  Off resonance</button>
@@ -201,7 +201,7 @@ canvas.orbit.drag{cursor:grabbing}
       <select id="pol" aria-label="Polarisation">
         <option value="circ">Circular</option>
         <option value="lin">Linear</option>
-        <option value="anti">Circular, off-resonance</option>
+        <option value="anti">Circular, counter-rotating</option>
       </select></div>
     <div class="ctl"><div class="lab"><span>Carrier</span></div>
       <select id="carrier" aria-label="Carrier">
@@ -316,7 +316,7 @@ canvas.orbit.drag{cursor:grabbing}
       RF excitation of one isochromat by a B₁ field perpendicular to B₀, shown in the
       lab frame and in a frame rotating at the RF frequency. The B₁ field can be
       circularly polarised (quadrature drive), linearly polarised (one channel), or
-      circular but turning against the spins (off-resonance), with a sine or a square-wave carrier, and played as
+      circular but counter-rotating (turning against the spins), with a sine or a square-wave carrier, and played as
       a continuous wave or as a rectangular, sinc or Gaussian pulse. A linear field is the sum of a co-rotating
       and a counter-rotating circular field of half its amplitude; only the
       co-rotating one is resonant.
@@ -490,8 +490,9 @@ const VERSION = "0.2.1";
 const AUTHORS = "Designed by Filip Sz (Lund University) and coded by Claude (Anthropic)";
 const CHANGELOG = [
   ["0.2.1", "2026-10-24",
-   "The circular field that turns against the spins is now called \"Circular, off-resonance\" " +
-   "(was \"Circular, wrong sense\") in the polarisation menu, lecture step 4 and the guidance text."],
+   "The circular field that turns against the spins is now called \"Circular, counter-rotating\" " +
+   "(was \"Circular, wrong sense\") in the polarisation menu, lecture step 4 and the guidance text. " +
+   "The polarisation, carrier and envelope menus each get a full-width row."],
   ["0.2.0", "2026-10-24",
    "Square-wave carrier as an alternative to the sine, for any polarisation and envelope, " +
    "with a lecture step of its own. It is scaled so its fundamental gives the same ω₁ and " +
@@ -1076,7 +1077,7 @@ function note(){
       out.push(`Look closely at the rotating-frame trace: the small ripple at 2ω is the ` +
         `counter-rotating part. Make B₁ stronger to exaggerate it.`);
   } else
-    out.push(`<b>Circular, off-resonance.</b> The field turns against the spins, so it sits at −ω, ` +
+    out.push(`<b>Circular, counter-rotating.</b> The field turns against the spins, so it sits at −ω, ` +
       `2ω away from the spins' +ω. In the ` +
       `rotating frame it spins at −2ω, so its push on M keeps reversing and nothing ` +
       `accumulates: M barely leaves z. The two channels of a quadrature coil must be driven ` +

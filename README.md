@@ -78,8 +78,8 @@ spin view shows an exaggerated measurement-probability surface and the live
 ![Excitation sim](docs/img/mriExciteSim.png)
 
 How a rotating B₁ tips the magnetisation, in the lab and rotating frames side by
-side. B₁ can be circular (quadrature), linear, or circular but turning against
-the spins (off-resonance), with a sine or square-wave carrier, played as a continuous wave or as a
+side. B₁ can be circular (quadrature), linear, or circular but counter-rotating
+(turning against the spins), with a sine or square-wave carrier, played as a continuous wave or as a
 rectangular, sinc or Gaussian pulse. A
 linear field splits into a co-rotating part, which stands still in the rotating
 frame and does the tipping, and a counter-rotating part at −2ω, which averages
