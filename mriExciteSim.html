@@ -192,6 +192,7 @@ canvas.orbit.drag{cursor:grabbing}
     <button class="preset" type="button" data-p="rect">5  90° rectangular pulse</button>
     <button class="preset" type="button" data-p="sinc">6  90° sinc pulse, linear</button>
     <button class="preset" type="button" data-p="offres">7  Off resonance</button>
+    <button class="preset" type="button" data-p="square">8  Square-wave carrier</button>
   </section>
 
   <section>
@@ -203,14 +204,19 @@ canvas.orbit.drag{cursor:grabbing}
           <option value="lin">Linear</option>
           <option value="anti">Circular, wrong sense</option>
         </select></div>
-      <div><label for="wave">Waveform</label>
-        <select id="wave">
-          <option value="cw">Continuous</option>
-          <option value="rect">Rect pulse</option>
-          <option value="sinc">Sinc pulse</option>
-          <option value="gauss">Gauss pulse</option>
+      <div><label for="carrier">Carrier</label>
+        <select id="carrier">
+          <option value="sine">Sine</option>
+          <option value="square">Square wave</option>
         </select></div>
     </div>
+    <div class="ctl"><div class="lab"><span>Envelope</span></div>
+      <select id="wave" aria-label="Envelope">
+        <option value="cw">Continuous wave</option>
+        <option value="rect">Rectangular pulse</option>
+        <option value="sinc">Sinc pulse</option>
+        <option value="gauss">Gaussian pulse</option>
+      </select></div>
     <div class="ctl" id="ctlAlpha">
       <div class="lab"><span>Flip angle</span><span class="val" id="vAlpha"></span></div>
       <input type="range" id="sAlpha" min="10" max="360" step="5" value="90" aria-label="Flip angle">
@@ -229,7 +235,7 @@ canvas.orbit.drag{cursor:grabbing}
 
   <section>
     <h2>Display</h2>
-    <label class="chk" id="lDecomp"><input type="checkbox" id="cDecomp" checked> Split linear B₁ into its circular parts</label>
+    <label class="chk" id="lDecomp"><input type="checkbox" id="cDecomp" checked> Split B₁ into its resonant part and the rest</label>
     <label class="chk"><input type="checkbox" id="cBeff" checked> Effective field (rotating frame)</label>
     <label class="chk"><input type="checkbox" id="cAxes" checked> Rotating axes x′, y′ in the lab view</label>
     <label class="chk"><input type="checkbox" id="cTrail" checked> Trace of the tip of M</label>
@@ -312,8 +318,8 @@ canvas.orbit.drag{cursor:grabbing}
       RF excitation of one isochromat by a B₁ field perpendicular to B₀, shown in the
       lab frame and in a frame rotating at the RF frequency. The B₁ field can be
       circularly polarised (quadrature drive), linearly polarised (one channel), or
-      circular in the wrong sense, and played as a continuous wave or as a
-      rectangular, sinc or Gaussian pulse. A linear field is the sum of a co-rotating
+      circular in the wrong sense, with a sine or a square-wave carrier, and played as
+      a continuous wave or as a rectangular, sinc or Gaussian pulse. A linear field is the sum of a co-rotating
       and a counter-rotating circular field of half its amplitude; only the
       co-rotating one is resonant.
     </p>
@@ -400,12 +406,40 @@ function envelope(P, D, t){
   return (u < 0 || u > 1) ? 0 : SHAPES[P.wave](u);
 }
 
-/* The two circular parts and their sum at time t, per unit w1. */
+/* The field at time t, per unit w1, split into the one part that is resonant
+   (the co-rotating circular component at the fundamental, "co") and everything
+   else ("ctr"). For a sine carrier the rest is exactly the counter-rotating
+   circular component. A square-wave carrier of amplitude A has a fundamental of
+   4A/pi, so A = pi/4 keeps the resonant w1, and hence the flip angle, the same;
+   its odd harmonics then make up the rest. Each channel switches sign at a
+   quarter period, which falls on an integration step boundary (SPP % 4 == 0). */
+const SQ = Math.PI/4;
 function fieldAt(P, D, t){
   const a = envelope(P, D, t), c = Math.cos(W_RF*t), s = Math.sin(W_RF*t);
-  const co  = P.pol !== "anti" ? [a*c,  a*s] : [0, 0];
-  const ctr = P.pol !== "circ" ? [a*c, -a*s] : [0, 0];
-  return {a, co, ctr, tot:[co[0]+ctr[0], co[1]+ctr[1]]};
+  const cx = P.carrier === "square" ? SQ*Math.sign(c) : c;
+  const sy = P.carrier === "square" ? SQ*Math.sign(s) : s;
+  const tot = P.pol === "circ" ? [a*cx, a*sy] : P.pol === "anti" ? [a*cx, -a*sy] : [2*a*cx, 0];
+  const co  = P.pol !== "anti" ? [a*c, a*s] : [0, 0];
+  return {a, co, ctr:[tot[0]-co[0], tot[1]-co[1]], tot};
+}
+
+/* Spectral lines of the carrier in B1+ = Bx + iBy, in units of w_RF, with
+   amplitudes relative to the resonant fundamental. A circular square wave
+   alternates in sense: +1, -3, +5, -7, ...; a linear one has every odd
+   harmonic in both senses. */
+function harmonics(P){
+  const K = P.carrier === "square" ? [1,3,5,7,9,11] : [1], out = [];
+  for(const k of K){
+    if(P.pol === "lin"){ out.push({c:k, amp:1/k}, {c:-k, amp:1/k}); continue; }
+    let sg = k % 4 === 1 ? 1 : -1;
+    if(P.pol === "anti") sg = -sg;
+    out.push({c:sg*k, amp:1/k});
+  }
+  return out;
+}
+/* Mean-square field relative to a quadrature sine with the same resonant w1. */
+function relPower(P){
+  return (P.pol === "lin" ? 2 : 1)*(P.carrier === "square" ? Math.PI*Math.PI/8 : 1);
 }
 
 /* Integrate the lab-frame Bloch equation (no relaxation) with the full field,
@@ -454,9 +488,18 @@ function envSpectrum(P, D, nus){
 
 
 /* ---------------------------------------------------------- version */
-const VERSION = "0.1.0";
+const VERSION = "0.2.0";
 const AUTHORS = "Designed by Filip Sz (Lund University) and coded by Claude (Anthropic)";
 const CHANGELOG = [
+  ["0.2.0", "2026-10-24",
+   "Square-wave carrier as an alternative to the sine, for any polarisation and envelope, " +
+   "with a lecture step of its own. It is scaled so its fundamental gives the same ω₁ and " +
+   "flip angle; its odd harmonics appear in the spectrum (linear: ±ω, ±3ω, ±5ω …; circular: " +
+   "+ω, −3ω, +5ω …) and, with the split switched on, as the violet rest of the field, and " +
+   "the power readout includes the π²/8 cost. The split now separates the resonant part from " +
+   "everything else, which for a sine carrier is the counter-rotating half as before. The " +
+   "off-resonance lecture step uses Δω = 2ω₁ instead of ω₁, so the pulse reaches about 52° " +
+   "instead of 79° and the miss is obvious."],
   ["0.1.0", "2026-10-24",
    "First version. One isochromat excited by a B₁ field, shown in the lab and rotating " +
    "frames side by side with a shared orbit. B₁ can be circular, linear, or circular in " +
@@ -471,7 +514,7 @@ const CHANGELOG = [
 
 /* ------------------------------------------------------------ state */
 const $ = id => document.getElementById(id);
-const P = {pol:"circ", wave:"cw", alpha:90, n90:4, off:0};
+const P = {pol:"circ", carrier:"sine", wave:"cw", alpha:90, n90:4, off:0};
 const S = {
   t:0, playing:true, speed:1, loop:false,
   decomp:true, beff:true, axes:true, trail:true, rotAx:false,
@@ -489,10 +532,14 @@ const winInv   = v => Math.max(0, Math.min(100, 100*Math.log(v/1.5)/Math.log(200
 function rebuild(keepTime){
   D = design(P);
   SIM = simulate(P, D);
-  const NF = 801, f = new Float64Array(NF);
-  for(let i=0;i<NF;i++) f[i] = -2.2 + 4.4*i/(NF-1);
-  const nu = f.map(v => v - 1);                  // offset from the co-rotating carrier
-  SPEC = {f, g:envSpectrum(P, D, nu)};           // ctr(f) = g at -f, by symmetry
+  // grid with an integer number of points per unit, so every harmonic sits on it
+  const F = P.carrier === "square" ? 5.6 : 2.2, m = P.carrier === "square" ? 100 : 200;
+  const NF = Math.round(2*F*m) + 1, f = new Float64Array(NF);
+  for(let i=0;i<NF;i++) f[i] = -F + i/m;
+  const H = harmonics(P), cmax = Math.max(...H.map(h => Math.abs(h.c)));
+  const J = Math.round((F + cmax)*m) + 1, nu = new Float64Array(J);
+  for(let j=0;j<J;j++) nu[j] = j/m;
+  SPEC = {F, m, f, H, g:envSpectrum(P, D, nu)};  // envelope spectrum is even: |nu| only
   if(!keepTime) S.t = 0;
   S.t = Math.min(S.t, D.tEnd);
   S.dirty = true;
@@ -586,15 +633,22 @@ function projector(cam, cx, cy, R){
 
 /* Which B1 vectors to draw, in the frame being shown (unit = w1 = one circular
    component at full envelope). Returns a list of {v:[x,y], col, lw, label}. */
+/* A pure circular sine is drawn in its own colour; anything else is drawn as the
+   total (amber), optionally with the resonant part and the rest. */
+const pureCirc   = () => P.carrier === "sine" && P.pol !== "lin";
+const canSplit   = () => !pureCirc() && P.pol !== "anti";
+const splitOn    = () => canSplit() && S.decomp;
+const restName   = () => P.carrier === "sine" ? "counter-rotating" : "rest (off resonance)";
+const coName     = () => P.carrier === "sine" ? "co-rotating" : "co-rotating fundamental";
+const totName    = () => (P.pol === "lin" ? "linear " : "") + (P.carrier === "square" ? "square-wave " : "") + "B₁";
 function b1Vectors(t, rot){
   const f = fieldAt(P, D, t);
   const R = v => rot ? toRot([v[0], v[1], 0], t) : [v[0], v[1], 0];
   const out = [];
   if(f.a === 0) return out;
-  if(P.pol === "circ") out.push({v:R(f.co),  col:TH.co,  lw:2.6, label:"B₁"});
-  else if(P.pol === "anti") out.push({v:R(f.ctr), col:TH.ctr, lw:2.6, label:"B₁"});
+  if(pureCirc()) out.push({v:R(f.tot), col:P.pol === "circ" ? TH.co : TH.ctr, lw:2.6, label:"B₁"});
   else {
-    if(S.decomp){
+    if(splitOn()){
       out.push({v:R(f.co),  col:TH.co,  lw:2.0, label:""});
       out.push({v:R(f.ctr), col:TH.ctr, lw:2.0, label:""});
     }
@@ -714,11 +768,11 @@ function draw3D(cv, rot){
 
 function legend3D(ctx, w, h, rot){
   const items = [["M", TH.net]];
-  if(P.pol === "circ") items.push(["B₁ co-rotating", TH.co]);
-  else if(P.pol === "anti") items.push(["B₁ counter-rotating", TH.ctr]);
+  if(pureCirc()) items.push(P.pol === "circ" ? ["B₁ co-rotating", TH.co] : ["B₁ counter-rotating", TH.ctr]);
   else {
-    items.push(["B₁ linear", TH.b1]);
-    if(S.decomp) items.push(["co", TH.co], ["counter", TH.ctr]);
+    items.push([totName(), TH.b1]);
+    if(splitOn()) items.push([P.carrier === "sine" ? "co" : "fundamental", TH.co],
+                             [P.carrier === "sine" ? "counter" : "rest", TH.ctr]);
   }
   if(rot && S.beff && Math.abs(P.off) > 0.01) items.push(["B_eff", TH.muted]);
   ctx.font = FONT; ctx.textAlign = "left"; ctx.textBaseline = "middle";
@@ -798,11 +852,12 @@ function drawWave(cv){
     if(prev) ctx.stroke();
     ctx.globalAlpha = 1;
   };
-  const main = P.pol === "circ" ? ["co", TH.co] : P.pol === "anti" ? ["ctr", TH.ctr] : ["tot", TH.b1];
+  const main = pureCirc() ? ["tot", P.pol === "circ" ? TH.co : TH.ctr] : ["tot", TH.b1];
+  const planar = P.pol === "lin";
 
   // envelope guide for pulses (±a in the vertical plane)
   if(P.wave !== "cw"){
-    const amp = P.pol === "lin" ? 2 : 1;
+    const amp = (P.pol === "lin" ? 2 : 1)*(P.carrier === "square" ? SQ : 1);
     ctx.strokeStyle = rgba(TH.muted, 0.35); ctx.setLineDash([2,4]); ctx.lineWidth = 1;
     for(const sg of [1,-1]){
       ctx.beginPath();
@@ -825,16 +880,16 @@ function drawWave(cv){
     ctx.strokeStyle = rgba(main[1], 0.28);
     ctx.beginPath(); ctx.moveTo(o[0],o[1]); ctx.lineTo(p[0],p[1]); ctx.stroke();
   }
-  if(P.pol === "lin" && S.decomp){
+  if(splitOn()){
     curve("co",  TH.co,  1.3, 0.9, true);
     curve("ctr", TH.ctr, 1.3, 0.9, true);
   }
-  curve(main[0], main[1], 1.9, 1, main[0] !== "tot");   // the linear field is planar
+  curve(main[0], main[1], 1.9, 1, !planar);             // the linear field is planar
 
   // the field at the spin right now
   const f = fieldAt(P, D, t), o = at(0,0,0);
   if(f.a !== 0){
-    if(P.pol === "lin" && S.decomp){
+    if(splitOn()){
       for(const [k, col] of [["co", TH.co], ["ctr", TH.ctr]]){
         const p = at(0, f[k][0], f[k][1]); arrow(ctx, o[0],o[1], p[0],p[1], 2, col, 8);
       }
@@ -844,9 +899,9 @@ function drawWave(cv){
   }
 
   // legend
-  const items = P.pol === "lin"
-    ? [["linear B₁", TH.b1]].concat(S.decomp ? [["co-rotating", TH.co], ["counter-rotating", TH.ctr]] : [])
-    : P.pol === "circ" ? [["co-rotating B₁", TH.co]] : [["counter-rotating B₁", TH.ctr]];
+  const items = pureCirc()
+    ? (P.pol === "circ" ? [["co-rotating B₁", TH.co]] : [["counter-rotating B₁", TH.ctr]])
+    : [[totName(), TH.b1]].concat(splitOn() ? [[coName(), TH.co], [restName(), TH.ctr]] : []);
   ctx.textAlign = "left"; ctx.textBaseline = "middle";
   let x = 12; const y = h - 13;
   for(const [lab, col] of items){
@@ -862,7 +917,8 @@ function drawSpec(cv){
   const L = 16, Rm = 16, T = 84, B = 58;
   const x0 = L, x1 = w - Rm, y0 = T, y1 = h - B;
   if(x1 - x0 < 40 || y1 - y0 < 30) return;
-  const X = f => x0 + (f + 2.2)/4.4*(x1 - x0);
+  const F = SPEC.F, m = SPEC.m;
+  const X = f => x0 + (f + F)/(2*F)*(x1 - x0);
   const Y = v => y1 - v*(y1 - y0);
   ctx.font = FONT;
 
@@ -870,46 +926,53 @@ function drawSpec(cv){
   ctx.fillStyle = rgba(TH.ctr, 0.05); ctx.fillRect(x0, y0-6, X(0)-x0, y1-y0+6);
   ctx.fillStyle = rgba(TH.co, 0.05);  ctx.fillRect(X(0), y0-6, x1-X(0), y1-y0+6);
 
-  // frequency axis
+  // frequency axis, in multiples of the RF frequency
   ctx.strokeStyle = TH.axis; ctx.lineWidth = 1;
   ctx.beginPath(); ctx.moveTo(x0, y1); ctx.lineTo(x1, y1); ctx.stroke();
   ctx.textAlign = "center"; ctx.textBaseline = "top";
-  const labs = S.rotAx
-    ? {"-2":"−3ω", "-1":"−2ω", "0":"−ω", "1":"0", "2":"+ω"}
-    : {"-2":"−2ω", "-1":"−ω",  "0":"0",  "1":"+ω", "2":"+2ω"};
-  for(const k of [-2,-1,0,1,2]){
+  const lab = n => n === 0 ? "0" : (n > 0 ? "+" : "−") + (Math.abs(n) === 1 ? "" : Math.abs(n)) + "ω";
+  for(let k = -Math.floor(F); k <= Math.floor(F); k++){
     ctx.strokeStyle = rgba(TH.muted, k === 0 ? 0.5 : 0.25);
     ctx.beginPath(); ctx.moveTo(X(k), y0-6); ctx.lineTo(X(k), y1+4); ctx.stroke();
-    ctx.fillStyle = TH.muted; ctx.fillText(labs[k], X(k), y1+7);
+    ctx.fillStyle = TH.muted; ctx.fillText(lab(S.rotAx ? k-1 : k), X(k), y1+7);
   }
   ctx.fillStyle = TH.dim;
   ctx.fillText(S.rotAx ? "ω − ω_RF   (rotating frame)" : "ω   (lab frame, ω ≈ ω_RF ≈ ω₀)", (x0+x1)/2, y1+22);
   ctx.textAlign = "left";  ctx.fillText("↻ against the spins", x0+2, y1+38);
   ctx.textAlign = "right"; ctx.fillText("with the spins ↺", x1-2, y1+38);
 
-  // the components present, each normalised to 1 at its carrier
-  const comps = [];
-  if(P.pol !== "anti") comps.push({c: 1, col:TH.co,  name:"co-rotating", sub:"on resonance"});
-  if(P.pol !== "circ") comps.push({c:-1, col:TH.ctr, name:"counter-rotating", sub:"2ω off resonance"});
+  // every spectral line of the carrier, each with the envelope's spectrum
   const NF = SPEC.f.length;
-  for(const C of comps){
+  for(const C of SPEC.H){
+    if(Math.abs(C.c) > F) continue;
+    const col = C.c > 0 ? TH.co : TH.ctr, top = Y(C.amp);
     if(P.wave === "cw"){
-      arrow(ctx, X(C.c), y1, X(C.c), Y(1), 2.4, C.col, 9);
+      arrow(ctx, X(C.c), y1, X(C.c), top, 2.4, col, 9);
     } else {
-      ctx.beginPath(); ctx.moveTo(X(-2.2), y1);
+      ctx.beginPath(); ctx.moveTo(X(-F), y1);
+      const ic = Math.round((C.c + F)*m);
       for(let i=0;i<NF;i++){
-        const f = SPEC.f[i], g = C.c > 0 ? SPEC.g[i] : SPEC.g[NF-1-i];   // mirror image
-        ctx.lineTo(X(f), Y(g));
+        const j = Math.abs(i - ic);
+        ctx.lineTo(X(SPEC.f[i]), Y(C.amp*(j < SPEC.g.length ? SPEC.g[j] : 0)));
       }
-      ctx.lineTo(X(2.2), y1); ctx.closePath();
-      ctx.fillStyle = rgba(C.col, 0.22); ctx.fill();
-      ctx.strokeStyle = C.col; ctx.lineWidth = 1.5; ctx.stroke();
+      ctx.lineTo(X(F), y1); ctx.closePath();
+      ctx.fillStyle = rgba(col, 0.22); ctx.fill();
+      ctx.strokeStyle = col; ctx.lineWidth = 1.5; ctx.stroke();
       // a narrow lobe can fall between grid samples: always mark its peak
-      ctx.beginPath(); ctx.moveTo(X(C.c), y1); ctx.lineTo(X(C.c), Y(1)); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(X(C.c), y1); ctx.lineTo(X(C.c), top); ctx.stroke();
     }
-    ctx.fillStyle = C.col; ctx.textAlign = "center"; ctx.textBaseline = "bottom";
-    ctx.fillText(C.name, X(C.c), Y(1)-17);
-    ctx.fillStyle = TH.muted; ctx.fillText(C.sub, X(C.c), Y(1)-5);
+    if(Math.abs(C.c) === 1){
+      // on a wide axis the ±ω labels would collide: push them outwards
+      const wide = F > 3, xl = X(C.c) + (wide ? (C.c > 0 ? 5 : -5) : 0);
+      ctx.fillStyle = col; ctx.textAlign = wide ? (C.c > 0 ? "left" : "right") : "center";
+      ctx.textBaseline = "bottom";
+      ctx.fillText(C.c > 0 ? (P.carrier === "sine" ? "co-rotating" : "fundamental") : "counter-rotating", xl, top-17);
+      ctx.fillStyle = TH.muted;
+      ctx.fillText(C.c > 0 ? "on resonance" : "2ω off resonance", xl, top-5);
+    } else {
+      ctx.fillStyle = TH.muted; ctx.textAlign = "center"; ctx.textBaseline = "bottom";
+      ctx.fillText("1/" + Math.abs(C.c), X(C.c), top-5);
+    }
   }
 
   // where the spin resonates
@@ -917,12 +980,12 @@ function drawSpec(cv){
   ctx.strokeStyle = TH.net; ctx.globalAlpha = 0.75; ctx.setLineDash([4,3]); ctx.lineWidth = 1.2;
   ctx.beginPath(); ctx.moveTo(X(fs), y1); ctx.lineTo(X(fs), Y(0.55)); ctx.stroke();
   ctx.setLineDash([]); ctx.globalAlpha = 1;
-  const right = fs > 1.5;
+  const right = fs > 0.6*F;
   ctx.fillStyle = TH.net; ctx.textAlign = right ? "right" : "left"; ctx.textBaseline = "bottom";
   ctx.fillText("spin ω₀", X(fs) + (right ? -6 : 6), Y(0.55) + 2);
   ctx.textAlign = "left"; ctx.textBaseline = "top"; ctx.fillStyle = TH.dim;
-  ctx.fillText(P.wave === "cw" ? "|B₁⁺(ω)| of a continuous wave: one line per circular part"
-                               : "|B₁⁺(ω)|, each circular part normalised to 1", x0+2, 27);
+  ctx.fillText((P.wave === "cw" ? "|B₁⁺(ω)| of a continuous wave" : "|B₁⁺(ω)| of the pulse") +
+               (P.carrier === "square" ? ", relative to the fundamental" : ", each part normalised to 1"), x0+2, 27);
 }
 
 /* ------------------------------------------------------------ loop */
@@ -968,7 +1031,9 @@ function readout(){
   $("rMz").textContent  = (m[2] >= 0 ? "+" : "") + m[2].toFixed(3);
   $("rDur").textContent = P.wave === "cw" ? "continuous" : fmtP(D.T) + " T_RF";
   $("rRatio").textContent = "1 : " + fmtN(W_RF/D.w1);
-  $("rPow").textContent = P.pol === "lin" ? "2× quadrature" : P.pol === "anti" ? "1×, no excitation" : "1× (quadrature)";
+  const pw = relPower(P);
+  $("rPow").textContent = (pw === 1 ? "1× (quadrature)" : fmtN(pw) + "× quadrature sine") +
+                          (P.pol === "anti" ? ", no excitation" : "");
   const fr = Math.min(1, S.t/D.tEnd);
   $("sTime").value = Math.round(fr*1000);
   $("vTime").textContent = S.t.toFixed(2) + " / " + fmtP(D.tEnd);
@@ -984,8 +1049,7 @@ function syncLabels(){
   $("vWin").textContent   = "±" + fmtP(S.win) + " T_RF";
   const pulsed = P.wave !== "cw";
   $("sAlpha").disabled = !pulsed; $("ctlAlpha").classList.toggle("off", !pulsed);
-  const lin = P.pol === "lin";
-  $("cDecomp").disabled = !lin; $("lDecomp").classList.toggle("off", !lin);
+  $("cDecomp").disabled = !canSplit(); $("lDecomp").classList.toggle("off", !canSplit());
   note();
   readout();
 }
@@ -1016,6 +1080,20 @@ function note(){
       `accumulates: M barely leaves z. The two channels of a quadrature coil must be driven ` +
       `in the right order.`);
 
+  if(P.carrier === "square"){
+    out.push(`<b>Square-wave carrier.</b> A square wave is a sum of odd harmonics, ω, 3ω, 5ω …, ` +
+      `with amplitudes 1, 1/3, 1/5 … ` + (P.pol === "lin"
+        ? `On one linear channel every harmonic appears in both senses (±ω, ±3ω, ±5ω …). `
+        : `Driving both channels with square waves in quadrature makes B₁ jump between four ` +
+          `diagonals; its harmonics alternate in sense: ${P.pol === "circ" ? "+ω, −3ω, +5ω" : "−ω, +3ω, −5ω"} …. `) +
+      (P.pol === "anti"
+        ? `None of them is at +ω, so nothing is resonant.`
+        : `Only the part at +ω turns with the spins at their frequency. Everything else, the ` +
+          `<span class="c-ctr">violet rest</span>, is off resonance by at least 2ω and averages out, ` +
+          `so the flip angle is that of a sine with the same fundamental. The harmonics still cost ` +
+          `power: π²/8 ≈ 1.23 times more.`));
+  }
+
   if(P.wave === "cw")
     out.push(`<b>Continuous wave.</b> B₁ never switches off, so M keeps turning: 90°, 180°, 270°, ` +
       `and back to +z. In the spectrum each circular part is a single line.`);
@@ -1043,17 +1121,18 @@ function note(){
 
 /* -------------------------------------------------------- presets */
 const PRESETS = {
-  circCW : {pol:"circ", wave:"cw",    n90:4,   off:0, alpha:90,  decomp:true, speed:1.5},
-  linCW  : {pol:"lin",  wave:"cw",    n90:4,   off:0, alpha:90,  decomp:true, speed:1.5},
-  linBig : {pol:"lin",  wave:"cw",    n90:1.5, off:0, alpha:90,  decomp:true, speed:0.8},
-  anti   : {pol:"anti", wave:"cw",    n90:4,   off:0, alpha:90,  decomp:true, speed:1.5},
-  rect   : {pol:"circ", wave:"rect",  n90:4,   off:0, alpha:90,  decomp:true, speed:0.8},
-  sinc   : {pol:"lin",  wave:"sinc",  n90:2.5, off:0, alpha:90,  decomp:true, speed:1.2},
-  offres : {pol:"circ", wave:"rect",  n90:4,   off:1, alpha:90,  decomp:true, speed:0.8}
+  circCW : {pol:"circ", carrier:"sine",   wave:"cw",   n90:4,   off:0, alpha:90, decomp:true, speed:1.5},
+  linCW  : {pol:"lin",  carrier:"sine",   wave:"cw",   n90:4,   off:0, alpha:90, decomp:true, speed:1.5},
+  linBig : {pol:"lin",  carrier:"sine",   wave:"cw",   n90:1.5, off:0, alpha:90, decomp:true, speed:0.8},
+  anti   : {pol:"anti", carrier:"sine",   wave:"cw",   n90:4,   off:0, alpha:90, decomp:true, speed:1.5},
+  rect   : {pol:"circ", carrier:"sine",   wave:"rect", n90:4,   off:0, alpha:90, decomp:true, speed:0.8},
+  sinc   : {pol:"lin",  carrier:"sine",   wave:"sinc", n90:2.5, off:0, alpha:90, decomp:true, speed:1.2},
+  offres : {pol:"circ", carrier:"sine",   wave:"rect", n90:4,   off:2, alpha:90, decomp:true, speed:0.8},
+  square : {pol:"lin",  carrier:"square", wave:"cw",   n90:4,   off:0, alpha:90, decomp:true, speed:1.0}
 };
 function applyPreset(name){
   const p = PRESETS[name];
-  Object.assign(P, {pol:p.pol, wave:p.wave, n90:p.n90, off:p.off, alpha:p.alpha});
+  Object.assign(P, {pol:p.pol, carrier:p.carrier, wave:p.wave, n90:p.n90, off:p.off, alpha:p.alpha});
   S.decomp = p.decomp; S.speed = p.speed;
   pushControls();
   rebuild(false); autoWindow(); syncLabels();
@@ -1063,7 +1142,7 @@ function applyPreset(name){
 function clearPreset(){ document.querySelectorAll(".preset").forEach(b => b.classList.remove("on")); }
 
 function pushControls(){
-  $("pol").value = P.pol; $("wave").value = P.wave;
+  $("pol").value = P.pol; $("carrier").value = P.carrier; $("wave").value = P.wave;
   $("sAlpha").value = P.alpha;
   $("sN90").value = Math.round(n90Inv(P.n90));
   $("sOff").value = Math.round(P.off*100);
@@ -1236,6 +1315,7 @@ bindRange("sN90",   v => { P.n90 = n90Of(v); clearPreset(); rebuild(true); autoW
 bindRange("sOff",   v => { P.off = v/100; clearPreset(); rebuild(true); syncLabels(); });
 bindRange("sWin",   v => { S.win = winOf(v); S.dirty = true; syncLabels(); });
 $("pol").addEventListener("change", e => { P.pol = e.target.value; clearPreset(); rebuild(false); syncLabels(); });
+$("carrier").addEventListener("change", e => { P.carrier = e.target.value; clearPreset(); rebuild(false); syncLabels(); });
 $("wave").addEventListener("change", e => { P.wave = e.target.value; clearPreset(); rebuild(false); autoWindow(); syncLabels(); });
 for(const [id, key] of [["cDecomp","decomp"],["cBeff","beff"],["cAxes","axes"],["cTrail","trail"],["cRotAx","rotAx"],["cLoop","loop"]])
   $(id).addEventListener("change", e => { S[key] = e.target.checked; S.dirty = true; });
