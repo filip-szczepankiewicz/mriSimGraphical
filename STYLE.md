@@ -550,7 +550,3 @@ When creating or modifying a simulator:
 14. Keep the application self-contained where possible.
 15. Preserve established scientific color conventions.
 16. If a new visual convention is needed, make it compatible with this guide.
-
-### Final rule
-
-> **When in doubt, make it look like it has always been part of the MRI simulator suite.**
