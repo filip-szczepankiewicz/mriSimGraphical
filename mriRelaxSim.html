@@ -220,6 +220,7 @@ h2{font-weight:400; letter-spacing:.18em; margin-bottom:9px}
       <button id="p90">90°<sub>x</sub></button>
       <button id="p180">180°<sub>x</sub></button>
       <button id="echo">Spin echo</button>
+      <button id="rand" title="Point every packet in a random direction, as in zero field, then switch B₀ on">Randomise</button>
     </div>
     <div class="ctl" style="margin-top:11px">
       <div class="lab"><span>Playback speed</span><span class="val" id="vSpeed"></span></div>
@@ -230,7 +231,7 @@ h2{font-weight:400; letter-spacing:.18em; margin-bottom:9px}
       <input type="range" id="sDur" min="0" max="100" value="40">
       <p class="sub" id="subDur"></p>
     </div>
-    <p class="sub">Space plays/pauses · R resets · 3, 9 and 8 fire the pulses.</p>
+    <p class="sub">Space plays/pauses · R resets · 3, 9 and 8 fire the pulses · 0 randomises and switches B₀ on.</p>
   </section>
 
   <section>
@@ -491,6 +492,25 @@ function pulseX(sp, th){
   }
 }
 
+/*  Zero-field start: every packet points in a uniformly random direction on the
+ *  unit sphere, so there is no preferred axis and no net magnetisation. Packets
+ *  are drawn as antipodal pairs (i, i+1) — neighbours in the offset ordering, so
+ *  a pair precesses almost together — which makes the net vector start at exactly
+ *  zero (to 1/N for odd N), as in a real voxel, instead of carrying a ~1/sqrt(N)
+ *  sampling residue. After the switch-on each packet relaxes towards +z, and the
+ *  ensemble Mz follows 1 - exp(-t/T1): the same curve as saturation recovery.
+ *  rnd() returns a uniform number in [0,1).
+ */
+function randomiseSpins(sp, rnd){
+  for(let i=0;i<sp.length;i+=2){
+    const z = 2*rnd()-1, ph = 2*Math.PI*rnd(), r = Math.sqrt(Math.max(0, 1-z*z));
+    const x = r*Math.cos(ph), y = r*Math.sin(ph);
+    const a = sp[i]; a.mx = x; a.my = y; a.mz = z;
+    const b = sp[i+1];
+    if(b){ b.mx = -x; b.my = -y; b.mz = -z; }
+  }
+}
+
 function net(sp){
   let x=0, y=0, z=0;
   for(const s of sp){ x+=s.mx; y+=s.my; z+=s.mz; }
@@ -527,9 +547,17 @@ function gaussStd(){                        // Box-Muller
 
 
 /* ---------------------------------------------------------- version */
-const VERSION = "0.3.2";
+const VERSION = "0.4.0";
 const AUTHORS = "Designed by Filip Sz (Lund University) and coded by Claude (Anthropic)";
 const CHANGELOG = [
+  ["0.4.0", "2026-10-27",
+   "Added a Randomise button (key 0) that shows the field being switched on: every packet " +
+   "starts pointing in a random direction, as in zero field, so there is no net magnetisation, " +
+   "and then relaxes under B₀. The net Mz builds up as 1 − exp(−t/T1) while the transverse " +
+   "parts dephase and decay. Packets are drawn in antipodal pairs so the net vector starts at " +
+   "zero rather than at a 1/√N sampling residue. The switch-on is marked on the signal plot, " +
+   "the plot window and playback speed are set to frame about three T1, and the guidance text " +
+   "explains what to look for."],
   ["0.3.2", "2026-09-17",
    "Renamed from Spin packets to Relaxation sim, matching the other simulators. " +
    "The version and changelog moved from the sidebar into a dialog opened from a " +
@@ -576,7 +604,7 @@ const $ = id => document.getElementById(id);
 
 const S = {
   N:48, s1:18, s2:30, s3:45, tc:4, speed:0.05, W:400, dist:"gauss", dur:3, rf:null,
-  playing:true, rotFrame:true,
+  playing:true, rotFrame:true, b0on:false,
   packets:true, netv:true, trail:true, env:true,
   t:0, spins:makeSpins(48), pending:null,
   lastPulse:{t:0, mxy:0, mz:1},
@@ -793,7 +821,9 @@ function drawSig(){
       ctx.beginPath(); ctx.moveTo(xa,y0); ctx.lineTo(xa,y1); ctx.stroke();
       ctx.setLineDash([]);
     }
-    ctx.fillStyle = C.muted; ctx.fillText(label, (xa+xb)/2, y0+2);
+    // keep the label clear of the y-axis numbers when the marker sits at the left edge
+    const half = ctx.measureText(label).width/2 + 3;
+    ctx.fillStyle = C.muted; ctx.fillText(label, Math.max((xa+xb)/2, x0 + half), y0+2);
   };
   for(const m of S.marks) mark(m.t0, m.t1, m.label, [2,3]);
   if(S.pending !== null) mark(S.pending, S.pending, "180°", [1,4]);
@@ -883,6 +913,7 @@ const angleLabel = th => Math.round(th*180/Math.PI) + "°";
 function pulse(th){
   if(S.rf) return;                                  // ignore while one is running
   S.trailPts.length = 0;
+  if(S.b0on){ S.b0on = false; syncLabels(); }       // the switch-on story is over
   if(S.dur <= 0){
     pulseX(S.spins, th);
     S.marks.push({t0:S.t, t1:S.t, label:angleLabel(th)});
@@ -909,6 +940,29 @@ function reset(){
   S.t = 0; S.hist.length = 0; S.trailPts.length = 0; S.marks.length = 0;
   S.pending = null; S.rf = null;
   S.lastPulse = {t:0, mxy:0, mz:1};
+  S.b0on = false;
+}
+
+// zero field -> B0 on: random orientations at t = 0, then ordinary relaxation.
+// The transverse envelope is suppressed (its ensemble expectation is zero) and
+// the Mz envelope starts from the drawn net Mz, which is 0 for even N.
+function randomise(){
+  reset();
+  randomiseSpins(S.spins, Math.random);
+  const n = net(S.spins);
+  S.lastPulse = {t:0, mxy:0, mz:n.mz};
+  S.marks.push({t0:0, t1:0, label:"B₀ on"});
+  S.b0on = true;
+  // frame about three T1 of build-up and pace it to ~10 s of wall clock
+  const T1 = 1/Math.max(1e-6, R1of(S.s1));
+  const w = Math.min(W_MAX, Math.max(40, 3.2*T1));
+  $("sW").value = Math.round(100*Math.log(w/40)/Math.log(75));
+  S.W = winOf(+$("sW").value);
+  const sp = Math.max(0.005, Math.min(3, w/10000));
+  $("sSpeed").value = Math.round(Math.max(0, Math.min(100, speedInv(sp))));
+  S.speed = speedOf(+$("sSpeed").value);
+  S.playing = true; $("play").textContent = "Pause";
+  syncLabels();
 }
 
 function render(){
@@ -977,6 +1031,25 @@ function syncLabels(){
              the pulse — the fan opens while the vectors are still tipping.`;
   if(S.tc === 0 && r.R2s > 1e-6)
     msg += " τ<sub>c</sub> is at zero, so the local fields are white noise and the arrows shiver on every frame. Nudge τ<sub>c</sub> up for the same T2 with a calmer picture.";
+  if(S.b0on){
+    const T1txt = fmtT(r.R1);
+    msg = r.R1 <= 0
+      ? `<b>B₀ is on, but T1 is at zero.</b> The packets started in random directions, as in
+         zero field, and with no spin–lattice coupling nothing can carry them towards +z: the
+         net magnetisation stays at zero for ever. Raise T1 to let the sample polarise.`
+      : `<b>B₀ just switched on.</b> The packets started in random directions, as in zero field,
+         so they summed to nothing. Now T1 tips each one towards +z and the net M<sub>z</sub>
+         builds up as 1 − exp(−t/T1), with T1 = ${T1txt}: this is polarisation, and the curve is
+         the same as saturation recovery. The transverse parts are lost to T2 and dephasing on
+         the way; their phases are random, so they never add up to a signal. Fire a 90° early,
+         then again after a few T1, to see that the available signal grows with M<sub>z</sub>.`;
+    if(r.R1 > 0 && S.N < 120)
+      msg += ` The small wobble in |M<sub>xy</sub>| is finite sampling: spin–spin noise pushes each
+              pair of opposite packets out of step, and with only ${S.N} packets the leftovers do not
+              quite cancel. More packets make it shrink.`;
+    if(S.N % 2 === 1)
+      msg += ` With an odd number of packets one is left unpaired, so the net starts a little away from zero.`;
+  }
   $("note").innerHTML = msg;
 }
 
@@ -1030,7 +1103,8 @@ for(const [id,key] of [["cPack","packets"],["cNet","netv"],["cTrail","trail"],["
 $("play").addEventListener("click", () => {
   S.playing = !S.playing; $("play").textContent = S.playing ? "Pause" : "Play";
 });
-$("reset").addEventListener("click", reset);
+$("reset").addEventListener("click", () => { reset(); syncLabels(); });
+$("rand").addEventListener("click", randomise);
 $("p30").addEventListener("click", () => pulse(Math.PI/6));
 $("p90").addEventListener("click", () => pulse(Math.PI/2));
 $("p180").addEventListener("click", () => pulse(Math.PI));
@@ -1076,7 +1150,8 @@ cv3.addEventListener("pointercancel", stopDrag);
 document.addEventListener("keydown", e => {
   if(e.target.matches("input,select,button")) return;
   if(e.code === "Space"){ e.preventDefault(); $("play").click(); }
-  else if(e.key.toLowerCase() === "r") reset();
+  else if(e.key.toLowerCase() === "r"){ reset(); syncLabels(); }
+  else if(e.key === "0") randomise();
   else if(e.key === "3") pulse(Math.PI/6);
   else if(e.key === "9") pulse(Math.PI/2);
   else if(e.key === "8") pulse(Math.PI);
