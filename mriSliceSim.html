@@ -36,6 +36,7 @@ html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);
 .brand{display:flex;align-items:center;gap:5px}
 .brand h1{margin-right:auto}
 .sl.off{opacity:.45}
+.switch.off{opacity:.45}
 .seg{display:flex;align-items:center;gap:4px;margin:8px 0 2px}
 .seg span{margin-right:auto}
 .seg button{font-size:11px;padding:2px 7px}
@@ -206,6 +207,7 @@ select{border-radius:3px; background:var(--panel2, var(--btn))}
     <button class="preset" data-preset="norew">2  Slice select, no rewinder</button>
     <button class="preset" data-preset="rew">3  Slice select + rewinder</button>
     <button class="preset" data-preset="mb">4  Multiband (2 slices) + rew.</button>
+    <button class="preset" data-preset="box">5  Box RF envelope + rew.</button>
   </fieldset>
 
   <fieldset><legend>Playback</legend>
@@ -233,6 +235,11 @@ select{border-radius:3px; background:var(--panel2, var(--btn))}
   <fieldset><legend>RF pulse and slice</legend>
     <div class="sl"><div class="top"><span>Flip angle</span><output id="flipO"></output></div>
       <input type="range" id="flip" min="5" max="180" step="1" value="90"></div>
+    <div class="seg" role="group" aria-label="RF envelope">
+      <span>RF envelope</span>
+      <button type="button" id="envSinc" class="on" aria-pressed="true">sinc</button>
+      <button type="button" id="envBox" aria-pressed="false">box</button>
+    </div>
     <div class="seg" role="group" aria-label="Slice defined by">
       <span>Set by</span>
       <button type="button" id="modeThk" class="on" aria-pressed="true">thickness</button>
@@ -246,9 +253,9 @@ select{border-radius:3px; background:var(--panel2, var(--btn))}
       <input type="range" id="Gset" min="1" max="40" step="0.1" value="6.3" disabled></div>
     <div class="sl"><div class="top"><span>Pulse duration</span><output id="TpO"></output></div>
       <input type="range" id="Tp" min="1" max="8" step="0.1" value="3"></div>
-    <div class="sl"><div class="top"><span>Time-bandwidth product</span><output id="tbwO"></output></div>
+    <div class="sl" id="tbwRow"><div class="top"><span>Time-bandwidth product</span><output id="tbwO"></output></div>
       <input type="range" id="tbw" min="2" max="10" step="1" value="4"></div>
-    <label class="switch"><input type="checkbox" id="useWindow" checked> Hanning apodisation</label>
+    <label class="switch" id="useWindowRow"><input type="checkbox" id="useWindow" checked> Hanning apodisation</label>
     <div class="sl" id="mbSepRow"><div class="top"><span>Band separation</span><output id="mbSepO"></output></div>
       <input type="range" id="mbSep" min="6" max="24" step="0.5" value="12"></div>
   </fieldset>
@@ -325,6 +332,11 @@ select{border-radius:3px; background:var(--panel2, var(--btn))}
       ramp (cosmetic); the rewinder area includes the ramps. The ideal rewinder area is half the slice-select
       area only in the small-tip limit; at larger flip angles the optimum is
       slightly larger. Spin rows along y are identical copies.
+      Box envelope: constant B₁ for the pulse duration T<sub>p</sub>; its spectrum is
+      sinc(fT<sub>p</sub>), so the nominal bandwidth is taken as BW = 1/T<sub>p</sub>
+      (time-bandwidth product 1, close to the main-lobe FWHM of 1.21/T<sub>p</sub>).
+      The profile has no flat top and side lobes that decay only as 1/x
+      (first side lobe about 22% of the peak in the small-tip limit).
       Multiband: the single-band pulse is multiplied by 2cos(2πf<sub>d</sub>t) with
       f<sub>d</sub> = γ̄G<sub>s</sub>·(separation/2), so each band gets the set flip angle
       (exact for small tips) and the peak B₁ doubles.
@@ -1401,7 +1413,8 @@ select{border-radius:3px; background:var(--panel2, var(--btn))}
 const GAMMA = 2 * Math.PI * 42.577478e6;   // rad s^-1 T^-1 (1H)
 const GAMMABAR = 42.577478e6;              // Hz T^-1
 
-function rfShape(u, tbw, useWindow) {       // u in [-0.5, 0.5]
+function rfShape(u, tbw, useWindow, env) {  // u in [-0.5, 0.5]
+  if (env === 'box') return 1;              // hard (rectangular) pulse
   const a = tbw * u;
   const s = Math.abs(a) < 1e-12 ? 1 : Math.sin(Math.PI * a) / (Math.PI * a);
   const w = useWindow ? 0.5 * (1 + Math.cos(2 * Math.PI * u)) : 1;
@@ -1410,8 +1423,10 @@ function rfShape(u, tbw, useWindow) {       // u in [-0.5, 0.5]
 
 function simulate(p) {
   /* p: Tp [s], tbw, flipDeg, thk [m], fov [m] (half width), N,
-        useGss, useRew, rewFrac, Trew [s], useWindow */
-  const BW = p.tbw / p.Tp;                          // Hz
+        useGss, useRew, rewFrac, Trew [s], useWindow, env ('sinc' | 'box') */
+  // A box pulse has spectrum sinc(f*Tp); its nominal bandwidth is taken as 1/Tp (TBW = 1).
+  const tbwEff = p.env === 'box' ? 1 : p.tbw;
+  const BW = tbwEff / p.Tp;                         // Hz
   const Gss = BW / (GAMMABAR * p.thk);              // T/m
   // Gradient lobes are trapezoids with a fixed ramp time TR (cosmetic, not a user setting).
   // The RF plays on the slice-select flat top. rewFrac is the fraction of the full
@@ -1425,7 +1440,7 @@ function simulate(p) {
   // Integral of the RF shape (midpoint rule on a fine grid) -> B1 amplitude
   const nInt = 4000;
   let sInt = 0;
-  for (let k = 0; k < nInt; k++) sInt += rfShape((k + 0.5) / nInt - 0.5, p.tbw, p.useWindow);
+  for (let k = 0; k < nInt; k++) sInt += rfShape((k + 0.5) / nInt - 0.5, p.tbw, p.useWindow, p.env);
   sInt *= p.Tp / nInt;
   const flip = p.flipDeg * Math.PI / 180;
   const B1max = flip / (GAMMA * sInt);              // T, single-band amplitude
@@ -1435,7 +1450,7 @@ function simulate(p) {
   // (exact in the small-tip limit); the peak B1 is up to twice as large.
   const fd = p.mb ? GAMMABAR * Gss * p.mbSep / 2 : 0;
   const mod = u => (p.mb ? 2 * Math.cos(2 * Math.PI * fd * u * p.Tp) : 1);
-  const shape = u => rfShape(u, p.tbw, p.useWindow) * mod(u);
+  const shape = u => rfShape(u, p.tbw, p.useWindow, p.env) * mod(u);
   // Slice offset x0: the RF is shifted to f0 = gammabar*Gs*x0 by a carrier
   // exp(-i*2*pi*f0*(t - tc)). The minus sign matches this simulator's precession
   // sense (spins at x precess as exp(-i*gamma*G*x*t)), so the pulse follows the spins
@@ -1559,7 +1574,7 @@ function simulate(p) {
 
   return {
     N, Nt, xs, times, b1, b1y, g, traj, sig, coh, fourier,
-    Gss, Grew, BW, B1max, B1peak, fd, f0, x0, tEnd: t,
+    Gss, Grew, BW, tbwEff, env: p.env, B1max, B1peak, fd, f0, x0, tEnd: t,
     tGs0: segStart.ssUp, tRF0: segStart.rf, tRF1: segStart.ssDown, tGs1: segStart.rwUp,
     tRew0: segStart.rwUp, tRew1: segStart.post, TR,
     dxmm,
@@ -1572,12 +1587,16 @@ function simulate(p) {
 (function () {
   const BUILD = {
     name: 'Slice sim',
-    version: '0.2.3',
-    date: '2026-09-17',
+    version: '0.3.0',
+    date: '2026-10-29',
     authors: 'Designed by Filip Sz (Lund University) and coded by Claude (Anthropic)',
   };
   const CHANGELOG = [
-    { v: '0.2.3', tag: 'current', items: [
+    { v: '0.3.0', tag: 'current', items: [
+      'RF envelope selector (sinc | box) and a fifth lecture preset, "Box RF envelope + rew.", to show why a rectangular (hard) pulse selects a slice poorly: its spectrum is sinc(fT<sub>p</sub>), so the profile has no flat top and side lobes of alternating sign (180° phase jumps) that decay only as 1/x and reach far outside the nominal slice.',
+      'For the box envelope the nominal bandwidth is BW = 1/T<sub>p</sub> (time-bandwidth product 1), so the same slice thickness and pulse duration as the sinc case can be compared directly; the TBW slider and Hanning switch are disabled while the box is selected.',
+      'Presets 1–4 select the sinc envelope.'] },
+    { v: '0.2.3', items: [
       'House style shared across the simulator suite: capitalised title with the version and theme chips at the right of the header, a one-line description under the title, uppercase section headings, one colour palette with a teal interface accent, common slider, button and dialog styling, a 300 px control rail, one phone-layout breakpoint (1000 px), and a tab icon. Plot and 3D colours are unchanged.',
       'Section headings are plain uppercase labels instead of boxed fieldsets; slider values are shown in the text colour and labels are muted, as in the other simulators.',
       'The light/dark choice is shared by all simulators in the suite and remembered; on a first visit the operating-system setting is used.'] },
@@ -1657,6 +1676,8 @@ function simulate(p) {
   const checks = ['useGss', 'useRew', 'mb', 'useWindow', 'colPhase', 'tips', 'slab', 'gline', 'b1vec', 'fourier', 'profEnd', 'loop'];
 
   let thkMode = 'thk';          // 'thk': thickness is the input; 'grad': Gs is the input
+  let env = 'sinc';             // RF envelope: 'sinc' (windowed sinc, TBW slider) or 'box' (TBW = 1)
+  const tbwOf = tbw => env === 'box' ? 1 : tbw;
   let plotView = 'prof';        // middle plot: 'prof' or 'fx'
   // thickness implied by a gradient: ds = BW / (gammabar * Gs), BW = TBW / Tp
   const thkFromG = (GmTm, TpMs, tbw) => (tbw / (TpMs * 1e-3)) / (GAMMABAR * GmTm * 1e-3) * 1e3;   // mm
@@ -1664,14 +1685,19 @@ function simulate(p) {
   function showOutputs() {
     const v = k => parseFloat($(k).value);
     for (const k in sliders) $(k + 'O').textContent = sliders[k](v(k));
-    if (thkMode === 'grad') $('thkO').textContent = thkFromG(v('Gset'), v('Tp'), v('tbw')).toFixed(2) + ' mm';
-    else $('GsetO').textContent = gFromThk(v('thk'), v('Tp'), v('tbw')).toFixed(2) + ' mT/m';
+    if (env === 'box') $('tbwO').textContent = '1 (box)';
+    if (thkMode === 'grad') $('thkO').textContent = thkFromG(v('Gset'), v('Tp'), tbwOf(v('tbw'))).toFixed(2) + ' mm';
+    else $('GsetO').textContent = gFromThk(v('thk'), v('Tp'), tbwOf(v('tbw'))).toFixed(2) + ' mT/m';
   }
   function readUI() {
     for (const k in sliders) P[k] = parseFloat($(k).value);
-    if (thkMode === 'grad') P.thk = thkFromG(P.Gset, P.Tp, P.tbw);
+    if (thkMode === 'grad') P.thk = thkFromG(P.Gset, P.Tp, tbwOf(P.tbw));
     showOutputs();
     for (const k of checks) P[k] = $(k).checked;
+    P.env = env;
+    $('tbw').disabled = env === 'box'; $('tbwRow').classList.toggle('off', env === 'box');
+    $('tbwRow').title = env === 'box' ? 'A box pulse has a fixed time-bandwidth product of about 1' : '';
+    $('useWindow').disabled = env === 'box'; $('useWindowRow').classList.toggle('off', env === 'box');
     $('mbSep').disabled = !P.mb;
     $('mbSepRow').classList.toggle('off', !P.mb);
     $('mbSepRow').title = P.mb ? '' : 'Used by preset 4 (multiband)';
@@ -1680,7 +1706,7 @@ function simulate(p) {
     return {
       Tp: P.Tp * 1e-3, tbw: P.tbw, flipDeg: P.flip, thk: P.thk * 1e-3, fov: P.fov * 1e-3,
       N: P.N | 0, useGss: P.useGss, useRew: P.useRew, rewFrac: P.rewFrac,
-      Trew: P.Trew * 1e-3, useWindow: P.useWindow, mb: P.mb, mbSep: P.mbSep * 1e-3, x0: P.x0 * 1e-3,
+      Trew: P.Trew * 1e-3, useWindow: P.useWindow, env: P.env, mb: P.mb, mbSep: P.mbSep * 1e-3, x0: P.x0 * 1e-3,
     };
   }
 
@@ -1969,7 +1995,7 @@ function simulate(p) {
     // HUD
     const phase = simT < R.tGs0 ? 'before RF'
       : simT < R.tRF0 ? (P.useGss ? 'slice-select gradient ramping up' : 'before RF')
-      : simT < R.tRF1 ? (P.useGss ? (P.mb ? 'multiband RF + slice-select gradient' : 'RF + slice-select gradient') : 'RF (no gradient)')
+      : simT < R.tRF1 ? (P.useGss ? (P.mb ? 'multiband ' : '') + (P.env === 'box' ? 'box ' : '') + 'RF + slice-select gradient' : (P.env === 'box' ? 'box ' : '') + 'RF (no gradient)')
       : simT < R.tGs1 ? (P.useGss ? 'slice-select gradient ramping down' : 'free precession')
       : simT < R.tRew1 ? (P.useRew ? 'rewinder' : 'free precession (no rewinder)') : 'after excitation';
     $('hud').innerHTML = 't = <b>' + (simT * 1e3).toFixed(2) + ' ms</b>  ' + phase + b1txt;
@@ -2168,7 +2194,7 @@ function simulate(p) {
   // Spectrum of the RF pulse, |FT{B1}|(f), computed from the simulated waveform.
   let specCache = null;
   function rfSpectrum(F) {
-    const key = R.tRF0 + ':' + R.tRF1 + ':' + R.B1peak + ':' + F + ':' + R.Nt + ':' + R.f0 + ':' + R.fd;
+    const key = R.env + ':' + R.tRF0 + ':' + R.tRF1 + ':' + R.B1peak + ':' + F + ':' + R.Nt + ':' + R.f0 + ':' + R.fd;
     if (specCache && specCache.key === key) return specCache;
     const NF = 241, f = new Float64Array(NF), m = new Float64Array(NF);
     const tc = (R.tRF0 + R.tRF1) / 2;
@@ -2338,13 +2364,13 @@ function simulate(p) {
   function updateReadout() {
     const k = frameIndex(simT), kE = R.Nt - 1;
     const rows = [
-      ['RF bandwidth', R.BW.toFixed(0) + ' Hz'],
+      ['RF bandwidth', R.BW.toFixed(0) + ' Hz' + (R.env === 'box' ? ' (1/T<sub>p</sub>)' : '')],
       ['G<sub>s</sub>', (R.Gss * 1e3).toFixed(2) + ' mT/m' + (P.useGss ? '' : ' (off)')],
       ['RF offset f₀', (R.f0 >= 0 ? '+' : '−') + Math.abs(R.f0).toFixed(0) + ' Hz'],
       ['B₁ peak', (R.B1peak * 1e6).toFixed(2) + ' µT' + (P.mb ? ' (2 bands)' : '')],
       ...(P.mb ? [['Band offsets', '±' + R.fd.toFixed(0) + ' Hz']] : []),
       ['Rewinder', (R.Grew * 1e3).toFixed(2) + ' mT/m' + (P.useRew ? '' : ' (off)')],
-      ['Phase at ±Δs/2, unrewound', (P.tbw * 180 / 2).toFixed(0) + '° at ±Δs/2'],
+      ['Phase at ±Δs/2, unrewound', (R.tbwEff * 180 / 2).toFixed(0) + '° at ±Δs/2'],
       ['Signal now', R.sig[k].toFixed(2) + ' mm'],
       ['Coherence now', R.coh[k].toFixed(3)],
       ['Signal final', R.sig[kE].toFixed(2) + ' mm'],
@@ -2397,6 +2423,15 @@ function simulate(p) {
     $('Gset').disabled = m === 'thk'; $('GsetRow').classList.toggle('off', m === 'thk');
     recompute(true);
   }
+  function setEnv(e, noRecompute) {
+    if (e === env) return;
+    env = e;
+    $('envSinc').classList.toggle('on', e === 'sinc'); $('envSinc').setAttribute('aria-pressed', e === 'sinc');
+    $('envBox').classList.toggle('on', e === 'box'); $('envBox').setAttribute('aria-pressed', e === 'box');
+    if (!noRecompute) recompute(true);
+  }
+  $('envSinc').onclick = () => setEnv('sinc');
+  $('envBox').onclick = () => setEnv('box');
   $('modeThk').onclick = () => setThkMode('thk');
   $('modeGrad').onclick = () => setThkMode('grad');
   document.querySelectorAll('.ptabs button').forEach(b => b.onclick = () => {
@@ -2406,14 +2441,18 @@ function simulate(p) {
   });
 
   const presets = {
-    nonsel: { useGss: false, useRew: false, mb: false },
-    norew: { useGss: true, useRew: false, mb: false },
-    rew: { useGss: true, useRew: true, mb: false, rewFrac: 0.5 },
-    mb: { useGss: true, useRew: true, mb: true, rewFrac: 0.5 },
+    nonsel: { useGss: false, useRew: false, mb: false, env: 'sinc' },
+    norew: { useGss: true, useRew: false, mb: false, env: 'sinc' },
+    rew: { useGss: true, useRew: true, mb: false, rewFrac: 0.5, env: 'sinc' },
+    mb: { useGss: true, useRew: true, mb: true, rewFrac: 0.5, env: 'sinc' },
+    box: { useGss: true, useRew: true, mb: false, rewFrac: 0.5, env: 'box' },
   };
   document.querySelectorAll('.preset').forEach(b => b.onclick = () => {
     const pr = presets[b.dataset.preset];
-    for (const k in pr) { if (typeof pr[k] === 'boolean') $(k).checked = pr[k]; else $(k).value = pr[k]; }
+    for (const k in pr) {
+      if (k === 'env') setEnv(pr[k], true);
+      else if (typeof pr[k] === 'boolean') $(k).checked = pr[k]; else $(k).value = pr[k];
+    }
     document.querySelectorAll('.preset').forEach(q => q.classList.toggle('on', q === b));
     recompute(false); playing = true; holdUntil = 0; $('play').textContent = 'Pause';
   });
