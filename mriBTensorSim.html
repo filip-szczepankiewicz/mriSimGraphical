@@ -66,6 +66,10 @@ body.hidden-panel #rail{display:none}
   margin:0 auto 0 0; font-size:12px; font-weight:600; line-height:1.45;
   letter-spacing:.16em; text-transform:uppercase; white-space:nowrap; color:var(--text);
 }
+#rail .brand .brand-home{flex:1 0 100%; margin:0 0 6px; font-size:10px; line-height:1.45; letter-spacing:.1em;
+  text-transform:uppercase; color:var(--muted); text-decoration:none}
+#rail .brand .brand-home:hover{color:var(--text)}
+#rail .brand .brand-home:focus-visible{outline:2px solid var(--ui); outline-offset:2px}
 #rail .brand .brand-sub{flex:1 0 100%; margin:6px 0 0; font-size:11px; line-height:1.4; color:var(--muted)}
 .themebtn,button.themebtn{
   appearance:none; background:transparent; border:1px solid var(--line); color:var(--muted);
@@ -203,6 +207,7 @@ body.hidden-panel #showPanel{display:block}
 
 <aside id="rail" aria-label="Controls">
   <div class="brand">
+    <a class="brand-home" href="./" title="Back to the list of simulators">← All simulators</a>
     <h1>B-tensor sim</h1>
     <button class="themebtn" id="ver" type="button" title="Version, credits and changelog"></button>
     <button class="themebtn" id="theme" type="button" title="Switch colour theme">Light</button>
