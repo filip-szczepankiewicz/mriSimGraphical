@@ -1,0 +1,1056 @@
+<!doctype html>
+<!--
+  Bandwidth sim — how a gradient turns frequency into position.
+  Slice selection: the RF bandwidth and the slice-select gradient set the slice
+  thickness, Δz = BW_rf / (γ̄ G_s). Readout: the receiver bandwidth and the read
+  gradient set the field of view, FOV = BW / (γ̄ G_r); the N samples split the band
+  into N frequency bins, one per voxel. Fat precesses at a lower frequency and is
+  placed by the reconstruction as if it were water, so it is displaced by
+  Δf_fat / BW_px voxels along the readout.
+  Designed by Filip Sz (Lund University) and coded by Claude (Anthropic).
+
+  Single self-contained file: no build step, no network, no dependencies.
+  Version history lives in the CHANGELOG constant in the script below and is
+  shown in the version dialog; bump VERSION whenever you change the physics or the UI.
+  VERSION is the single source of truth — this header deliberately does not repeat it.
+  The file name carries no version (mriBandwidthSim.html); git tracks the history.
+-->
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bandwidth sim — slice thickness, FOV and fat shift</title>
+<meta name="author" content="Filip Sz (Lund University); Claude (Anthropic)">
+<meta name="description" content="Interactive visualisation of how gradient amplitude and bandwidth set slice thickness, field of view, voxel size and chemical shift in MRI.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23151b24'/%3E%3Crect x='4' y='13' width='24' height='6' fill='%23fb923c' opacity='.45'/%3E%3Cpath d='M7 27L25 5' stroke='%232fb6b0' stroke-width='2.2' fill='none'/%3E%3C/svg%3E">
+<style>
+:root{
+  --bg:#0e1219; --panel:#151b24; --panel2:#1b2230; --line:#26303f;
+  --text:#ccd6e4; --muted:#7c8a9d; --dim:#4d5a6b; --ui:#2fb6b0;
+  --btn:#1b2230; --btnh:#232c3c; --btna:#2a3547;
+  --axis:#5c6b7e; --grid:#1a2230; --sig:#e2554d; --rf:#fb923c; --grad:#aab6c6;
+  --water:#6f9bff; --fat:#e3a53c; --band:#9aa7b8; --img:#000000;
+}
+html[data-theme="light"]{
+  --bg:#f2f4f7; --panel:#ffffff; --panel2:#f7f9fb; --line:#d7dde5;
+  --text:#1b2430; --muted:#5f6c7d; --dim:#9aa5b3; --ui:#0f8f8a;
+  --btn:#eef1f5; --btnh:#e4e9f0; --btna:#d9e0ea;
+  --axis:#8b96a4; --grid:#e6eaf0; --sig:#c8322a; --rf:#c2410c; --grad:#3b4757;
+  --water:#1a4bd6; --fat:#a86a00; --band:#6a7686; --img:#000000;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0; background:var(--bg); color:var(--text);
+  font:13px/1.45 ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
+  -webkit-font-smoothing:antialiased;
+  display:grid; grid-template-columns:300px 1fr; height:100vh; overflow:hidden;
+}
+/* ------------------------------------------------------------- rail */
+#rail{background:var(--panel); border-right:1px solid var(--line); overflow-y:auto; padding:0 0 24px}
+#rail::-webkit-scrollbar{width:9px}
+#rail::-webkit-scrollbar-thumb{background:var(--line)}
+section{border-bottom:1px solid var(--line); padding:11px 14px 13px}
+h2{font-size:10px; font-weight:600; letter-spacing:.18em; text-transform:uppercase; color:var(--dim); margin:0 0 9px}
+.row{display:flex; gap:6px; flex-wrap:wrap}
+button{
+  font:inherit; font-size:11.5px; color:var(--text); background:var(--btn);
+  border:1px solid var(--line); border-radius:3px; padding:5px 9px; cursor:pointer;
+}
+button:hover{background:var(--btnh)}
+button:active{background:var(--btna)}
+button[aria-pressed="true"]{border-color:var(--ui); color:var(--ui)}
+button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--ui); outline-offset:2px}
+.ctl{margin:0 0 10px}
+.ctl:last-child{margin-bottom:0}
+.lab{display:flex; justify-content:space-between; align-items:baseline; gap:8px; margin-bottom:2px}
+.lab span:first-child{color:var(--muted); font-size:12px}
+.val{color:var(--text); font-size:12px; font-variant-numeric:tabular-nums}
+.sub{color:var(--dim); font-size:10.5px; line-height:1.4; margin:6px 0 0}
+input[type=range]{-webkit-appearance:none; appearance:none; width:100%; height:18px; margin:0; background:transparent; cursor:pointer}
+input[type=range]::-webkit-slider-runnable-track{height:2px; background:var(--line)}
+input[type=range]::-moz-range-track{height:2px; background:var(--line)}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none; width:12px; height:12px; margin-top:-5px; border:0; border-radius:50%; background:var(--ui)}
+input[type=range]::-moz-range-thumb{width:12px; height:12px; border:0; border-radius:50%; background:var(--ui)}
+input[type=range]:disabled{cursor:default; opacity:.5}
+label.chk{display:flex; align-items:center; gap:7px; padding:2.5px 0; cursor:pointer; font-size:11.5px; color:var(--text)}
+input[type=checkbox]{accent-color:var(--ui); margin:0; cursor:pointer}
+select{
+  font:inherit; font-size:11.5px; color:var(--text); background:var(--panel2);
+  border:1px solid var(--line); border-radius:3px; padding:4px 6px; width:100%; cursor:pointer;
+}
+table.read{width:100%; border-collapse:collapse; font-size:11.5px; font-variant-numeric:tabular-nums; margin-top:8px}
+table.read td{padding:2px 0; vertical-align:baseline}
+table.read td:first-child{color:var(--muted)}
+table.read td:last-child{text-align:right; color:var(--text)}
+#note{color:var(--muted); font-size:11px; line-height:1.5; margin:0}
+#note p{margin:0 0 7px}
+#note p:last-child{margin:0}
+#note b{color:var(--text); font-weight:600}
+sub,sup{font-size:.75em; line-height:0}
+
+/* header (house style) */
+#rail .brand{
+  position:sticky; top:0; z-index:3; background:var(--panel);
+  border-bottom:1px solid var(--line); padding:13px 14px 11px; margin:0;
+  display:flex; flex-wrap:wrap; align-items:baseline; gap:0 5px;
+}
+#rail .brand h1{margin:0 auto 0 0; font-size:12px; font-weight:600; line-height:1.45; letter-spacing:.16em; text-transform:uppercase; white-space:nowrap}
+#rail .brand .brand-sub{flex:1 0 100%; margin:6px 0 0; font-size:11px; line-height:1.4; color:var(--muted)}
+.themebtn,button.themebtn{
+  appearance:none; background:transparent; border:1px solid var(--line); color:var(--muted);
+  font:inherit; font-size:10px; line-height:1.45; letter-spacing:.1em; text-transform:uppercase;
+  padding:3px 7px; cursor:pointer; border-radius:2px;
+}
+.themebtn:hover,button.themebtn:hover{background:transparent; color:var(--text); border-color:var(--muted)}
+.credit{margin:14px 14px 0; font-size:10px; line-height:1.6; color:var(--dim); letter-spacing:.02em}
+
+/* ------------------------------------------------------------- views */
+main{display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); grid-template-rows:repeat(2,minmax(0,1fr)); min-width:0; min-height:0; overflow:hidden}
+.pane{position:relative; min-width:0; min-height:0}
+.pane:nth-child(2n){border-left:1px solid var(--line)}
+.pane:nth-child(n+3){border-top:1px solid var(--line)}
+.pane canvas{position:absolute; inset:0; width:100%; height:100%; display:block}
+.tag{position:absolute; top:9px; left:12px; right:12px; z-index:2; pointer-events:none; font-size:10px; letter-spacing:.13em; text-transform:uppercase; color:var(--dim)}
+.hint{position:absolute; bottom:8px; right:12px; z-index:2; pointer-events:none; font-size:10px; color:var(--dim)}
+.hud{
+  position:absolute; top:28px; left:12px; z-index:2; pointer-events:none; max-width:calc(100% - 24px);
+  font-size:11px; line-height:1.6; color:var(--muted); font-variant-numeric:tabular-nums;
+  background:color-mix(in srgb,var(--panel) 84%,transparent); border:1px solid var(--line); border-radius:3px; padding:4px 8px;
+}
+.hud.bot{top:auto; bottom:8px}
+.hud b{color:var(--text); font-weight:600}
+.hud .w{color:var(--water)} .hud .f{color:var(--fat)} .hud .r{color:var(--rf)}
+@media (max-width:1000px){
+  body{grid-template-columns:1fr; grid-template-rows:auto auto; height:auto; overflow:auto}
+  #rail{border-right:none; border-bottom:1px solid var(--line); overflow:visible}
+  main{grid-template-columns:1fr; grid-template-rows:none; overflow:visible}
+  .pane{height:min(100vw,560px); border-left:none!important; border-top:none!important}
+  .pane+.pane{border-top:1px solid var(--line)!important}
+  #pZoom{order:4} #pImg{order:3}
+  .hud{font-size:10px}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+
+/* about dialog (house style) */
+#about[hidden]{display:none}
+#about{position:fixed; inset:0; z-index:40; display:grid; place-items:center; background:rgba(0,0,0,.5); padding:20px}
+#about .sheet{background:var(--panel); border:1px solid var(--line); border-radius:4px; padding:20px 22px; max-width:540px; width:100%; max-height:82vh; overflow-y:auto}
+#about h3{margin:0 0 3px; font-size:13px; letter-spacing:.16em; text-transform:uppercase}
+#about .by{margin:0 0 12px; color:var(--ui); font-size:12px}
+#about .note{margin:0 0 12px; color:var(--muted); font-size:11.5px; line-height:1.6}
+#about .note b{color:var(--text); font-weight:600}
+#about .rel{border-top:1px solid var(--line); padding-top:9px; margin-top:9px}
+#about .rel h5{margin:0 0 5px; font-size:11px; letter-spacing:.1em; font-weight:600; color:var(--text)}
+#about .rel h5 em{color:var(--dim); font-style:normal; font-weight:400; letter-spacing:0}
+#about .rel p{margin:0; color:var(--muted); font-size:11.5px; line-height:1.6}
+#about #aboutClose{margin-top:18px}
+</style>
+</head>
+<body>
+
+<div id="rail">
+  <div class="brand">
+    <h1>Bandwidth sim</h1>
+    <button class="themebtn" id="ver" type="button" title="Version, credits and changelog"></button>
+    <button class="themebtn" id="theme" type="button" title="Switch colour theme">Light</button>
+    <p class="brand-sub">A gradient turns frequency into position: slice thickness, field of view, voxel size and fat shift</p>
+  </div>
+
+  <section>
+    <h2>Examples</h2>
+    <div class="row">
+      <button type="button" data-pre="def">Default</button>
+      <button type="button" data-pre="thin">Thin slice</button>
+      <button type="button" data-pre="off">Off-centre slice</button>
+      <button type="button" data-pre="lowbw">Low bandwidth</button>
+      <button type="button" data-pre="hibw">High bandwidth</button>
+      <button type="button" data-pre="fov">Small FOV</button>
+      <button type="button" data-pre="fine">Fine matrix</button>
+    </div>
+    <p class="sub" id="preNote"></p>
+  </section>
+
+  <section>
+    <h2>Slice selection</h2>
+    <div class="ctl">
+      <div class="lab"><span>Slice gradient, G<sub>s</sub></span><span class="val" id="vGs"></span></div>
+      <input type="range" id="sGs" min="1" max="25" step="0.1" aria-label="Slice-select gradient amplitude">
+    </div>
+    <div class="ctl">
+      <div class="lab"><span>RF bandwidth, BW<sub>rf</sub></span><span class="val" id="vBwrf"></span></div>
+      <input type="range" id="sBwrf" min="200" max="6000" step="10" aria-label="RF pulse bandwidth">
+    </div>
+    <div class="ctl">
+      <div class="lab"><span>RF centre frequency, f<sub>0</sub></span><span class="val" id="vF0"></span></div>
+      <input type="range" id="sF0" min="-20000" max="20000" step="50" aria-label="RF centre frequency offset">
+    </div>
+    <label class="chk"><input type="checkbox" id="cHoldDz"> <span>Hold thickness (G<sub>s</sub> ↔ BW<sub>rf</sub>)</span></label>
+    <label class="chk"><input type="checkbox" id="cHoldZ0"> <span>Hold position (f<sub>0</sub> follows G<sub>s</sub>)</span></label>
+    <table class="read">
+      <tr><td>Slice thickness, Δz</td><td id="rDz"></td></tr>
+      <tr><td>Slice position, z<sub>0</sub></td><td id="rZ0"></td></tr>
+      <tr><td>RF duration (sinc, TBW 4)</td><td id="rTau"></td></tr>
+    </table>
+    <p class="sub">The slice is where the frequencies in the RF pulse meet the resonance line f = γ̄G<sub>s</sub>z. A wider band or a shallower line gives a thicker slice.</p>
+  </section>
+
+  <section>
+    <h2>Readout</h2>
+    <div class="ctl">
+      <div class="lab"><span>Read gradient, G<sub>r</sub></span><span class="val" id="vGr"></span></div>
+      <input type="range" id="sGr" min="1" max="25" step="0.05" aria-label="Read gradient amplitude">
+    </div>
+    <div class="ctl">
+      <div class="lab"><span>Receiver bandwidth, BW</span><span class="val" id="vBw"></span></div>
+      <input type="range" id="sBw" min="5000" max="250000" step="250" aria-label="Receiver bandwidth">
+    </div>
+    <div class="ctl">
+      <div class="lab"><span>Samples, N</span><span class="val" id="vN"></span></div>
+      <input type="range" id="sN" min="0" max="6" step="1" aria-label="Number of readout samples">
+    </div>
+    <label class="chk"><input type="checkbox" id="cHoldFov"> <span>Hold FOV (G<sub>r</sub> ↔ BW)</span></label>
+    <table class="read">
+      <tr><td>Field of view</td><td id="rFov"></td></tr>
+      <tr><td>Voxel size, Δx</td><td id="rDx"></td></tr>
+      <tr><td>Pixel bandwidth, BW/N</td><td id="rBwpx"></td></tr>
+      <tr><td>Dwell time, 1/BW</td><td id="rDwell"></td></tr>
+      <tr><td>Readout duration, N/BW</td><td id="rTacq"></td></tr>
+      <tr><td>Fat–water offset, 3 T</td><td id="rDf"></td></tr>
+      <tr><td>Fat shift</td><td id="rShPx"></td></tr>
+      <tr><td></td><td id="rShMm"></td></tr>
+    </table>
+    <p class="sub">BW is the full receiver band, ±BW/2 around the centre frequency. In voxels the fat shift depends only on BW/N; in millimetres only on G<sub>r</sub>.</p>
+  </section>
+
+  <section>
+    <h2>Image</h2>
+    <div class="ctl">
+      <select id="show" aria-label="Signal shown in the image">
+        <option value="both" selected>Water and fat</option>
+        <option value="water">Water only</option>
+        <option value="fat">Fat only</option>
+      </select>
+    </div>
+    <label class="chk"><input type="checkbox" id="cNoise" checked> <span>Noise</span></label>
+    <label class="chk"><input type="checkbox" id="cOutline" checked> <span>True outlines</span></label>
+    <table class="read">
+      <tr><td>Voxel, Δx × Δy × Δz</td><td id="rVox"></td></tr>
+      <tr><td>SNR, relative to default</td><td id="rSnr"></td></tr>
+    </table>
+    <p class="sub">SNR ∝ Δx·Δy·Δz·√(N<sub>y</sub>·N/BW). The phase-encoding direction uses the same FOV and matrix (square voxels) and has no fat shift.</p>
+  </section>
+
+  <section>
+    <h2>What to look for</h2>
+    <div id="note">
+      <p><b>One idea, used twice.</b> A gradient makes the resonance frequency depend on position. Choosing a band of frequencies therefore chooses a range of positions: the RF bandwidth picks the slice, the receiver bandwidth spans the field of view.</p>
+      <p><b>Slice.</b> Double G<sub>s</sub> and the slice halves. Change G<sub>s</sub> without moving f<sub>0</sub> and an off-centre slice moves too, unless the centre frequency follows.</p>
+      <p><b>Readout.</b> The N samples split the receiver band into N bins of BW/N; each bin is one voxel. A stronger G<sub>r</sub> at the same BW shrinks the FOV and the voxels.</p>
+      <p><b>Fat.</b> Fat precesses about 434 Hz below water at 3 T, but the reconstruction places every frequency as if it were water. Low pixel bandwidth gives a large shift: bright and dark bands appear where fat meets water along the readout, but not along y.</p>
+      <p><b>Cost.</b> More bandwidth at the same FOV means a stronger G<sub>r</sub> and a shorter readout: less fat shift, less SNR. Thinner slices and smaller voxels also cost SNR.</p>
+      <p><b>Aliasing.</b> Tissue outside the FOV has frequencies outside the band and folds back into the image.</p>
+    </div>
+  </section>
+
+  <p class="credit" id="credit"></p>
+</div>
+
+<main>
+  <div class="pane" id="pSlice">
+    <div class="tag">Slice selection — frequency to position along z</div>
+    <div class="hud" id="hSlice"></div>
+    <canvas id="cvS" aria-label="Slice selection diagram"></canvas>
+  </div>
+  <div class="pane" id="pRead">
+    <div class="tag">Readout — frequency to position along x</div>
+    <div class="hud" id="hRead"></div>
+    <canvas id="cvR" aria-label="Readout frequency encoding diagram"></canvas>
+  </div>
+  <div class="pane" id="pZoom">
+    <div class="tag">Fat shift — a few voxels around x = 0</div>
+    <div class="hud" id="hZoom"></div>
+    <canvas id="cvZ" aria-label="Zoom on a few voxels showing the fat shift"></canvas>
+  </div>
+  <div class="pane" id="pImg">
+    <div class="tag">Image — water and fat phantom, 3 T</div>
+    <div class="hud bot" id="hImg"></div>
+    <canvas id="cvI" aria-label="Simulated image"></canvas>
+    <div class="hint" style="top:9px;bottom:auto">readout → x · phase ↑ y</div>
+  </div>
+</main>
+
+<div id="about" hidden>
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="aboutTitle">
+    <h3 id="aboutTitle">Bandwidth sim</h3>
+    <p class="by"></p>
+    <p class="note">
+      A gradient G makes the resonance frequency depend on position, f = γ̄G·x (in the rotating
+      frame, γ̄ = 42.58 MHz/T for ¹H). Selecting a band of frequencies therefore selects a range of
+      positions. In <b>slice selection</b> the band is set by the RF pulse, so Δz = BW<sub>rf</sub>/(γ̄G<sub>s</sub>)
+      and z<sub>0</sub> = f<sub>0</sub>/(γ̄G<sub>s</sub>). In the <b>readout</b> the band is set by the receiver:
+      sampling N points at a dwell time 1/BW resolves frequencies from −BW/2 to +BW/2 in N bins of
+      BW/N, so FOV = BW/(γ̄G<sub>r</sub>) and Δx = FOV/N. Fat precesses at Δf<sub>fat</sub> ≈ −3.4 ppm
+      relative to water; the reconstruction maps every frequency as if it were water, so fat is
+      displaced by Δf<sub>fat</sub>/(BW/N) voxels, or Δf<sub>fat</sub>/(γ̄G<sub>r</sub>) in millimetres.
+    </p>
+    <p class="note">
+      Simplifications: B₀ = 3 T. Fat is a single peak at −3.4 ppm (the main methylene peak; real fat
+      has several). The slice profile is the small-tip approximation, i.e. the magnitude of the Fourier
+      transform of a Hann-windowed sinc pulse with time–bandwidth product 4; Δz is its full width at half
+      maximum. The fat slice, which is displaced through the slice in the same way, is not shown.
+      The image is a two-dimensional analytic phantom (ellipses of water and fat) sampled exactly in
+      k-space, with the fat signal given the phase e<sup>−i2πΔf·t</sup> at each sample time, and
+      reconstructed by an inverse discrete Fourier transform without filtering, so Gibbs ringing is real.
+      The readout has no oversampling or anti-alias filter, so tissue outside the FOV wraps in both
+      directions (scanners usually oversample the readout to avoid this). The phase direction uses the same
+      FOV and matrix as the readout. No relaxation, T2* blurring, coil sensitivity or B₀ inhomogeneity.
+      Noise is white, with a level set by the relative SNR ∝ Δx·Δy·Δz·√(N<sub>y</sub>·N/BW) and a fixed
+      random pattern, so that only its amplitude changes as you move the sliders.
+      Signal values: water 0.5 (kidneys 0.85, aorta 0.9), fat 1.0, vertebral marrow fat 0.6 with water 0.15.
+    </p>
+    <div id="changelog"></div>
+    <button class="themebtn" id="aboutClose" type="button">Close</button>
+  </div>
+</div>
+
+<script>
+'use strict';
+const $ = id => document.getElementById(id);
+const TAU = 2 * Math.PI;
+const FONT = 'ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace';
+
+/* ==================== PHYSICS CONSTANTS ==================== */
+const GB = 42.577e6;                 // γ̄ for ¹H, Hz/T
+const B0 = 3;                        // T
+const PPM_FAT = -3.4;
+const DF_FAT = PPM_FAT * 1e-6 * GB * B0;   // ≈ −434 Hz at 3 T
+const TBW = 4;                       // time–bandwidth product of the sinc pulse
+const NS = [32, 48, 64, 96, 128, 192, 256];
+const ZR = 30, FZ = 24e3;            // slice diagram half-ranges: mm, Hz
+const XR = 200, FX = 130e3;          // readout diagram half-ranges: mm, Hz
+const YPROF = -22;                   // row of the profile, mm
+const SIGMA0 = 0.035;                // noise SD at SNR = 1 (signal units: fat = 1)
+
+/* ==================== STATE ==================== */
+const DEF = { gs: 10, bwrf: 1280, f0: 0, gr: 4.7, bw: 50000, ni: 4 };
+const P = Object.assign({}, DEF, { holdDz: false, holdZ0: false, holdFov: false, show: 'both', noise: true, outline: true });
+const LIM = { gs: [1, 25], bwrf: [200, 6000], f0: [-20000, 20000], gr: [1, 25], bw: [5000, 250000] };
+const HOLD = { dz: 0, z0: 0, fov: 0 };
+const clamp = (v, r) => Math.min(r[1], Math.max(r[0], v));
+
+function snrRaw(dx, dz, n, bw) { return dx * dx * dz * Math.sqrt(n * n / bw); }
+function derived() {
+  const n = NS[P.ni], kS = GB * P.gs * 1e-6, kR = GB * P.gr * 1e-6;   // Hz per mm
+  const dz = P.bwrf / kS, z0 = P.f0 / kS;
+  const fov = P.bw / kR, dx = fov / n, bwpx = P.bw / n;
+  return {
+    n, kS, kR, dz, z0, fov, dx, bwpx,
+    tau: TBW / P.bwrf, dwell: 1 / P.bw, tacq: n / P.bw,
+    shPx: DF_FAT / bwpx, shMm: DF_FAT / kR,
+    snr: snrRaw(dx, dz, n, P.bw) / SNR_REF
+  };
+}
+const SNR_REF = (() => { const n = NS[DEF.ni], fov = DEF.bw / (GB * DEF.gr * 1e-6); return snrRaw(fov / n, DEF.bwrf / (GB * DEF.gs * 1e-6), n, DEF.bw); })();
+let D = null;
+
+/* ==================== RF PULSE AND ITS SPECTRUM ==================== */
+/* Hann-windowed sinc, b(s) = sinc(s)·w(s) with s = BW_rf·t in [−TBW/2, TBW/2].
+   Small-tip slice profile = |FT|, tabulated against u = f/BW_rf and normalised to 1 at u = 0. */
+function sinc(s) { return Math.abs(s) < 1e-9 ? 1 : Math.sin(Math.PI * s) / (Math.PI * s); }
+function pulse(s) { return Math.abs(s) > TBW / 2 ? 0 : sinc(s) * (0.5 + 0.5 * Math.cos(TAU * s / TBW)); }
+const SPEC_U = 2.5, SPEC_M = 1001;
+const SPEC = (() => {
+  const out = new Float64Array(SPEC_M), K = 800, ds = TBW / K;
+  for (let m = 0; m < SPEC_M; m++) {
+    const u = SPEC_U * m / (SPEC_M - 1);
+    let s = 0;
+    for (let k = 0; k <= K; k++) { const sv = -TBW / 2 + k * ds, wt = (k === 0 || k === K) ? 0.5 : 1; s += wt * pulse(sv) * Math.cos(TAU * u * sv); }
+    out[m] = s * ds;
+  }
+  const s0 = out[0];
+  for (let m = 0; m < SPEC_M; m++) out[m] = Math.abs(out[m] / s0);
+  return out;
+})();
+function spec(u) {
+  u = Math.abs(u); if (u >= SPEC_U) return 0;
+  const p = u / SPEC_U * (SPEC_M - 1), i = Math.floor(p), f = p - i;
+  return SPEC[i] * (1 - f) + SPEC[Math.min(i + 1, SPEC_M - 1)] * f;
+}
+
+/* ==================== PHANTOM ==================== */
+/* Ellipses [species, amplitude, a (x), b (y), x0, y0] in mm; y points anterior (up).
+   An abdomen: subcutaneous fat, kidneys in perirenal fat, a vertebral body with marrow fat, and the aorta. */
+const PH = [
+  ['f', 1, 118, 85, 0, 0], ['f', -1, 106, 73, 0, 0], ['w', 0.5, 106, 73, 0, 0],
+  ['w', -0.35, 15, 15, 0, -48], ['f', 0.6, 15, 15, 0, -48],
+  ['w', 0.4, 7, 7, -8, -22]
+];
+for (const s of [-1, 1]) PH.push(
+  ['w', -0.5, 25, 32, s * 52, -22], ['f', 1, 25, 32, s * 52, -22],
+  ['f', -1, 17, 24, s * 52, -22], ['w', 0.85, 17, 24, s * 52, -22]);
+function trueAt(x, y, sp) {
+  let v = 0;
+  for (const [s, A, a, b, x0, y0] of PH) if (s === sp) { const u = (x - x0) / a, w = (y - y0) / b; if (u * u + w * w <= 1) v += A; }
+  return v;
+}
+
+/* Bessel J1 (rational approximations, Numerical Recipes), for the Fourier transform of an ellipse. */
+function j1(x) {
+  const ax = Math.abs(x);
+  if (ax < 8) {
+    const y = x * x;
+    const a1 = x * (72362614232.0 + y * (-7895059235.0 + y * (242396853.1 + y * (-2972611.439 + y * (15704.48260 + y * (-30.16036606))))));
+    const a2 = 144725228442.0 + y * (2300535178.0 + y * (18583304.74 + y * (99447.43394 + y * (376.9991397 + y))));
+    return a1 / a2;
+  }
+  const z = 8 / ax, y = z * z, xx = ax - 2.356194491;
+  const p1 = 1 + y * (0.183105e-2 + y * (-0.3516396496e-4 + y * (0.2457520174e-5 + y * (-0.240337019e-6))));
+  const p2 = 0.04687499995 + y * (-0.2002690873e-3 + y * (0.8449199096e-5 + y * (-0.88228987e-6 + y * 0.105787412e-6)));
+  const ans = Math.sqrt(0.636619772 / ax) * (Math.cos(xx) * p1 - z * Math.sin(xx) * p2);
+  return x < 0 ? -ans : ans;
+}
+
+/* FFT for n = 2^a or 3·2^a, in place; sign +1 = inverse kernel e^{+i2πmq/n}, unnormalised.
+   Iterative radix-2 on the power-of-two part, then one radix-3 combination when needed. */
+const PLANS = {};
+function plan(n) {
+  if (PLANS[n]) return PLANS[n];
+  const r = n % 3 === 0 ? 3 : 1, m = n / r, bits = Math.round(Math.log2(m));
+  const rev = new Uint32Array(m);
+  for (let i = 0; i < m; i++) { let x = i, y = 0; for (let k = 0; k < bits; k++) { y = (y << 1) | (x & 1); x >>= 1; } rev[i] = y; }
+  const cs = new Float64Array(m / 2), sn = new Float64Array(m / 2);
+  for (let k = 0; k < m / 2; k++) { cs[k] = Math.cos(TAU * k / m); sn[k] = Math.sin(TAU * k / m); }
+  const C2 = new Float64Array(n), S2 = new Float64Array(n);
+  for (let k = 0; k < n; k++) { C2[k] = Math.cos(TAU * k / n); S2[k] = Math.sin(TAU * k / n); }
+  return (PLANS[n] = { n, m, r, rev, cs, sn, C2, S2, br: new Float64Array(n), bi: new Float64Array(n) });
+}
+function fft(re, im, sign) {
+  const n = re.length, Q = plan(n), m = Q.m, r = Q.r, br = Q.br, bi = Q.bi;
+  for (let s = 0; s < r; s++) for (let j = 0; j < m; j++) { const src = j * r + s, dst = s * m + Q.rev[j]; br[dst] = re[src]; bi[dst] = im[src]; }
+  for (let s = 0; s < r; s++) {
+    const o = s * m;
+    for (let size = 2; size <= m; size <<= 1) {
+      const half = size >> 1, step = m / size;
+      for (let i = 0; i < m; i += size) for (let k = 0; k < half; k++) {
+        const c = Q.cs[k * step], sn = sign * Q.sn[k * step], A = o + i + k, B = A + half;
+        const tr = br[B] * c - bi[B] * sn, ti = br[B] * sn + bi[B] * c;
+        br[B] = br[A] - tr; bi[B] = bi[A] - ti; br[A] += tr; bi[A] += ti;
+      }
+    }
+  }
+  if (r === 1) { re.set(br); im.set(bi); return; }
+  for (let k = 0; k < n; k++) {
+    const kk = k % m; let sr = 0, si = 0;
+    for (let s = 0; s < r; s++) {
+      const idx = (s * k) % n, c = Q.C2[idx], sn = sign * Q.S2[idx], yr = br[s * m + kk], yi = bi[s * m + kk];
+      sr += yr * c - yi * sn; si += yr * sn + yi * c;
+    }
+    re[k] = sr; im[k] = si;
+  }
+}
+function fft2(re, im, n) {
+  const r = new Float64Array(n), i = new Float64Array(n);
+  for (let y = 0; y < n; y++) {
+    const o = y * n;
+    for (let x = 0; x < n; x++) { r[x] = re[o + x]; i[x] = im[o + x]; }
+    fft(r, i, 1);
+    re.set(r, o); im.set(i, o);
+  }
+  for (let x = 0; x < n; x++) {
+    for (let y = 0; y < n; y++) { r[y] = re[y * n + x]; i[y] = im[y * n + x]; }
+    fft(r, i, 1);
+    for (let y = 0; y < n; y++) { re[y * n + x] = r[y]; im[y * n + x] = i[y]; }
+  }
+}
+
+/* Image formation. k-space S(kx, ky) of each species is sampled on a Cartesian grid with step 1/FOV;
+   the fat samples carry the extra phase e^{−i2πΔf·t}, with t = kx/(γ̄G_r) the time of the sample
+   relative to the echo. Voxel centres sit at (p − n/2 + ½)·Δx, symmetric about the isocentre. */
+/* Elements grouped by shape, so the Bessel term is evaluated once per shape and k-space sample. */
+const SHAPES = (() => {
+  const m = new Map();
+  for (const [sp, A, a, b, x0, y0] of PH) { const k = a + ',' + b; if (!m.has(k)) m.set(k, { a, b, els: [] }); m.get(k).els.push({ fat: sp === 'f', A, x0, y0 }); }
+  return [...m.values()];
+})();
+let REC = { key: '' };
+function reconstruct(n, fov, kR) {
+  const key = n + '|' + fov.toPrecision(10) + '|' + kR.toPrecision(10);
+  if (REC.key === key) return REC;
+  const dk = 1 / fov, dx = fov / n, h = n / 2;
+  const W = [new Float64Array(n * n), new Float64Array(n * n)], F = [new Float64Array(n * n), new Float64Array(n * n)];
+  const k = new Float64Array(n);
+  for (let i = 0; i < n; i++) k[i] = (i - h) * dk;
+  const cis = v => { const c = new Float64Array(n), s = new Float64Array(n); for (let i = 0; i < n; i++) { c[i] = Math.cos(v(i)); s[i] = Math.sin(v(i)); } return [c, s]; };
+  /* per-element position phasors e^{−i2πk·r0}, separable in x and y */
+  for (const S of SHAPES) for (const e of S.els) { e.px = cis(i => -TAU * k[i] * e.x0); e.py = cis(j => -TAU * k[j] * e.y0); }
+  const half = cis(i => Math.PI * k[i] * dx);              // half-voxel shift of the sampling grid, per axis
+  const fatp = cis(i => -TAU * DF_FAT * k[i] / kR);         // e^{−i2πΔf·t}, t = kx/(γ̄G_r)
+  for (let j = 0; j < n; j++) {
+    const jj = ((j + h) % n) * n, ky = k[j];
+    for (let i = 0; i < n; i++) {
+      const kx = k[i];
+      let wr = 0, wi = 0, fr = 0, fi = 0;
+      for (const S of SHAPES) {
+        const rho = Math.hypot(S.a * kx, S.b * ky);
+        const J = S.a * S.b * (rho < 1e-12 ? Math.PI : j1(TAU * rho) / rho);
+        for (const e of S.els) {
+          const cr = e.px[0][i] * e.py[0][j] - e.px[1][i] * e.py[1][j], ci = e.px[0][i] * e.py[1][j] + e.px[1][i] * e.py[0][j];
+          const v = e.A * J;
+          if (e.fat) { fr += v * cr; fi += v * ci; } else { wr += v * cr; wi += v * ci; }
+        }
+      }
+      let t = fr * fatp[0][i] - fi * fatp[1][i]; fi = fr * fatp[1][i] + fi * fatp[0][i]; fr = t;
+      const hr = half[0][i] * half[0][j] - half[1][i] * half[1][j], hi = half[0][i] * half[1][j] + half[1][i] * half[0][j];
+      const idx = jj + (i + h) % n;
+      W[0][idx] = wr * hr - wi * hi; W[1][idx] = wr * hi + wi * hr;
+      F[0][idx] = fr * hr - fi * hi; F[1][idx] = fr * hi + fi * hr;
+    }
+  }
+  fft2(W[0], W[1], n); fft2(F[0], F[1], n);
+  const sc = dk * dk, out = { key, n, fov, dx, wr: new Float32Array(n * n), wi: new Float32Array(n * n), fr: new Float32Array(n * n), fi: new Float32Array(n * n) };
+  /* output row index q (y increasing), column p (x increasing) */
+  for (let q = 0; q < n; q++) for (let p = 0; p < n; p++) {
+    const src = ((q + h) % n) * n + (p + h) % n, dst = q * n + p;
+    out.wr[dst] = W[0][src] * sc; out.wi[dst] = W[1][src] * sc;
+    out.fr[dst] = F[0][src] * sc; out.fi[dst] = F[1][src] * sc;
+  }
+  REC = out;
+  return out;
+}
+/* Fixed noise pattern (seeded), so that only its amplitude changes. */
+const NOISE = (() => {
+  let a = 0x9e3779b9;
+  const rnd = () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+  const N = 256 * 256, r = new Float32Array(N), i = new Float32Array(N);
+  for (let k = 0; k < N; k++) { const u = Math.max(1e-12, rnd()), v = rnd(), m = Math.sqrt(-2 * Math.log(u)); r[k] = m * Math.cos(TAU * v); i[k] = m * Math.sin(TAU * v); }
+  return { r, i };
+})();
+function pixel(R, k, sigma) {
+  let re = 0, im = 0;
+  if (P.show !== 'fat') { re += R.wr[k]; im += R.wi[k]; }
+  if (P.show !== 'water') { re += R.fr[k]; im += R.fi[k]; }
+  if (sigma > 0) { re += sigma * NOISE.r[k]; im += sigma * NOISE.i[k]; }
+  return Math.hypot(re, im);
+}
+
+/* ==================== THEME / CANVAS HELPERS ==================== */
+const C = {};
+function readTheme() {
+  const cs = getComputedStyle(document.documentElement);
+  for (const k of ['bg', 'panel', 'panel2', 'line', 'text', 'muted', 'dim', 'ui', 'axis', 'grid', 'sig', 'rf', 'grad', 'water', 'fat', 'band', 'img'])
+    C[k] = cs.getPropertyValue('--' + k).trim();
+}
+function rgba(hex, a) {
+  const h = hex.replace('#', '');
+  const v = parseInt(h.length === 3 ? h.split('').map(c => c + c).join('') : h, 16);
+  return `rgba(${v >> 16 & 255},${v >> 8 & 255},${v & 255},${a})`;
+}
+function fit(cv) {
+  const r = cv.getBoundingClientRect(), d = window.devicePixelRatio || 1;
+  const w = Math.max(1, Math.round(r.width * d)), h = Math.max(1, Math.round(r.height * d));
+  if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; }
+  const ctx = cv.getContext('2d');
+  ctx.setTransform(d, 0, 0, d, 0, 0);
+  ctx.clearRect(0, 0, r.width, r.height);
+  ctx.fillStyle = C.bg; ctx.fillRect(0, 0, r.width, r.height);
+  return { ctx, w: r.width, h: r.height };
+}
+function font(ctx, px, wt) { ctx.font = `${wt || 400} ${px}px ${FONT}`; }
+function line(ctx, x0, y0, x1, y1, col, lw, dash) {
+  ctx.strokeStyle = col; ctx.lineWidth = lw || 1; ctx.setLineDash(dash || []);
+  ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke(); ctx.setLineDash([]);
+}
+function dot(ctx, x, y, r, fill, stroke) {
+  ctx.beginPath(); ctx.arc(x, y, r, 0, TAU);
+  if (fill) { ctx.fillStyle = fill; ctx.fill(); }
+  if (stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = 1.5; ctx.stroke(); }
+}
+function arrowHead(ctx, x, y, dir, col, s) {
+  s = s || 6; ctx.fillStyle = col; ctx.beginPath();
+  ctx.moveTo(x, y); ctx.lineTo(x - dir * s, y - s * 0.55); ctx.lineTo(x - dir * s, y + s * 0.55); ctx.closePath(); ctx.fill();
+}
+/* Canvas text; "_{…}" is drawn as a subscript. Returns the width. */
+function text(ctx, s, x, y, col, align, base, px, wt) {
+  px = px || 10.5; ctx.fillStyle = col; ctx.textBaseline = base || 'alphabetic';
+  if (s.indexOf('_{') < 0) { font(ctx, px, wt); ctx.textAlign = align || 'left'; ctx.fillText(s, x, y); return ctx.measureText(s).width; }
+  const segs = [], re = /_\{([^}]*)\}/g; let last = 0, m;
+  while ((m = re.exec(s))) { if (m.index > last) segs.push([s.slice(last, m.index), 0]); segs.push([m[1], 1]); last = re.lastIndex; }
+  if (last < s.length) segs.push([s.slice(last), 0]);
+  let W = 0;
+  for (const g of segs) { font(ctx, g[1] ? px * 0.78 : px, wt); g.push(ctx.measureText(g[0]).width); W += g[2]; }
+  let cx = align === 'right' ? x - W : align === 'center' ? x - W / 2 : x;
+  ctx.textAlign = 'left';
+  for (const [t, sub, gw] of segs) { font(ctx, sub ? px * 0.78 : px, wt); ctx.fillText(t, cx, y + (sub ? px * 0.32 : 0)); cx += gw; }
+  return W;
+}
+/* Grid and tick labels for a rectangle [pl, pr] × [pt, pb]. */
+function grid(ctx, box, X, Y, xs, ys, xlab, ylab, labY) {
+  const { pl, pr, pt, pb } = box;
+  for (const x of xs) line(ctx, X(x), pt, X(x), pb, x === 0 ? C.line : C.grid, 1);
+  for (const y of ys) line(ctx, pl, Y(y), pr, Y(y), y === 0 ? C.line : C.grid, 1);
+  ctx.strokeStyle = C.line; ctx.lineWidth = 1; ctx.strokeRect(pl + 0.5, pt + 0.5, pr - pl - 1, pb - pt - 1);
+  for (const x of xs) text(ctx, xlab(x), X(x), labY, C.muted, 'center', 'top', 10);
+  for (const y of ys) text(ctx, ylab(y), pl - 6, Y(y), C.muted, 'right', 'middle', 10);
+}
+function ticks(a, b, step) { const out = []; for (let v = Math.ceil(a / step) * step; v <= b + 1e-9; v += step) out.push(Math.round(v * 1e6) / 1e6); return out; }
+function fmtF(hz, d) { return (Math.abs(hz) >= 1000 ? (hz / 1000).toFixed(d == null ? 2 : d) + ' kHz' : hz.toFixed(0) + ' Hz'); }
+function fmtMm(mm) { const a = Math.abs(mm); return (a >= 100 ? mm.toFixed(0) : a >= 10 ? mm.toFixed(1) : mm.toFixed(2)) + ' mm'; }
+function fmtT(s) { return s >= 1e-3 ? (s * 1e3).toFixed(2) + ' ms' : (s * 1e6).toFixed(1) + ' µs'; }
+const sgn = v => (v > 0 ? '+' : v < 0 ? '−' : '') ;
+const num = (v, d) => sgn(v) + Math.abs(v).toFixed(d);
+
+/* ==================== PANEL: SLICE SELECTION ==================== */
+function drawSlice() {
+  const { ctx, w, h } = fit($('cvS'));
+  const stripH = Math.max(46, Math.round(h * 0.2)), gap = 24;
+  const box = { pl: 54, pr: w - 16, pt: 30, pb: h - 30 - stripH - gap };
+  const sb = h - 30, st = sb - stripH;
+  const { pl, pr, pt, pb } = box;
+  if (pb - pt < 40 || pr - pl < 60) return;
+  const X = z => pl + (z + ZR) / (2 * ZR) * (pr - pl), Y = f => pt + (FZ - f) / (2 * FZ) * (pb - pt);
+  const Zof = px => -ZR + (px - pl) / (pr - pl) * 2 * ZR, Fof = py => FZ - (py - pt) / (pb - pt) * 2 * FZ;
+  const kS = D.kS, f0 = P.f0, bwrf = P.bwrf;
+  const prof = z => spec((kS * z - f0) / bwrf);
+
+  grid(ctx, box, X, Y, ticks(-ZR, ZR, 10), ticks(-FZ, FZ, 8e3), z => z.toFixed(0), f => (f / 1000).toFixed(0), sb + 5);
+  ctx.save(); ctx.beginPath(); ctx.rect(pl, pt, pr - pl, pb - pt); ctx.clip();
+  /* slice, shaded down the plot: where the line falls inside the RF band */
+  ctx.fillStyle = C.rf;
+  for (let px = Math.floor(pl); px < pr; px++) { const a = prof(Zof(px + 0.5)); if (a > 0.01) { ctx.globalAlpha = a * 0.10; ctx.fillRect(px, pt, 1, pb - pt); } }
+  /* RF band, shaded across: the frequencies in the pulse */
+  for (let py = Math.floor(pt); py < pb; py++) { const a = spec((Fof(py + 0.5) - f0) / bwrf); if (a > 0.01) { ctx.globalAlpha = a * 0.20; ctx.fillRect(pl, py, pr - pl, 1); } }
+  ctx.globalAlpha = 1;
+  /* RF spectrum against the frequency axis */
+  const SW = Math.min(52, (pr - pl) * 0.12);
+  ctx.beginPath(); ctx.moveTo(pl, pt);
+  for (let py = pt; py <= pb; py++) ctx.lineTo(pl + SW * spec((Fof(py) - f0) / bwrf), py);
+  ctx.lineTo(pl, pb); ctx.closePath();
+  ctx.fillStyle = rgba(C.rf, 0.35); ctx.fill(); ctx.strokeStyle = C.rf; ctx.lineWidth = 1.2; ctx.stroke();
+  /* resonance line f = γ̄G_s z */
+  line(ctx, X(-ZR), Y(-kS * ZR), X(ZR), Y(kS * ZR), C.grad, 2);
+  /* band edges → line → position */
+  const fa = f0 - bwrf / 2, fb = f0 + bwrf / 2, za = fa / kS, zb = fb / kS;
+  for (const [f, z] of [[fa, za], [fb, zb]]) {
+    line(ctx, pl + SW * 0.5, Y(f), X(z), Y(f), C.rf, 1, [3, 3]);
+    line(ctx, X(z), Y(f), X(z), pb, C.rf, 1, [3, 3]);
+    dot(ctx, X(z), Y(f), 3.2, C.rf);
+  }
+  ctx.restore();
+
+  /* labels in the plot */
+  const zl = Math.min(ZR * 0.92, (FZ * 0.9) / kS);
+  text(ctx, 'f = γ̄G_{s}·z', X(zl) - 6, Y(kS * zl) + 2, C.grad, 'right', 'top', 10.5);
+  const yb = Y(fb);
+  if (yb > pt + 12 && yb < pb) text(ctx, `RF band, BW_{rf} = ${fmtF(bwrf)}`, pr - 6, yb - 4, C.rf, 'right', 'bottom', 10.5);
+  text(ctx, 'RF spectrum', pl + 4, pb - 5, C.rf, 'left', 'bottom', 10);
+  /* RF pulse inset (bottom right of the plot) */
+  {
+    const iw = Math.min(170, (pr - pl) * 0.36), ih = 58, ix = pr - iw - 8, iy = pb - ih - 8;
+    ctx.fillStyle = rgba(C.panel, 0.9); ctx.fillRect(ix, iy, iw, ih);
+    ctx.strokeStyle = C.line; ctx.lineWidth = 1; ctx.strokeRect(ix + 0.5, iy + 0.5, iw - 1, ih - 1);
+    const TW = 12e-3, base = iy + ih - 14, amp = ih - 30, cx = ix + iw / 2;
+    const tx = t => cx + t / TW * (iw - 12);
+    line(ctx, ix + 6, base, ix + iw - 6, base, C.grid, 1);
+    ctx.save(); ctx.beginPath(); ctx.rect(ix + 1, iy + 1, iw - 2, ih - 2); ctx.clip();
+    ctx.beginPath();
+    for (let k = 0; k <= 200; k++) { const s = -TBW / 2 + TBW * k / 200, t = s / bwrf; const x = tx(t), y = base - amp * pulse(s); k ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }
+    ctx.strokeStyle = C.rf; ctx.lineWidth = 1.4; ctx.stroke(); ctx.restore();
+    const ms = (iw - 12) / (TW * 1e3);
+    line(ctx, ix + iw - 8 - ms, base + 6, ix + iw - 8, base + 6, C.muted, 1);
+    text(ctx, '1 ms', ix + iw - 8 - ms - 4, base + 6, C.muted, 'right', 'middle', 9.5);
+    text(ctx, `RF pulse, τ = ${fmtT(D.tau)}`, ix + 6, iy + 5, C.muted, 'left', 'top', 10);
+  }
+
+  /* strip: slice profile */
+  ctx.strokeStyle = C.line; ctx.strokeRect(pl + 0.5, st + 0.5, pr - pl - 1, sb - st - 1);
+  const Ys = v => sb - 3 - v * (stripH - 10);
+  ctx.save(); ctx.beginPath(); ctx.rect(pl, st, pr - pl, sb - st); ctx.clip();
+  line(ctx, X(0), st, X(0), sb, C.line, 1);
+  ctx.beginPath(); ctx.moveTo(pl, Ys(0));
+  for (let px = pl; px <= pr; px++) ctx.lineTo(px, Ys(prof(Zof(px))));
+  ctx.lineTo(pr, Ys(0)); ctx.closePath();
+  ctx.fillStyle = rgba(C.sig, 0.22); ctx.fill(); ctx.strokeStyle = C.sig; ctx.lineWidth = 1.5; ctx.stroke();
+  for (const z of [za, zb]) line(ctx, X(z), st, X(z), sb, C.rf, 1, [3, 3]);
+  ctx.restore();
+  text(ctx, '|M_{xy}|, slice profile', pl + 6, st + 4, C.sig, 'left', 'top', 10);
+  text(ctx, 'z (mm)', pr, sb + 17, C.dim, 'right', 'top', 10);
+  /* Δz bracket */
+  const xa = X(za), xb = X(zb), yh = Ys(0.5);
+  if (xb > pl && xa < pr) {
+    const lx = Math.max(pl, xa), rx = Math.min(pr, xb);
+    line(ctx, lx, yh, rx, yh, C.text, 1);
+    line(ctx, lx, yh - 4, lx, yh + 4, C.text, 1); line(ctx, rx, yh - 4, rx, yh + 4, C.text, 1);
+    const lab = `Δz ${fmtMm(D.dz)}`;
+    font(ctx, 10.5, 600);
+    const tw = ctx.measureText(lab).width;
+    let tx = rx + 6, al = 'left';
+    if (tx + tw > pr - 4) { tx = lx - 6; al = 'right'; }
+    text(ctx, lab, tx, yh, C.text, al, 'middle', 10.5, 600);
+  } else {
+    const right = D.z0 > 0;
+    text(ctx, right ? `slice at z₀ = ${fmtMm(D.z0)} →` : `← slice at z₀ = ${fmtMm(D.z0)}`, right ? pr - 6 : pl + 6, (st + sb) / 2, C.sig, right ? 'right' : 'left', 'middle', 10.5);
+  }
+  ctx.save(); ctx.translate(14, (pt + pb) / 2); ctx.rotate(-Math.PI / 2); text(ctx, 'frequency offset f (kHz)', 0, 0, C.dim, 'center', 'middle', 10); ctx.restore();
+}
+
+/* ==================== PANEL: READOUT ==================== */
+function readGeom(w, h) { return { pl: 54, pr: w - 16 }; }
+function drawRead() {
+  const { ctx, w, h } = fit($('cvR'));
+  const stripH = Math.max(50, Math.round(h * 0.22)), gap = 24;
+  const { pl, pr } = readGeom(w, h);
+  const box = { pl, pr, pt: 30, pb: h - 30 - stripH - gap };
+  const { pt, pb } = box, sb = h - 30, st = sb - stripH;
+  if (pb - pt < 40 || pr - pl < 60) return;
+  const X = x => pl + (x + XR) / (2 * XR) * (pr - pl), Y = f => pt + (FX - f) / (2 * FX) * (pb - pt);
+  const kR = D.kR, hb = P.bw / 2, hf = D.fov / 2, n = D.n;
+
+  grid(ctx, box, X, Y, ticks(-XR, XR, 50), ticks(-125e3, 125e3, 25e3), x => x.toFixed(0), f => (f / 1000).toFixed(0), sb + 5);
+  /* outside the FOV (plot and strip) */
+  ctx.fillStyle = rgba(C.line, 0.45);
+  for (const [a, b] of [[-XR, -hf], [hf, XR]]) if (b > a) {
+    const x0 = X(Math.max(-XR, a)), x1 = X(Math.min(XR, b));
+    if (x1 > x0) { ctx.fillRect(x0, pt, x1 - x0, pb - pt); ctx.fillRect(x0, st, x1 - x0, sb - st); }
+  }
+  ctx.save(); ctx.beginPath(); ctx.rect(pl, pt, pr - pl, pb - pt); ctx.clip();
+  /* receiver band and its N frequency bins */
+  ctx.fillStyle = rgba(C.band, 0.14); ctx.fillRect(pl, Y(hb), pr - pl, Y(-hb) - Y(hb));
+  const binPx = (Y(0) - Y(D.bwpx)), step = Math.max(1, Math.ceil(4 / Math.max(binPx, 1e-6)));
+  for (let k = step; k < n; k += step) { const y = Y(-hb + k * D.bwpx); line(ctx, pl, y, pr, y, rgba(C.band, 0.22), 1); }
+  line(ctx, pl, Y(hb), pr, Y(hb), C.band, 1, [4, 3]); line(ctx, pl, Y(-hb), pr, Y(-hb), C.band, 1, [4, 3]);
+  /* water resonance line, solid inside the band */
+  line(ctx, X(-XR), Y(-kR * XR), X(XR), Y(kR * XR), rgba(C.water, 0.45), 1.4, [5, 4]);
+  line(ctx, X(-hf), Y(-hb), X(hf), Y(hb), C.water, 2.2);
+  /* projections to the FOV edges */
+  for (const s of [-1, 1]) { line(ctx, X(s * hf), Y(s * hb), X(s * hf), pb, C.water, 1, [3, 3]); dot(ctx, X(s * hf), Y(s * hb), 3.2, C.water); }
+  /* voxel ticks */
+  const vPx = X(D.dx) - X(0), vstep = Math.max(1, Math.ceil(4 / Math.max(vPx, 1e-6)));
+  for (let k = 0; k <= n; k += vstep) { const x = X(-hf + k * D.dx); line(ctx, x, pb - 5, x, pb, C.muted, 1); }
+  /* zoom window */
+  const Rz = zoomRange();
+  const zx = Rz * D.dx, zf = Rz * D.bwpx;
+  ctx.strokeStyle = C.muted; ctx.lineWidth = 1; ctx.setLineDash([2, 2]);
+  const bx0 = X(-zx), bx1 = X(zx), by0 = Y(zf), by1 = Y(-zf);
+  ctx.strokeRect(bx0 - 2, by0 - 2, bx1 - bx0 + 4, by1 - by0 + 4); ctx.setLineDash([]);
+  ctx.restore();
+  text(ctx, 'zoom', bx1 + 6, by1 + 4, C.muted, 'left', 'top', 9.5);
+  text(ctx, '+BW/2', pr - 6, Y(hb) - 3, C.band, 'right', 'bottom', 10);
+  text(ctx, '−BW/2', pr - 6, Y(-hb) + 3, C.band, 'right', 'top', 10);
+  const xl = 0.45 * Math.min(XR, hf, FX / kR);
+  { const lx = X(xl) + 10, ly = Y(kR * xl) + 8; font(ctx, 10.5); const tw = ctx.measureText('water: f = γ̄Gr·x').width;
+    ctx.fillStyle = rgba(C.bg, 0.8); ctx.fillRect(lx - 3, ly - 2, tw + 6, 16);
+    text(ctx, 'water: f = γ̄G_{r}·x', lx, ly, C.water, 'left', 'top', 10.5); }
+  /* FOV bracket */
+  {
+    const y = pb - 14, lx = Math.max(pl, X(-hf)), rx = Math.min(pr, X(hf));
+    line(ctx, lx, y, rx, y, C.text, 1);
+    if (X(-hf) >= pl) line(ctx, lx, y - 4, lx, y + 4, C.text, 1);
+    if (X(hf) <= pr) line(ctx, rx, y - 4, rx, y + 4, C.text, 1);
+    const lab = `FOV ${fmtMm(D.fov)} = ${n} voxels`;
+    font(ctx, 10.5, 600);
+    const tw = ctx.measureText(lab).width + 8, cx = Math.min(Math.max((lx + rx) / 2, pl + tw / 2 + 4), pr - tw / 2 - 4);
+    ctx.fillStyle = C.bg; ctx.fillRect(cx - tw / 2, y - 8, tw, 16);
+    text(ctx, lab, cx, y, C.text, 'center', 'middle', 10.5, 600);
+  }
+  if (hf < XR) { font(ctx, 10); const tw = ctx.measureText('outside FOV: folds back').width; if (pr - X(hf) > tw + 12) text(ctx, 'outside FOV: folds back', (X(hf) + pr) / 2, pt + 8, C.muted, 'center', 'top', 10); }
+
+  /* strip: profile along x at y = YPROF */
+  ctx.strokeStyle = C.line; ctx.strokeRect(pl + 0.5, st + 0.5, pr - pl - 1, sb - st - 1);
+  const Ys = v => sb - 3 - Math.min(v, 1.2) / 1.2 * (stripH - 16);
+  ctx.save(); ctx.beginPath(); ctx.rect(pl, st, pr - pl, sb - st); ctx.clip();
+  for (const [sp, col] of [['w', C.water], ['f', C.fat]]) {
+    ctx.beginPath(); ctx.moveTo(pl, Ys(0));
+    for (let px = pl; px <= pr; px++) ctx.lineTo(px, Ys(trueAt(-XR + (px - pl) / (pr - pl) * 2 * XR, YPROF, sp)));
+    ctx.lineTo(pr, Ys(0)); ctx.closePath(); ctx.fillStyle = rgba(col, 0.28); ctx.fill();
+  }
+  if (IMG.prof) {
+    ctx.beginPath(); let first = true;
+    for (let p = 0; p < n; p++) {
+      const x0 = (p - n / 2) * D.dx, x1 = x0 + D.dx, y = Ys(IMG.prof[p]);
+      if (first) { ctx.moveTo(X(x0), y); first = false; } else ctx.lineTo(X(x0), y);
+      ctx.lineTo(X(x1), y);
+    }
+    ctx.strokeStyle = C.text; ctx.lineWidth = 1.3; ctx.stroke();
+  }
+  for (const s of [-1, 1]) line(ctx, X(s * hf), st, X(s * hf), sb, C.water, 1, [3, 3]);
+  ctx.restore();
+  font(ctx, 10);
+  let lx = pl + 6;
+  for (const [s, col] of [[`profile at y = ${YPROF} mm:`, C.muted], ['water', C.water], ['fat', C.fat], ['image', C.text]]) {
+    text(ctx, s, lx, st + 4, col, 'left', 'top', 10); lx += ctx.measureText(s).width + 8;
+  }
+  text(ctx, 'x (mm)', pr, sb + 17, C.dim, 'right', 'top', 10);
+  ctx.save(); ctx.translate(14, (pt + pb) / 2); ctx.rotate(-Math.PI / 2); text(ctx, 'frequency offset f (kHz)', 0, 0, C.dim, 'center', 'middle', 10); ctx.restore();
+}
+
+/* ==================== PANEL: FAT-SHIFT ZOOM ==================== */
+function zoomRange() { return Math.max(4, Math.ceil(Math.abs(D.shPx) + 1.6)); }
+function drawZoom() {
+  const { ctx, w, h } = fit($('cvZ'));
+  const L = 16, R = 58, T = 34, B = 44;
+  const S = Math.min(w - L - R, h - T - B);
+  if (S < 60) return;
+  const pl = w - R - S, pt = T + ((h - T - B) - S) / 2, pr = pl + S, pb = pt + S;
+  const Rz = zoomRange(), sh = D.shPx;
+  const U = u => pl + (u + Rz) / (2 * Rz) * S, V = v => pt + (Rz - v) / (2 * Rz) * S;
+  const kf = Math.round(sh);
+  ctx.save(); ctx.beginPath(); ctx.rect(pl, pt, S, S); ctx.clip();
+  /* frequency bins (rows) and voxels (columns) */
+  for (let k = -Rz; k <= Rz; k++) {
+    if (k & 1) { ctx.fillStyle = rgba(C.band, 0.07); ctx.fillRect(pl, V(k + 0.5), S, V(k - 0.5) - V(k + 0.5)); }
+  }
+  ctx.fillStyle = rgba(C.water, 0.12); ctx.fillRect(U(-0.5), pt, U(0.5) - U(-0.5), S);
+  if (kf !== 0) { ctx.fillStyle = rgba(C.fat, 0.16); ctx.fillRect(U(kf - 0.5), pt, U(kf + 0.5) - U(kf - 0.5), S); }
+  ctx.fillStyle = rgba(C.fat, 0.10); ctx.fillRect(pl, V(kf + 0.5), S, V(kf - 0.5) - V(kf + 0.5));
+  for (let k = -Rz; k < Rz; k++) { line(ctx, U(k + 0.5), pt, U(k + 0.5), pb, C.grid, 1); line(ctx, pl, V(k + 0.5), pr, V(k + 0.5), C.grid, 1); }
+  /* resonance lines: water through the origin, fat Δf_fat below it */
+  line(ctx, U(-Rz), V(-Rz), U(Rz), V(Rz), C.water, 2.2);
+  line(ctx, U(-Rz), V(-Rz + sh), U(Rz), V(Rz + sh), C.fat, 2.2);
+  /* a water and a fat spin at x = 0 */
+  line(ctx, U(0), V(0), U(0), pb, C.muted, 1, [2, 3]);
+  if (Math.abs(sh) > 0.05) {
+    line(ctx, U(0), V(sh), U(sh), V(sh), C.fat, 1.4, [4, 3]);
+    arrowHead(ctx, U(sh) + 3, V(sh), -1, C.fat, 7);
+  }
+  line(ctx, U(sh), V(sh), U(sh), pb, C.fat, 1.2, [4, 3]);
+  dot(ctx, U(0), V(0), 4.5, C.water);
+  dot(ctx, U(0), V(sh), 4.5, C.fat);
+  dot(ctx, U(sh), V(sh), 4.5, null, C.fat);
+  ctx.restore();
+  ctx.strokeStyle = C.line; ctx.lineWidth = 1; ctx.strokeRect(pl + 0.5, pt + 0.5, S - 1, S - 1);
+
+  /* labels */
+  const st = Math.max(1, Math.ceil(Rz / 5));
+  for (let k = -Rz + ((Rz % st)); k <= Rz; k += st) {
+    text(ctx, String(k), U(k), pb + 5, C.muted, 'center', 'top', 10);
+    text(ctx, String(k), pr + 6, V(k), C.muted, 'left', 'middle', 10);
+  }
+  text(ctx, `x (voxels of ${fmtMm(D.dx)})`, pr, pb + 20, C.dim, 'right', 'top', 10);
+  ctx.save(); ctx.translate(pr + 44, (pt + pb) / 2); ctx.rotate(Math.PI / 2);
+  text(ctx, `f (bins of ${fmtF(D.bwpx, 2)})`, 0, 0, C.dim, 'center', 'middle', 10); ctx.restore();
+  const uL = Math.min(Rz - 0.6, Rz * 0.8);
+  text(ctx, 'water', U(uL) - 8, V(uL), C.water, 'right', 'bottom', 10.5);
+  { const lab = `fat, ${DF_FAT.toFixed(0)} Hz`; font(ctx, 10.5); const tw = ctx.measureText(lab).width;
+    text(ctx, lab, pr - 6, V(Rz + sh) + tw + 10, C.fat, 'right', 'top', 10.5); }
+  /* the fat dot: where it is and where it is put */
+  const lbx = U(sh) + (sh < 0 ? -8 : 8);
+  text(ctx, 'fat placed here', lbx, V(sh) + 14, C.fat, sh < 0 ? 'right' : 'left', 'top', 10);
+  text(ctx, 'true x = 0', U(0) + 7, pb - 6, C.muted, 'left', 'bottom', 10);
+}
+
+/* ==================== PANEL: IMAGE ==================== */
+const IMG = { prof: null, cv: document.createElement('canvas') };
+function buildImage() {
+  const R = reconstruct(D.n, D.fov, D.kR), n = R.n;
+  const sigma = P.noise ? SIGMA0 / D.snr : 0;
+  const cv = IMG.cv; if (cv.width !== n) { cv.width = n; cv.height = n; }
+  const g = cv.getContext('2d'), im = g.createImageData(n, n), d = im.data;
+  for (let q = 0; q < n; q++) for (let p = 0; p < n; p++) {
+    const v = Math.max(0, Math.min(255, Math.round(pixel(R, q * n + p, sigma) / 1.15 * 255)));
+    const o = ((n - 1 - q) * n + p) * 4;            // row 0 of the bitmap is the top (largest y)
+    d[o] = d[o + 1] = d[o + 2] = v; d[o + 3] = 255;
+  }
+  g.putImageData(im, 0, 0);
+  /* profile row nearest y = YPROF; wrap the index if the row is outside the FOV, as the image does */
+  let q = Math.round(YPROF / R.dx + n / 2 - 0.5); q = ((q % n) + n) % n;
+  IMG.prof = new Float32Array(n);
+  for (let p = 0; p < n; p++) IMG.prof[p] = pixel(R, q * n + p, sigma);
+}
+function drawImg() {
+  const { ctx, w, h } = fit($('cvI'));
+  const { pl, pr } = readGeom(w, h);
+  const pt = 30, pb = h - 40;
+  if (pb - pt < 40) return;
+  const s = (pr - pl) / (2 * XR), cy = (pt + pb) / 2;
+  const X = x => pl + (x + XR) * s, Y = y => cy - y * s;
+  ctx.save(); ctx.beginPath(); ctx.rect(pl, pt, pr - pl, pb - pt); ctx.clip();
+  for (const x of ticks(-XR, XR, 50)) line(ctx, X(x), pt, X(x), pb, C.grid, 1);
+  const hf = D.fov / 2;
+  ctx.fillStyle = C.img; ctx.fillRect(X(-hf), Y(hf), D.fov * s, D.fov * s);
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(IMG.cv, X(-hf), Y(hf), D.fov * s, D.fov * s);
+  ctx.strokeStyle = C.muted; ctx.lineWidth = 1;
+  ctx.strokeRect(X(-hf) - 0.5, Y(hf) - 0.5, D.fov * s + 1, D.fov * s + 1);
+  if (P.outline) {
+    ctx.lineWidth = 1; ctx.setLineDash([3, 3]);
+    for (const [sp, A, a, b, x0, y0] of PH) {
+      if (A < 0 || (sp === 'w' && a < 10)) continue;
+      ctx.strokeStyle = rgba(sp === 'f' ? C.fat : C.water, 0.6);
+      ctx.beginPath(); ctx.ellipse(X(x0), Y(y0), a * s, b * s, 0, 0, TAU); ctx.stroke();
+    }
+    ctx.setLineDash([]);
+  }
+  /* the profile row */
+  line(ctx, X(-Math.min(hf, XR)), Y(YPROF), X(-Math.min(hf, XR)) + 10, Y(YPROF), C.ui, 1.5);
+  line(ctx, X(Math.min(hf, XR)) - 10, Y(YPROF), X(Math.min(hf, XR)), Y(YPROF), C.ui, 1.5);
+  ctx.restore();
+}
+
+/* ==================== UI ==================== */
+const PRESETS = {
+  def:   [{}, '3 mm slice, 250 mm FOV, 128 samples over 50 kHz (391 Hz per voxel).'],
+  thin:  [{ gs: 20 }, 'Twice the slice gradient at the same RF bandwidth: half the slice thickness, and half the SNR.'],
+  off:   [{ f0: 4000 }, 'The RF centre frequency is moved by 4 kHz, so the slice moves to z₀ = f₀/(γ̄G_s). Now change G_s and watch the slice move as well as thin.'],
+  lowbw: [{ bw: 16000, gr: 1.5 }, 'Narrow receiver band at the same FOV (weaker read gradient): fat moves 3.5 voxels; look at the kidneys. SNR rises.'],
+  hibw:  [{ bw: 200000, gr: 18.8 }, 'Wide receiver band at the same FOV (stronger read gradient): the fat shift is a fraction of a voxel, but the image is noisier.'],
+  fov:   [{ gr: 9.4 }, 'Twice the read gradient at the same bandwidth: the FOV halves, the body no longer fits, and what is outside folds back in.'],
+  fine:  [{ ni: 6 }, '256 samples over the same band: half-size voxels with half the pixel bandwidth, so the fat shift doubles in voxels but stays 2.2 mm.']
+};
+function applyPreset(key) {
+  Object.assign(P, DEF, PRESETS[key][0]);
+  D = derived(); HOLD.dz = D.dz; HOLD.z0 = D.z0; HOLD.fov = D.fov;
+  $('preNote').textContent = PRESETS[key][1];
+  for (const b of document.querySelectorAll('[data-pre]')) b.setAttribute('aria-pressed', b.dataset.pre === key ? 'true' : 'false');
+  update();
+}
+function onSlider(which, v) {
+  P[which] = v;
+  if (which === 'gs' && P.holdDz) {
+    const want = GB * P.gs * 1e-6 * HOLD.dz; P.bwrf = clamp(want, LIM.bwrf);
+    if (P.bwrf !== want) P.gs = clamp(P.bwrf / (GB * 1e-6 * HOLD.dz), LIM.gs);
+  }
+  if (which === 'bwrf' && P.holdDz) {
+    const want = P.bwrf / (GB * 1e-6 * HOLD.dz); P.gs = clamp(want, LIM.gs);
+    if (P.gs !== want) P.bwrf = clamp(GB * P.gs * 1e-6 * HOLD.dz, LIM.bwrf);
+  }
+  if ((which === 'gs' || which === 'bwrf') && P.holdZ0) P.f0 = clamp(GB * P.gs * 1e-6 * HOLD.z0, LIM.f0);
+  if (which === 'gr' && P.holdFov) {
+    const want = GB * P.gr * 1e-6 * HOLD.fov; P.bw = clamp(want, LIM.bw);
+    if (P.bw !== want) P.gr = clamp(P.bw / (GB * 1e-6 * HOLD.fov), LIM.gr);
+  }
+  if (which === 'bw' && P.holdFov) {
+    const want = P.bw / (GB * 1e-6 * HOLD.fov); P.gr = clamp(want, LIM.gr);
+    if (P.gr !== want) P.bw = clamp(GB * P.gr * 1e-6 * HOLD.fov, LIM.bw);
+  }
+  D = derived();
+  if (!P.holdDz) HOLD.dz = D.dz;
+  if (!P.holdZ0 || which === 'f0') HOLD.z0 = D.z0;
+  if (!P.holdFov) HOLD.fov = D.fov;
+  for (const b of document.querySelectorAll('[data-pre]')) b.setAttribute('aria-pressed', 'false');
+  update(which);
+}
+const SL = { gs: 'sGs', bwrf: 'sBwrf', f0: 'sF0', gr: 'sGr', bw: 'sBw', ni: 'sN' };
+function syncUI(active) {
+  for (const k in SL) if (k !== active) $(SL[k]).value = P[k];
+  const d = D;
+  $('vGs').textContent = P.gs.toFixed(1) + ' mT/m';
+  $('vBwrf').textContent = fmtF(P.bwrf);
+  $('vF0').textContent = num(P.f0 / 1000, 2) + ' kHz';
+  $('vGr').textContent = P.gr.toFixed(2) + ' mT/m';
+  $('vBw').textContent = (P.bw / 1000).toFixed(1) + ' kHz';
+  $('vN').textContent = String(d.n);
+  $('rDz').textContent = fmtMm(d.dz);
+  $('rZ0').textContent = num(d.z0, Math.abs(d.z0) >= 100 ? 0 : 1) + ' mm';
+  $('rTau').textContent = fmtT(d.tau);
+  $('rFov').textContent = fmtMm(d.fov);
+  $('rDx').textContent = fmtMm(d.dx);
+  $('rBwpx').textContent = d.bwpx.toFixed(0) + ' Hz';
+  $('rDwell').textContent = fmtT(d.dwell);
+  $('rTacq').textContent = fmtT(d.tacq);
+  $('rDf').textContent = DF_FAT.toFixed(0) + ' Hz';
+  $('rShPx').textContent = num(d.shPx, 2) + ' voxels';
+  $('rShMm').textContent = num(d.shMm, 2) + ' mm';
+  $('rVox').textContent = `${d.dx.toFixed(2)} × ${d.dx.toFixed(2)} × ${d.dz.toFixed(2)} mm`;
+  $('rSnr').textContent = d.snr.toFixed(2) + '×';
+  $('hSlice').innerHTML =
+    `Δz = <span class="r">BW<sub>rf</sub></span> / (γ̄G<sub>s</sub>) = ${fmtF(P.bwrf)} / (42.58 MHz/T × ${P.gs.toFixed(1)} mT/m) = <b>${fmtMm(d.dz)}</b><br>` +
+    `z<sub>0</sub> = f<sub>0</sub> / (γ̄G<sub>s</sub>) = ${num(P.f0 / 1000, 2)} kHz / (γ̄G<sub>s</sub>) = <b>${num(d.z0, 1)} mm</b>`;
+  $('hRead').innerHTML =
+    `FOV = BW / (γ̄G<sub>r</sub>) = ${(P.bw / 1000).toFixed(1)} kHz / (42.58 MHz/T × ${P.gr.toFixed(2)} mT/m) = <b>${fmtMm(d.fov)}</b><br>` +
+    `Δx = FOV / N = ${fmtMm(d.fov)} / ${d.n} = <b>${fmtMm(d.dx)}</b>`;
+  $('hZoom').innerHTML =
+    `BW<sub>px</sub> = BW / N = ${(P.bw / 1000).toFixed(1)} kHz / ${d.n} = <b>${d.bwpx.toFixed(0)} Hz</b><br>` +
+    `<span class="f">Δf<sub>fat</sub></span> = ${PPM_FAT} ppm × ${(GB * B0 / 1e6).toFixed(1)} MHz = <b>${DF_FAT.toFixed(0)} Hz</b><br>` +
+    `shift = Δf<sub>fat</sub> / BW<sub>px</sub> = <b>${num(d.shPx, 2)} voxels</b> = <b>${num(d.shMm, 2)} mm</b>`;
+  $('hImg').innerHTML = `voxel <b>${d.dx.toFixed(2)} × ${d.dx.toFixed(2)} × ${d.dz.toFixed(2)} mm</b> · SNR <b>${d.snr.toFixed(2)}×</b> default`;
+}
+let raf = 0;
+function draw() {
+  if (raf) return;
+  raf = requestAnimationFrame(() => { raf = 0; readTheme(); buildImage(); drawSlice(); drawRead(); drawZoom(); drawImg(); });
+}
+function update(active) { D = derived(); syncUI(active); draw(); }
+
+for (const k in SL) {
+  const el = $(SL[k]);
+  el.addEventListener('input', () => onSlider(k, k === 'ni' ? parseInt(el.value, 10) : parseFloat(el.value)));
+  el.addEventListener('change', () => syncUI());
+}
+$('cHoldDz').addEventListener('change', e => { P.holdDz = e.target.checked; HOLD.dz = D.dz; });
+$('cHoldZ0').addEventListener('change', e => { P.holdZ0 = e.target.checked; HOLD.z0 = D.z0; });
+$('cHoldFov').addEventListener('change', e => { P.holdFov = e.target.checked; HOLD.fov = D.fov; });
+$('show').addEventListener('change', e => { P.show = e.target.value; draw(); });
+$('cNoise').addEventListener('change', e => { P.noise = e.target.checked; draw(); });
+$('cOutline').addEventListener('change', e => { P.outline = e.target.checked; draw(); });
+for (const b of document.querySelectorAll('[data-pre]')) b.addEventListener('click', () => applyPreset(b.dataset.pre));
+new ResizeObserver(() => draw()).observe(document.querySelector('main'));
+$('theme').addEventListener('click', () => {
+  const root = document.documentElement, dark = root.getAttribute('data-theme') !== 'light';
+  root.setAttribute('data-theme', dark ? 'light' : 'dark'); $('theme').textContent = dark ? 'Dark' : 'Light'; draw();
+});
+
+const VERSION = '0.1.0';
+const AUTHORS = 'Designed by Filip Sz (Lund University) and coded by Claude (Anthropic)';
+const CHANGELOG = [
+  ['0.1.0', '2026-11-07',
+   'First version. Four linked panels: slice selection (RF spectrum, resonance line f = γ̄G_s·z, slice profile and the ' +
+   'RF pulse in time), readout (receiver band ±BW/2 split into N bins, FOV and voxels, with a profile through the ' +
+   'phantom), a zoom on a few voxels showing the fat shift as Δf_fat/BW_px, and a water/fat abdomen phantom imaged ' +
+   'through k-space with fat off-resonance, aliasing and noise scaled by relative SNR. Sliders for G_s, BW_rf, f_0, ' +
+   'G_r, BW and N; holds for slice thickness, slice position and FOV; seven examples.']
+];
+$('ver').textContent = 'v' + VERSION;
+$('credit').textContent = `Bandwidth sim v${VERSION} · ${AUTHORS}`;
+document.querySelector('#about .by').textContent = AUTHORS;
+$('changelog').innerHTML = CHANGELOG.map(([v, d, t], i) => `<div class="rel"><h5>${v} <em>· ${i === 0 ? 'current, ' : ''}${d}</em></h5><p>${t}</p></div>`).join('');
+{
+  const about = $('about'), close = () => { about.hidden = true; $('ver').focus(); };
+  $('ver').addEventListener('click', () => { about.hidden = false; about.querySelector('.sheet').scrollTop = 0; $('aboutClose').focus({ preventScroll: true }); });
+  $('aboutClose').addEventListener('click', close);
+  about.addEventListener('click', e => { if (e.target === about) close(); });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && !about.hidden) close(); });
+}
+
+/* ==================== GO ==================== */
+readTheme(); applyPreset('def');
+</script>
+<script>
+/* House style (shared by the MRI simulators): one light/dark preference for the
+   whole suite. The saved choice (or the operating-system setting on a first
+   visit) is applied by clicking the app's own theme button, so each app redraws
+   through its usual path. The button always names the theme it switches TO. */
+(function () {
+  "use strict";
+  var KEY = "mrisim.theme", LEGACY = [];
+  function saved() {
+    try {
+      var keys = [KEY].concat(LEGACY);
+      for (var i = 0; i < keys.length; i++) {
+        var v = localStorage.getItem(keys[i]);
+        if (v === "light" || v === "dark") return v;
+      }
+    } catch (e) { /* storage can be unavailable for file:// pages */ }
+    return null;
+  }
+  window.addEventListener("load", function () {
+    setTimeout(function () {
+      var btn = document.getElementById("theme");
+      if (!btn) return;
+      var root = document.documentElement;
+      var cur = function () { return root.getAttribute("data-theme") === "light" ? "light" : "dark"; };
+      var label = function () { btn.textContent = cur() === "dark" ? "Light" : "Dark"; };
+      var want = saved() || (window.matchMedia &&
+        window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark");
+      if (want !== cur()) btn.click();
+      label();
+      btn.addEventListener("click", function () {
+        label();
+        try { localStorage.setItem(KEY, cur()); } catch (e) { /* file:// */ }
+      });
+    }, 0);
+  });
+})();
+</script>
+</body>
+</html>

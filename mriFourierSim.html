@@ -1,0 +1,1284 @@
+<!doctype html>
+<!--
+  Fourier sim — how each voxel contributes to one point in k-space.
+  Hover over k-space: the image shows the transverse magnetization of every
+  voxel at that k (phase −2πk·r), and the right panel gathers all the spins in
+  one place so their vector sum, the k-space value S(k), can be seen directly.
+  Designed by Filip Sz (Lund University) and coded by Claude (Anthropic).
+
+  The MR brain object is one axial slice of the ICBM 2009a nonlinear symmetric
+  T1-weighted template (MNI152), downsampled to 128 × 128:
+  Copyright (C) 1993–2004 Louis Collins, McConnell Brain Imaging Centre,
+  Montreal Neurological Institute, McGill University. Permission to use, copy,
+  modify, and distribute this software and its documentation for any purpose and
+  without fee is hereby granted, provided that the above copyright notice appear
+  in all copies. The authors and McGill University make no representations about
+  the suitability of this software for any purpose. It is provided "as is"
+  without express or implied warranty.
+
+  Single self-contained file: no build step, no network, no dependencies.
+  Version history lives in the CHANGELOG constant in the script below and is
+  shown in the version dialog; bump VERSION whenever you change the physics or the UI.
+  VERSION is the single source of truth — this header deliberately does not repeat it.
+  The file name carries no version (mriFourierSim.html); git tracks the history.
+-->
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fourier sim — voxel contributions to k-space</title>
+<meta name="author" content="Filip Sz (Lund University); Claude (Anthropic)">
+<meta name="description" content="Interactive visualisation of how the magnetization of every voxel adds up to the signal at one point in k-space.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23151b24'/%3E%3Cpath d='M8 24L16 8M16 24L24 8' stroke='%232fb6b0' stroke-width='2.2' fill='none'/%3E%3Ccircle cx='16' cy='16' r='2.6' fill='%23e2554d'/%3E%3C/svg%3E">
+<style>
+:root{
+  --bg:#0e1219; --panel:#151b24; --panel2:#1b2230; --line:#26303f;
+  --text:#ccd6e4; --muted:#7c8a9d; --dim:#4d5a6b; --ui:#2fb6b0;
+  --btn:#1b2230; --btnh:#232c3c; --btna:#2a3547;
+  --axis:#5c6b7e; --grid:#1f2836; --sig:#e2554d; --spin:#9aa7b8; --img:#000000;
+}
+html[data-theme="light"]{
+  --bg:#f2f4f7; --panel:#ffffff; --panel2:#f7f9fb; --line:#d7dde5;
+  --text:#1b2430; --muted:#5f6c7d; --dim:#9aa5b3; --ui:#0f8f8a;
+  --btn:#eef1f5; --btnh:#e4e9f0; --btna:#d9e0ea;
+  --axis:#8b96a4; --grid:#e6eaf0; --sig:#c8322a; --spin:#6a7686; --img:#000000;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0; background:var(--bg); color:var(--text);
+  font:13px/1.45 ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
+  -webkit-font-smoothing:antialiased;
+  display:grid; grid-template-columns:300px 1fr; height:100vh; overflow:hidden;
+}
+/* ------------------------------------------------------------- rail */
+#rail{background:var(--panel); border-right:1px solid var(--line); overflow-y:auto; padding:0 0 24px}
+#rail::-webkit-scrollbar{width:9px}
+#rail::-webkit-scrollbar-thumb{background:var(--line)}
+section{border-bottom:1px solid var(--line); padding:11px 14px 13px}
+h2{font-size:10px; font-weight:600; letter-spacing:.18em; text-transform:uppercase; color:var(--dim); margin:0 0 9px}
+.row{display:flex; gap:6px; flex-wrap:wrap}
+button{
+  font:inherit; font-size:11.5px; color:var(--text); background:var(--btn);
+  border:1px solid var(--line); border-radius:3px; padding:5px 9px; cursor:pointer;
+}
+button:hover{background:var(--btnh)}
+button:active{background:var(--btna)}
+button[aria-pressed="true"]{border-color:var(--ui); color:var(--ui)}
+button.rec{min-width:58px}
+button:focus-visible,input:focus-visible,select:focus-visible,canvas:focus-visible{outline:2px solid var(--ui); outline-offset:2px}
+canvas:focus-visible{outline-offset:-2px}
+.ctl{margin:0 0 10px}
+.ctl:last-child{margin-bottom:0}
+.lab{display:flex; justify-content:space-between; align-items:baseline; gap:8px; margin-bottom:2px}
+.lab span:first-child{color:var(--muted); font-size:12px}
+.val{color:var(--text); font-size:12px; font-variant-numeric:tabular-nums}
+.ctl.off{opacity:.5}
+.sub{color:var(--dim); font-size:10.5px; line-height:1.4; margin:3px 0 0}
+input[type=range]{-webkit-appearance:none; appearance:none; width:100%; height:18px; margin:0; background:transparent; cursor:pointer}
+input[type=range]::-webkit-slider-runnable-track{height:2px; background:var(--line)}
+input[type=range]::-moz-range-track{height:2px; background:var(--line)}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none; width:12px; height:12px; margin-top:-5px; border:0; border-radius:50%; background:var(--ui)}
+input[type=range]::-moz-range-thumb{width:12px; height:12px; border:0; border-radius:50%; background:var(--ui)}
+input[type=range]:disabled{cursor:default; opacity:.5}
+label.chk{display:flex; align-items:center; gap:7px; padding:2.5px 0; cursor:pointer; font-size:11.5px; color:var(--text)}
+label.chk.off{opacity:.5; cursor:default}
+input[type=checkbox]{accent-color:var(--ui); margin:0; cursor:pointer}
+select{
+  font:inherit; font-size:11.5px; color:var(--text); background:var(--panel2);
+  border:1px solid var(--line); border-radius:3px; padding:4px 6px; width:100%; cursor:pointer;
+}
+table.read{width:100%; border-collapse:collapse; font-size:11.5px; font-variant-numeric:tabular-nums}
+table.read td{padding:2px 0; vertical-align:baseline}
+table.read td:first-child{color:var(--muted)}
+table.read td:last-child{text-align:right; color:var(--text)}
+#note{color:var(--muted); font-size:11px; line-height:1.5; margin:0}
+#note p{margin:0 0 7px}
+#note p:last-child{margin:0}
+#note b{color:var(--text); font-weight:600}
+sub,sup{font-size:.75em; line-height:0}
+
+/* header (house style) */
+#rail .brand{
+  position:sticky; top:0; z-index:3; background:var(--panel);
+  border-bottom:1px solid var(--line); padding:13px 14px 11px; margin:0;
+  display:flex; flex-wrap:wrap; align-items:baseline; gap:0 5px;
+}
+#rail .brand h1{margin:0 auto 0 0; font-size:12px; font-weight:600; line-height:1.45; letter-spacing:.16em; text-transform:uppercase; white-space:nowrap}
+#rail .brand .brand-sub{flex:1 0 100%; margin:6px 0 0; font-size:11px; line-height:1.4; color:var(--muted)}
+.themebtn,button.themebtn{
+  appearance:none; background:transparent; border:1px solid var(--line); color:var(--muted);
+  font:inherit; font-size:10px; line-height:1.45; letter-spacing:.1em; text-transform:uppercase;
+  padding:3px 7px; cursor:pointer; border-radius:2px;
+}
+.themebtn:hover,button.themebtn:hover{background:transparent; color:var(--text); border-color:var(--muted)}
+.credit{margin:14px 14px 0; font-size:10px; line-height:1.6; color:var(--dim); letter-spacing:.02em}
+
+/* ------------------------------------------------------------- views */
+main{display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); min-width:0; min-height:0; overflow:hidden}
+.pane{position:relative; min-width:0; min-height:0}
+.pane+.pane{border-left:1px solid var(--line)}
+.pane canvas{position:absolute; inset:0; width:100%; height:100%; display:block}
+.tag{position:absolute; top:9px; left:12px; right:12px; z-index:2; pointer-events:none; font-size:10px; letter-spacing:.13em; text-transform:uppercase; color:var(--dim)}
+.hint{position:absolute; bottom:8px; right:12px; left:12px; text-align:right; z-index:2; pointer-events:none; font-size:10px; color:var(--dim)}
+#cvK,#cvI{cursor:crosshair; touch-action:none}
+@media (max-width:1000px){
+  body{grid-template-columns:1fr; grid-template-rows:auto auto; height:auto; overflow:auto}
+  #rail{border-right:none; border-bottom:1px solid var(--line); overflow:visible}
+  main{grid-template-columns:1fr; overflow:visible}
+  .pane{height:min(100vw,640px)}
+  .pane+.pane{border-left:none; border-top:1px solid var(--line)}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+
+/* about dialog (house style) */
+#about[hidden]{display:none}
+#about{position:fixed; inset:0; z-index:40; display:grid; place-items:center; background:rgba(0,0,0,.5); padding:20px}
+#about .sheet{background:var(--panel); border:1px solid var(--line); border-radius:4px; padding:20px 22px; max-width:540px; width:100%; max-height:82vh; overflow-y:auto}
+#about h3{margin:0 0 3px; font-size:13px; letter-spacing:.16em; text-transform:uppercase}
+#about .by{margin:0 0 12px; color:var(--ui); font-size:12px}
+#about .note{margin:0 0 12px; color:var(--muted); font-size:11.5px; line-height:1.6}
+#about .note b{color:var(--text); font-weight:600}
+#about .rel{border-top:1px solid var(--line); padding-top:9px; margin-top:9px}
+#about .rel h5{margin:0 0 5px; font-size:11px; letter-spacing:.1em; font-weight:600; color:var(--text)}
+#about .rel h5 em{color:var(--dim); font-style:normal; font-weight:400; letter-spacing:0}
+#about .rel p{margin:0; color:var(--muted); font-size:11.5px; line-height:1.6}
+#about #aboutClose{margin-top:18px}
+</style>
+</head>
+<body>
+
+<div id="rail">
+  <div class="brand">
+    <h1>Fourier sim</h1>
+    <button class="themebtn" id="ver" type="button" title="Version, credits and changelog"></button>
+    <button class="themebtn" id="theme" type="button" title="Switch colour theme">Light</button>
+    <p class="brand-sub">Every voxel's contribution to one point in k-space, S(k) = Σ ρ(r)·e<sup>−i2πk·r</sup></p>
+  </div>
+
+  <section>
+    <h2>Position in k-space</h2>
+    <div class="row">
+      <button type="button" id="bPin" aria-pressed="false" title="Hold k where it is (or click in k-space)">Pin</button>
+      <button type="button" id="bK0" title="Go to the centre of k-space">k = 0</button>
+      <button type="button" id="bKx1" title="One step along kx">k<sub>x</sub> = 1</button>
+      <button type="button" id="bKmax" title="Edge of k-space along kx">k<sub>x</sub> edge</button>
+    </div>
+    <p class="sub">Hover over k-space to move. Click to pin or release. Arrow keys step one sample.</p>
+  </section>
+
+  <section>
+    <h2>Sound</h2>
+    <div class="row" style="margin-bottom:10px">
+      <button type="button" class="rec" id="bPlay" aria-pressed="false" title="Steady tone: the sum at the current k">Play</button>
+      <button type="button" class="rec" id="bRead" aria-pressed="false" title="Sweep kx under a readout gradient, with sound">Play readout</button>
+    </div>
+    <div class="row" style="margin-bottom:10px">
+      <select id="sndSrc" aria-label="What to play">
+        <option value="total" selected>Total, S(k)</option>
+        <option value="spot">Spot only, s(k)</option>
+      </select>
+    </div>
+    <div class="ctl">
+      <div class="lab"><span>Carrier frequency</span><span class="val" id="vFc"></span></div>
+      <input type="range" id="sFc" min="100" max="2000" step="10" value="440" aria-label="Carrier frequency">
+    </div>
+    <div class="ctl">
+      <div class="lab"><span>Volume</span><span class="val" id="vVol"></span></div>
+      <input type="range" id="sVol" min="0" max="100" step="1" value="50" aria-label="Volume">
+    </div>
+    <div class="ctl">
+      <div class="lab"><span>Loudness</span></div>
+      <select id="sndMap">
+        <option value="lin" selected>Linear in |S|, as received</option>
+        <option value="log">Compressed, 60 dB range</option>
+      </select>
+    </div>
+    <div class="ctl">
+      <div class="lab"><span>Readout bandwidth per voxel</span><span class="val" id="vBw"></span></div>
+      <input type="range" id="sBw" min="0" max="10" step="1" value="2" aria-label="Readout bandwidth per voxel">
+    </div>
+    <table class="read">
+      <tr><td>Level re S(0)</td><td id="rLvl">—</td></tr>
+      <tr><td>Readout duration</td><td id="rRoT"></td></tr>
+      <tr><td>Readout chord</td><td id="rRoF"></td></tr>
+    </table>
+    <p class="sub" id="roNote"></p>
+    <p class="sub">Each voxel sounds as ρ·cos(2πf t + φ) at the carrier frequency f. The sum of them is one tone with amplitude |S(k)| and phase ∠S(k), so moving in k-space changes its loudness. A steady phase is not audible; a jump in phase is heard only as a brief transient.</p>
+    <p class="sub"><b style="color:var(--text);font-weight:600">Play readout</b> switches on a read gradient along x: each column of voxels precesses at its own frequency, f<sub>c</sub> + n·Δf, so the coil hears a chord. As time runs, k<sub>x</sub> sweeps across the line you point at, the arrows turn faster towards the edges, and the chord swells into an echo at k<sub>x</sub> = 0. Pointing at another k<sub>y</sub> line changes the starting phases (phase encoding), not the notes. The readout repeats; one sweep lasts 1/Δf.</p>
+  </section>
+
+  <section>
+    <h2>Spot in the image</h2>
+    <div class="ctl">
+      <div class="lab"><span>Spot radius</span><span class="val" id="vSpotR"></span></div>
+      <input type="range" id="sSpotR" min="0" max="12" step="1" value="0" aria-label="Spot radius in voxels">
+    </div>
+    <div class="row"><button type="button" id="bSpotClr">Clear spot</button></div>
+    <p class="sub">Hover over the image to pick a spot; click to hold it. Its spins are highlighted on the right, and the teal arrow is their sum, the spot's contribution to S(k).</p>
+  </section>
+
+  <section>
+    <h2>Object</h2>
+    <div class="ctl">
+      <select id="phantom" aria-label="Object">
+        <option value="point">Single point, off centre</option>
+        <option value="two" selected>Two points</option>
+        <option value="bar">Rectangle</option>
+        <option value="disc">Disc</option>
+        <option value="grating">Grating, 5 cycles per FOV</option>
+        <option value="shepp">Shepp–Logan head</option>
+        <option value="brain">MR brain, T1-weighted</option>
+      </select>
+    </div>
+  </section>
+
+  <section>
+    <h2>Resolution</h2>
+    <div class="ctl">
+      <div class="lab"><span>Matrix, x</span><span class="val" id="vNx"></span></div>
+      <input type="range" id="sNx" min="4" max="64" step="2" aria-label="Matrix size along x">
+    </div>
+    <div class="ctl" id="ctlNy">
+      <div class="lab"><span>Matrix, y</span><span class="val" id="vNy"></span></div>
+      <input type="range" id="sNy" min="4" max="64" step="2" aria-label="Matrix size along y">
+    </div>
+    <label class="chk"><input type="checkbox" id="cLink" checked> Square matrix</label>
+    <div class="row" style="margin:8px 0 10px">
+      <button type="button" data-n="8">8</button>
+      <button type="button" data-n="16">16</button>
+      <button type="button" data-n="32">32</button>
+      <button type="button" data-n="64">64</button>
+    </div>
+    <div class="ctl">
+      <div class="lab"><span>Field of view</span><span class="val" id="vFov"></span></div>
+      <input type="range" id="sFov" min="100" max="400" step="10" aria-label="Field of view">
+    </div>
+    <table class="read">
+      <tr><td>Voxel size</td><td id="rVox"></td></tr>
+      <tr><td>Δk = 1/FOV</td><td id="rDk"></td></tr>
+      <tr><td>k<sub>max</sub> = 1/(2·voxel)</td><td id="rKmax"></td></tr>
+    </table>
+    <p class="sub">The FOV sets the k-space step; the voxel size sets how far k-space extends.</p>
+  </section>
+
+  <section>
+    <h2>Display</h2>
+    <div class="ctl">
+      <div class="lab"><span>k-space shows</span></div>
+      <select id="kview">
+        <option value="log" selected>Magnitude, log scale</option>
+        <option value="mag">Magnitude, linear</option>
+        <option value="real">Real part</option>
+        <option value="phase">Phase</option>
+        <option value="spot">Spot only, log magnitude</option>
+      </select>
+    </div>
+    <label class="chk"><input type="checkbox" id="cSnap" checked> Snap to k-space samples</label>
+    <div class="ctl" style="margin-top:8px">
+      <div class="lab"><span>Phase colour on image</span></div>
+      <select id="phase">
+        <option value="off">Off</option>
+        <option value="object" selected>On the object</option>
+        <option value="fov">Whole field of view</option>
+      </select>
+    </div>
+    <label class="chk" id="lArrows"><input type="checkbox" id="cArrows" checked> Spin arrows in each voxel</label>
+    <label class="chk" id="lArrowLen"><input type="checkbox" id="cArrowLen" checked> Arrow length ∝ spin density</label>
+    <label class="chk"><input type="checkbox" id="cKvec" checked> One wavelength along k on the image</label>
+    <div class="ctl" style="margin-top:8px">
+      <div class="lab"><span>Gather spins</span></div>
+      <div class="row">
+        <button type="button" id="bFan" aria-pressed="true" title="All spin vectors from one origin, with their sum">Common origin</button>
+        <button type="button" id="bChain" aria-pressed="false" title="Spin vectors added head to tail; the path ends at the sum">Tip to tail</button>
+      </div>
+    </div>
+    <label class="chk"><input type="checkbox" id="cZoom"> Auto-zoom the sum</label>
+  </section>
+
+  <section>
+    <h2>Readout</h2>
+    <table class="read">
+      <tr><td>k, samples</td><td id="rK"></td></tr>
+      <tr><td>k, mm⁻¹</td><td id="rKmm"></td></tr>
+      <tr><td>Wavelength 1/|k|</td><td id="rLam"></td></tr>
+      <tr><td>Δφ per voxel, x</td><td id="rDphx"></td></tr>
+      <tr><td>Δφ per voxel, y</td><td id="rDphy"></td></tr>
+      <tr><td>|S(k)| / S(0)</td><td id="rMag"></td></tr>
+      <tr><td>∠S(k)</td><td id="rAng"></td></tr>
+      <tr><td>Voxels with signal</td><td id="rNs"></td></tr>
+      <tr><td>Spot, |s(k)| / S(0)</td><td id="rSpot"></td></tr>
+      <tr><td>Spot share of S(k)</td><td id="rShare"></td></tr>
+    </table>
+    <p class="sub">Δφ is the phase difference between neighbouring voxels. 180° per voxel is the edge of k-space (the Nyquist limit). The spot share is the projection of its sum s(k) onto S(k), Re(s·S*)/|S|²; it is negative when the spot opposes the total.</p>
+  </section>
+
+  <section>
+    <h2>What to look for</h2>
+    <div id="note"></div>
+  </section>
+
+  <p class="credit" id="credit"></p>
+</div>
+
+<main>
+  <div class="pane">
+    <div class="tag">k-space — S(k)</div>
+    <canvas id="cvK" tabindex="0" aria-label="k-space; hover or use arrow keys to choose k"></canvas>
+    <div class="hint" id="hintK">hover to move · click to pin</div>
+  </div>
+  <div class="pane">
+    <div class="tag">Image — magnetization at this k</div>
+    <canvas id="cvI"></canvas>
+    <div class="hint" id="hintI"></div>
+  </div>
+  <div class="pane">
+    <div class="tag">All spins gathered — total magnetization</div>
+    <canvas id="cvS"></canvas>
+    <div class="hint" id="hintS"></div>
+  </div>
+</main>
+
+<div id="about" hidden>
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="aboutTitle">
+    <h3 id="aboutTitle">Fourier sim</h3>
+    <p class="by"></p>
+    <p class="note">
+      After a gradient with area such that k = γ̄∫G dt, the transverse magnetization in a voxel at
+      position <b>r</b> carries the phase φ = −2π<b>k</b>·<b>r</b>. The receive coil adds the
+      magnetization of all voxels, so the signal at that k is the vector (complex) sum
+      S(k) = Σ ρ(r)·e<sup>−i2πk·r</sup>. Point at k-space to see the phase pattern this
+      produces across the object and how the vectors add or cancel.
+    </p>
+    <p class="note">
+      Simplifications: the object is a grid of voxels, and each voxel is one vector at its centre
+      with a length equal to its mean spin density (the partial-volume average over the voxel).
+      There is no dephasing inside a voxel, so S(k) is exactly the discrete Fourier transform of
+      the voxel image, and the sampled k-space is periodic. No relaxation, no off-resonance,
+      no noise, uniform coil sensitivity, and the object is real (no phase of its own). Point
+      objects occupy one voxel at the nearest grid position, so their spacing can shift slightly
+      when the matrix changes. Phase is shown with a cyclic colour scale (red = 0). The order of
+      the tip-to-tail chain is row by row and does not affect the sum.
+      The sound puts the sum back on an audible carrier, Re S·cos(2πf t) + Im S·sin(2πf t) = Re{S*·e<sup>i2πft</sup>},
+      with S(0) at full volume; in a scanner the same sum is received at the Larmor frequency and demodulated.
+      The sign is chosen so that the faster clockwise precession at +x (higher field for γ &gt; 0) sounds as a higher
+      pitch. In readout mode k<sub>x</sub>(t) sweeps −N/2 to N/2 in time 1/Δf, so the column at index n from the centre
+      sounds at f<sub>c</sub> + n·Δf; the waveform is computed sample by sample from S(k<sub>x</sub>(t), k<sub>y</sub>).
+      The audio clock is exact; the picture follows it at the screen's frame rate. The readout loops seamlessly because the
+      sampled k-space is periodic, and the carrier is rounded to a multiple of Δf for that reason.
+      Amplitude and phase changes are smoothed over about 20 ms to avoid clicks.
+    </p>
+    <p class="note">
+      The MR brain is one axial slice of the ICBM 2009a nonlinear symmetric T1-weighted template
+      (MNI152), an average of 152 adult scans, skull-stripped and downsampled to 128 × 128, shown in
+      radiological orientation. Being an average, it is smoother than a single scan. Its grey values are
+      used as spin density, so it stands in for a real image rather than a true proton-density map.
+      Copyright (C) 1993–2004 Louis Collins, McConnell Brain Imaging Centre, Montreal Neurological
+      Institute, McGill University; used under its permissive licence (see the file header).
+    </p>
+    <div id="changelog"></div>
+    <button class="themebtn" id="aboutClose" type="button">Close</button>
+  </div>
+</div>
+
+<script>
+'use strict';
+const $ = id => document.getElementById(id);
+const TAU = 2 * Math.PI;
+const FONT = 'ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace';
+
+/* ==================== STATE ==================== */
+const P = {
+  phantom: 'two', nx: 16, ny: 16, link: true, fov: 240,
+  kview: 'log', snap: true, phase: 'object', arrows: true, arrowLen: true, kvec: true,
+  sum: 'fan', zoom: false
+};
+const K = { m: 2, n: 0, pinned: false };
+const SPOT = { ix: -1, iy: -1, r: 0, pinned: false };
+function inSpot(ix, iy) { if (SPOT.ix < 0) return false; const dx = ix - SPOT.ix, dy = iy - SPOT.iy, q = SPOT.r + 0.3; return dx * dx + dy * dy <= q * q; }
+function spotSignal() {
+  let a = 0, b = 0, n = 0;
+  for (const s of D.sp) if (inSpot(s.ix, s.iy)) { const p = phaseOf(s); a += s.r * Math.cos(p); b += s.r * Math.sin(p); n++; }
+  return [a, b, n];
+}
+const C = {};
+function readTheme() {
+  const cs = getComputedStyle(document.documentElement);
+  for (const k of ['bg', 'panel', 'panel2', 'line', 'text', 'muted', 'dim', 'ui', 'axis', 'grid', 'sig', 'spin', 'img'])
+    C[k] = cs.getPropertyValue('--' + k).trim();
+}
+
+/* ==================== OBJECTS ==================== */
+/* Modified Shepp–Logan (Toft): [amplitude, a, b, x0, y0, angle°] in [−1, 1]. */
+const SL = [
+  [1, .69, .92, 0, 0, 0], [-.8, .6624, .874, 0, -.0184, 0],
+  [-.2, .11, .31, .22, 0, -18], [-.2, .16, .41, -.22, 0, 18],
+  [.1, .21, .25, 0, .35, 0], [.1, .046, .046, 0, .1, 0], [.1, .046, .046, 0, -.1, 0],
+  [.1, .046, .023, -.08, -.605, 0], [.1, .023, .023, 0, -.606, 0], [.1, .023, .046, .06, -.605, 0]
+].map(([A, a, b, x0, y0, d]) => ({ A, a2: a * a, b2: b * b, x0, y0, c: Math.cos(d * Math.PI / 180), s: Math.sin(d * Math.PI / 180) }));
+function shepp(u, v) {
+  const X = 2 * u / 0.96, Y = 2 * v / 0.96;
+  let s = 0;
+  for (const e of SL) {
+    const dx = X - e.x0, dy = Y - e.y0, xr = dx * e.c + dy * e.s, yr = -dx * e.s + dy * e.c;
+    if (xr * xr / e.a2 + yr * yr / e.b2 <= 1) s += e.A;
+  }
+  return s;
+}
+/* ICBM 2009a nonlinear symmetric T1 template (MNI152), axial slice, 128 × 128, 8 bit, row 0 = anterior,
+   radiological orientation. Copyright notice in the file header. */
+const BRAIN_B64 = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA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AAAAMTEXAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==';
+let BRAIN = null;
+function brainImg() {
+  if (!BRAIN) { const t = atob(BRAIN_B64); BRAIN = new Float32Array(t.length); for (let i = 0; i < t.length; i++) BRAIN[i] = t.charCodeAt(i) / 255; }
+  return BRAIN;
+}
+/* Coordinates u, v are in units of the FOV, from −½ to ½; y points up. */
+const PHANTOMS = {
+  point: { points: [[0.1875, 0.125]] },
+  two: { points: [[-0.125, 0], [0.125, 0]] },
+  bar: { f: (u, v) => (Math.abs(u) <= 0.125 && Math.abs(v) <= 0.25) ? 1 : 0 },
+  disc: { f: (u, v) => (u * u + v * v <= 0.3 * 0.3) ? 1 : 0 },
+  grating: { f: (u, v) => (Math.abs(u) < 0.3 && Math.abs(v) < 0.3 && Math.floor((u + 0.3) / 0.1 + 1e-9) % 2 === 0) ? 1 : 0 },
+  shepp: { f: shepp },
+  brain: { f: (u, v) => { const B = brainImg(), c = Math.floor((u + 0.5) * 128), r = Math.floor((0.5 - v) * 128); return (c < 0 || c > 127 || r < 0 || r > 127) ? 0 : B[r * 128 + c]; } }
+};
+
+const NOTES = {
+  point: `<p><b>One spin.</b> Its k-space magnitude is the same everywhere; only the phase of S(k) changes, linearly with k. That phase ramp is how k-space encodes position: the further off centre, the faster the ramp.</p>`,
+  two: `<p><b>Two spins.</b> Along k<sub>x</sub> their phases drift apart. Where they point in opposite directions they cancel, and k-space is dark. The fringes are perpendicular to the line joining them, spaced 1/separation apart. Along k<sub>y</sub> they stay in phase, since they share the same y.</p>`,
+  bar: `<p><b>Symmetric object.</b> Every spin at +x has a partner at −x with the opposite phase, so the imaginary parts cancel and S(k) is real: the tip-to-tail chain always closes on the real axis. The narrow side gives the wide side of the sinc in k-space.</p>`,
+  disc: `<p><b>Disc.</b> The rings in k-space mark the values of k where the phase across the disc wraps so that the spins cancel. On a dark ring, the tip-to-tail chain curls round and returns to the origin.</p>`,
+  grating: `<p><b>Grating.</b> At k<sub>x</sub> = 5 samples the wavelength matches the bar period, so every bar has the same phase and the signal piles up into a peak. Away from it, bars at different phases cancel.</p>`,
+  shepp: `<p><b>Head.</b> Near the centre of k-space the phase changes slowly across the object and the spins add up: contrast and overall shape. Far out, the phase wraps within a few voxels and most contributions cancel. What remains comes from edges and small details.</p>`
+};
+NOTES.brain = `<p><b>MR brain.</b> Most of the signal sits near the centre of k-space, where large regions share phase. Further out, the sum comes from edges: cortex, ventricles and the brain outline. Pick a spot in the image and switch k-space to <b>Spot only</b>: a small spot spreads over all of k-space, a large one stays near the centre.</p>`;
+const NOTE_ALL = `<p>Each voxel's magnetization is turned by φ = −2π<b>k</b>·<b>r</b>. The k-space value is the sum of all the vectors, shown in red on the right. At k = 0 every spin points the same way.</p>`;
+
+/* ==================== MODEL ==================== */
+let D = null;
+function build() {
+  const nx = P.nx, ny = P.ny, ph = PHANTOMS[P.phantom];
+  const rho = new Float64Array(nx * ny);
+  if (ph.points) {
+    for (const [u, v] of ph.points) {
+      const ix = Math.min(nx - 1, Math.max(0, nx / 2 + Math.round(u * nx)));
+      const iy = Math.min(ny - 1, Math.max(0, ny / 2 + Math.round(v * ny)));
+      rho[iy * nx + ix] = 1;
+    }
+  } else {
+    const ss = nx * ny <= 1024 ? 8 : 5;
+    for (let iy = 0; iy < ny; iy++) for (let ix = 0; ix < nx; ix++) {
+      let s = 0;
+      for (let b = 0; b < ss; b++) {
+        const v = (iy - ny / 2 - 0.5 + (b + 0.5) / ss) / ny;
+        for (let a = 0; a < ss; a++) s += ph.f((ix - nx / 2 - 0.5 + (a + 0.5) / ss) / nx, v);
+      }
+      const r = s / (ss * ss);
+      rho[iy * nx + ix] = r > 1e-9 ? r : 0;
+    }
+  }
+  /* spins with signal; position in FOV units relative to the k-space origin voxel */
+  const sp = [];
+  let rmax = 0, S0 = 0;
+  for (let iy = 0; iy < ny; iy++) for (let ix = 0; ix < nx; ix++) {
+    const r = rho[iy * nx + ix];
+    if (r > 0) { sp.push({ i: iy * nx + ix, ix, iy, u: (ix - nx / 2) / nx, v: (iy - ny / 2) / ny, r }); rmax = Math.max(rmax, r); S0 += r; }
+  }
+  const F = dft(rho, nx, ny);
+  D = { nx, ny, rho, sp, rmax, S0, kre: F.kre, kim: F.kim, kmx: F.kmx, id: (D ? D.id : 0) + 1 };
+  kCacheKey = '';
+}
+/* separable DFT; row = n + ny/2, column = m + nx/2 */
+function dft(rho, nx, ny) {
+  const re1 = new Float64Array(nx * ny), im1 = new Float64Array(nx * ny);
+  const cx = [], sx = [], cy = [], sy = [];
+  for (let j = 0; j < nx; j++) { cx.push(Math.cos(TAU * j / nx)); sx.push(Math.sin(TAU * j / nx)); }
+  for (let j = 0; j < ny; j++) { cy.push(Math.cos(TAU * j / ny)); sy.push(Math.sin(TAU * j / ny)); }
+  for (let iy = 0; iy < ny; iy++) for (let c = 0; c < nx; c++) {
+    const m = c - nx / 2; let a = 0, b = 0;
+    for (let ix = 0; ix < nx; ix++) {
+      const r = rho[iy * nx + ix]; if (!r) continue;
+      const j = (((m * (ix - nx / 2)) % nx) + nx) % nx;
+      a += r * cx[j]; b -= r * sx[j];
+    }
+    re1[iy * nx + c] = a; im1[iy * nx + c] = b;
+  }
+  const kre = new Float64Array(nx * ny), kim = new Float64Array(nx * ny);
+  for (let rI = 0; rI < ny; rI++) for (let c = 0; c < nx; c++) {
+    const n = rI - ny / 2; let a = 0, b = 0;
+    for (let iy = 0; iy < ny; iy++) {
+      const j = (((n * (iy - ny / 2)) % ny) + ny) % ny;
+      const xr = re1[iy * nx + c], xi = im1[iy * nx + c];
+      a += xr * cy[j] + xi * sy[j]; b += xi * cy[j] - xr * sy[j];
+    }
+    kre[rI * nx + c] = a; kim[rI * nx + c] = b;
+  }
+  let kmx = 0;
+  for (let i = 0; i < nx * ny; i++) kmx = Math.max(kmx, Math.hypot(kre[i], kim[i]));
+  return { kre, kim, kmx };
+}
+function phaseOf(s) { return -TAU * (K.m * s.u + K.n * s.v); }
+function signal() {
+  let a = 0, b = 0;
+  for (const s of D.sp) { const p = phaseOf(s); a += s.r * Math.cos(p); b += s.r * Math.sin(p); }
+  return [a, b];
+}
+function clampK() {
+  const lo = -D.nx / 2, hi = D.nx / 2 - 1, lo2 = -D.ny / 2, hi2 = D.ny / 2 - 1;
+  const sweeping = typeof ro !== 'undefined' && ro.on;
+  if (P.snap) { if (!sweeping) K.m = Math.round(K.m); K.n = Math.round(K.n); }
+  const e = P.snap ? 0 : 0.5;
+  K.m = sweeping ? Math.min(D.nx / 2, Math.max(lo, K.m)) : Math.min(hi + e, Math.max(lo - e, K.m));
+  K.n = Math.min(hi2 + e, Math.max(lo2 - e, K.n));
+}
+
+/* ==================== COLOUR ==================== */
+/* Cyclic phase colour, constant r+g+b, red at φ = 0. */
+function hue(p) { return [0.5 + 0.5 * Math.cos(p), 0.5 + 0.5 * Math.cos(p - TAU / 3), 0.5 + 0.5 * Math.cos(p + TAU / 3)]; }
+function rgbStr(c, a) { return `rgba(${Math.round(c[0] * 255)},${Math.round(c[1] * 255)},${Math.round(c[2] * 255)},${a == null ? 1 : a})`; }
+
+/* ==================== CANVAS HELPERS ==================== */
+function fit(cv) {
+  const r = cv.getBoundingClientRect(), d = window.devicePixelRatio || 1;
+  const w = Math.max(1, Math.round(r.width * d)), h = Math.max(1, Math.round(r.height * d));
+  if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; }
+  const ctx = cv.getContext('2d');
+  ctx.setTransform(d, 0, 0, d, 0, 0);
+  ctx.clearRect(0, 0, r.width, r.height);
+  return { ctx, w: r.width, h: r.height };
+}
+function font(ctx, px, w) { ctx.font = `${w || 400} ${px}px ${FONT}`; }
+function arrow(ctx, x0, y0, x1, y1, head, col, lw) {
+  const dx = x1 - x0, dy = y1 - y0, L = Math.hypot(dx, dy);
+  if (L < 0.5) return;
+  const ux = dx / L, uy = dy / L, h = Math.min(head, L * 0.5);
+  ctx.strokeStyle = col; ctx.fillStyle = col; ctx.lineWidth = lw;
+  ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1 - ux * h * 0.7, y1 - uy * h * 0.7); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(x1, y1);
+  ctx.lineTo(x1 - ux * h - uy * h * 0.45, y1 - uy * h + ux * h * 0.45);
+  ctx.lineTo(x1 - ux * h + uy * h * 0.45, y1 - uy * h - ux * h * 0.45);
+  ctx.closePath(); ctx.fill();
+}
+/* text with a one-letter subscript, e.g. k_x */
+function subText(ctx, base, sub, x, y, align) {
+  const fs = parseFloat(ctx.font.match(/(\d+(\.\d+)?)px/)[1]);
+  const wb = ctx.measureText(base).width, f0 = ctx.font;
+  ctx.font = f0.replace(/\d+(\.\d+)?px/, (fs * 0.78).toFixed(1) + 'px');
+  const ws = ctx.measureText(sub).width;
+  ctx.font = f0;
+  let x0 = x; if (align === 'center') x0 = x - (wb + ws) / 2; else if (align === 'right') x0 = x - wb - ws;
+  ctx.textAlign = 'left'; ctx.fillText(base, x0, y);
+  ctx.font = f0.replace(/\d+(\.\d+)?px/, (fs * 0.78).toFixed(1) + 'px');
+  ctx.fillText(sub, x0 + wb, y + fs * 0.28);
+  ctx.font = f0;
+}
+const fmt = (x, d) => (Math.abs(x) < 0.5 * Math.pow(10, -d) ? 0 : x).toFixed(d);
+const kFmt = x => P.snap ? String(Math.round(x)) : fmt(x, 2);
+
+/* ==================== K-SPACE PANEL ==================== */
+const offK = document.createElement('canvas'), offI = document.createElement('canvas');
+let kCacheKey = '';
+function renderKImage() {
+  const spotMode = P.kview === 'spot' && SPOT.ix >= 0;
+  const key = [D.id, P.kview, spotMode ? [SPOT.ix, SPOT.iy, SPOT.r].join(',') : ''].join('|');
+  if (key === kCacheKey) return;
+  kCacheKey = key;
+  const { nx, ny } = D;
+  let { kre, kim, kmx } = D;
+  if (spotMode) {
+    const m = new Float64Array(nx * ny);
+    for (let iy = 0; iy < ny; iy++) for (let ix = 0; ix < nx; ix++) if (inSpot(ix, iy)) m[iy * nx + ix] = D.rho[iy * nx + ix];
+    ({ kre, kim, kmx } = dft(m, nx, ny));
+  }
+  const view = P.kview === 'spot' ? 'log' : P.kview;
+  offK.width = nx; offK.height = ny;
+  const ctx = offK.getContext('2d'), img = ctx.createImageData(nx, ny), d = img.data;
+  for (let rI = 0; rI < ny; rI++) for (let c = 0; c < nx; c++) {
+    const i = rI * nx + c, o = ((ny - 1 - rI) * nx + c) * 4;
+    const re = kre[i], im = kim[i], mag = Math.hypot(re, im);
+    let col;
+    if (!(kmx > 0)) col = [0, 0, 0];
+    else if (view === 'log') { const t = mag > 0 ? Math.max(0, 1 + Math.log10(mag / kmx) / 3.5) : 0; col = [t, t, t]; }
+    else if (view === 'mag') { const t = mag / kmx; col = [t, t, t]; }
+    else if (view === 'real') { const t = 0.5 + 0.5 * re / kmx; col = [t, t, t]; }
+    else { col = mag > 1e-9 * kmx ? hue(Math.atan2(im, re)) : [0, 0, 0]; }
+    d[o] = col[0] * 255; d[o + 1] = col[1] * 255; d[o + 2] = col[2] * 255; d[o + 3] = 255;
+  }
+  ctx.putImageData(img, 0, 0);
+}
+let GK = null;
+function drawK() {
+  const { ctx, w, h } = fit($('cvK'));
+  const { nx, ny } = D;
+  const L = 44, R = 18, T = 34, B = 76;
+  const cell = Math.max(1, Math.min((w - L - R) / nx, (h - T - B) / ny));
+  const W = nx * cell, H = ny * cell, x0 = L + (w - L - R - W) / 2, y0 = T + (h - T - B - H) / 2;
+  GK = { x0, y0, cell, W, H };
+  ctx.fillStyle = C.img; ctx.fillRect(x0, y0, W, H);
+  renderKImage();
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(offK, x0, y0, W, H);
+  ctx.strokeStyle = C.line; ctx.lineWidth = 1; ctx.strokeRect(x0 - 0.5, y0 - 0.5, W + 1, H + 1);
+  /* sample grid at coarse matrices */
+  if (cell >= 14) {
+    ctx.strokeStyle = 'rgba(128,140,160,.18)'; ctx.beginPath();
+    for (let c = 1; c < nx; c++) { ctx.moveTo(x0 + c * cell, y0); ctx.lineTo(x0 + c * cell, y0 + H); }
+    for (let r = 1; r < ny; r++) { ctx.moveTo(x0, y0 + r * cell); ctx.lineTo(x0 + W, y0 + r * cell); }
+    ctx.stroke();
+  }
+  /* ticks */
+  const kxs = m => x0 + (m + nx / 2 + 0.5) * cell, kys = n => y0 + (ny / 2 - n - 0.5) * cell;
+  let step = 1; for (const s of [1, 2, 4, 8, 16, 32]) { step = s; if (s * cell >= 26) break; }
+  font(ctx, 10); ctx.fillStyle = C.muted; ctx.strokeStyle = C.axis; ctx.textBaseline = 'top';
+  for (let m = -Math.floor(nx / 2 / step) * step; m <= nx / 2 - 1; m += step) {
+    const x = kxs(m); ctx.beginPath(); ctx.moveTo(x, y0 + H + 1); ctx.lineTo(x, y0 + H + 5); ctx.stroke();
+    ctx.textAlign = 'center'; ctx.fillText(String(m), x, y0 + H + 7);
+  }
+  ctx.textBaseline = 'middle';
+  for (let n = -Math.floor(ny / 2 / step) * step; n <= ny / 2 - 1; n += step) {
+    const y = kys(n); ctx.beginPath(); ctx.moveTo(x0 - 1, y); ctx.lineTo(x0 - 5, y); ctx.stroke();
+    ctx.textAlign = 'right'; ctx.fillText(String(n), x0 - 8, y);
+  }
+  font(ctx, 11); ctx.fillStyle = C.muted; ctx.textBaseline = 'alphabetic';
+  subText(ctx, 'k', 'x', x0 + W / 2, y0 + H + 32, 'center');
+  ctx.save(); ctx.translate(x0 - 30, y0 + H / 2); ctx.rotate(-Math.PI / 2); subText(ctx, 'k', 'y', 0, 0, 'center'); ctx.restore();
+  /* current k */
+  const x = kxs(K.m), y = kys(K.n);
+  ctx.save(); ctx.beginPath(); ctx.rect(x0, y0, W, H); ctx.clip();
+  ctx.strokeStyle = C.ui; ctx.globalAlpha = 0.45; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(x0, y); ctx.lineTo(x0 + W, y); ctx.moveTo(x, y0); ctx.lineTo(x, y0 + H); ctx.stroke();
+  ctx.restore();
+  const rr = Math.max(4, Math.min(9, cell * 0.42));
+  ctx.lineWidth = 2; ctx.strokeStyle = 'rgba(0,0,0,.6)'; ctx.beginPath(); ctx.arc(x, y, rr + 1.5, 0, TAU); ctx.stroke();
+  ctx.strokeStyle = C.ui; ctx.beginPath(); ctx.arc(x, y, rr, 0, TAU); ctx.stroke();
+  if (K.pinned) { ctx.fillStyle = C.ui; ctx.beginPath(); ctx.arc(x, y, Math.max(2, rr * 0.4), 0, TAU); ctx.fill(); }
+  /* legend for the k-space scale */
+  font(ctx, 10); ctx.fillStyle = C.dim; ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+  const lg = { log: '|S| log scale, 3.5 decades', mag: '|S| linear', real: 'Re S, grey = 0', phase: '∠S, colour wheel as image', spot: SPOT.ix >= 0 ? 'spot only: |s| log scale, own maximum' : 'spot only: no spot picked, showing all' }[P.kview];
+  ctx.fillText(lg, x0, y0 + H + 48);
+  $('hintK').textContent = ro.on ? 'readout: kx follows time · point to pick the ky line' : K.pinned ? 'pinned · click to release · arrow keys step' : 'hover to move · click to pin';
+}
+
+/* ==================== IMAGE PANEL ==================== */
+let GI = null;
+function renderIImage() {
+  const { nx, ny, rho, rmax } = D;
+  offI.width = nx; offI.height = ny;
+  const ctx = offI.getContext('2d'), img = ctx.createImageData(nx, ny), d = img.data;
+  for (let iy = 0; iy < ny; iy++) for (let ix = 0; ix < nx; ix++) {
+    const i = iy * nx + ix, o = ((ny - 1 - iy) * nx + ix) * 4, t = rho[i] / rmax;
+    let col;
+    if (P.phase === 'off') col = [t, t, t];
+    else {
+      const hc = hue(-TAU * (K.m * (ix - nx / 2) / nx + K.n * (iy - ny / 2) / ny));
+      const g = t > 0 ? 0.28 + 0.72 * t : (P.phase === 'fov' ? 0.2 : 0);
+      col = [hc[0] * g, hc[1] * g, hc[2] * g];
+    }
+    d[o] = col[0] * 255; d[o + 1] = col[1] * 255; d[o + 2] = col[2] * 255; d[o + 3] = 255;
+  }
+  ctx.putImageData(img, 0, 0);
+}
+function drawI() {
+  renderIImage();
+  const { ctx, w, h } = fit($('cvI'));
+  const { nx, ny } = D;
+  const M = 30, T = 34, B = 76;
+  const S = Math.max(10, Math.min(w - 2 * M, h - T - B));
+  const x0 = (w - S) / 2, y0 = T + (h - T - B - S) / 2, cw = S / nx, ch = S / ny;
+  GI = { x0, y0, S, cw, ch };
+  ctx.fillStyle = C.img; ctx.fillRect(x0, y0, S, S);
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(offI, x0, y0, S, S);
+  ctx.strokeStyle = C.line; ctx.lineWidth = 1; ctx.strokeRect(x0 - 0.5, y0 - 0.5, S + 1, S + 1);
+  if (Math.min(cw, ch) >= 14) {
+    ctx.strokeStyle = 'rgba(128,140,160,.16)'; ctx.beginPath();
+    for (let c = 1; c < nx; c++) { ctx.moveTo(x0 + c * cw, y0); ctx.lineTo(x0 + c * cw, y0 + S); }
+    for (let r = 1; r < ny; r++) { ctx.moveTo(x0, y0 + r * ch); ctx.lineTo(x0 + S, y0 + r * ch); }
+    ctx.stroke();
+  }
+  /* spin arrows, centred on each voxel, pointing along the transverse magnetization */
+  const room = Math.min(cw, ch), arrowsOK = room >= 9;
+  if (P.arrows && arrowsOK) {
+    const col = P.phase === 'off' ? C.sig : '#ffffff';
+    for (const s of D.sp) {
+      const p = phaseOf(s), len = 0.86 * room * (P.arrowLen ? s.r / D.rmax : 1);
+      if (len < 1.5) continue;
+      const cxp = x0 + (s.ix + 0.5) * cw, cyp = y0 + (ny - 1 - s.iy + 0.5) * ch;
+      const dx = 0.5 * len * Math.cos(p), dy = -0.5 * len * Math.sin(p);
+      const hd = Math.max(3, Math.min(9, len * 0.36)), lw = Math.max(1, Math.min(2.4, room * 0.07));
+      arrow(ctx, cxp - dx, cyp - dy, cxp + dx, cyp + dy, hd + 1.4, 'rgba(0,0,0,.55)', lw + 1.8);
+      arrow(ctx, cxp - dx, cyp - dy, cxp + dx, cyp + dy, hd, col, lw);
+    }
+  }
+  /* one wavelength along k, from the FOV centre */
+  const kk = Math.hypot(K.m, K.n);
+  if (P.kvec && kk > 1e-6) {
+    const lam = S / kk, ux = K.m / kk, uy = -K.n / kk;
+    const cx0 = x0 + (nx / 2 + 0.5) * cw, cy0 = y0 + (ny / 2 - 0.5) * ch;
+    ctx.save(); ctx.beginPath(); ctx.rect(x0, y0, S, S); ctx.clip();
+    arrow(ctx, cx0, cy0, cx0 + ux * lam, cy0 + uy * lam, 12, 'rgba(0,0,0,.6)', 4.5);
+    arrow(ctx, cx0, cy0, cx0 + ux * lam, cy0 + uy * lam, 10, C.ui, 2.2);
+    ctx.fillStyle = C.ui; ctx.beginPath(); ctx.arc(cx0, cy0, 3, 0, TAU); ctx.fill();
+    ctx.restore();
+  }
+  /* spot: dim the rest, outline the spot's voxels */
+  if (SPOT.ix >= 0) {
+    ctx.fillStyle = 'rgba(0,0,0,.6)';
+    for (let iy = 0; iy < ny; iy++) for (let ix = 0; ix < nx; ix++)
+      if (!inSpot(ix, iy)) ctx.fillRect(x0 + ix * cw, y0 + (ny - 1 - iy) * ch, cw + 0.5, ch + 0.5);
+    ctx.strokeStyle = C.ui; ctx.lineWidth = 2; ctx.beginPath();
+    for (let iy = 0; iy < ny; iy++) for (let ix = 0; ix < nx; ix++) {
+      if (!inSpot(ix, iy)) continue;
+      const X = x0 + ix * cw, Y = y0 + (ny - 1 - iy) * ch;
+      if (!inSpot(ix - 1, iy)) { ctx.moveTo(X, Y); ctx.lineTo(X, Y + ch); }
+      if (!inSpot(ix + 1, iy)) { ctx.moveTo(X + cw, Y); ctx.lineTo(X + cw, Y + ch); }
+      if (!inSpot(ix, iy + 1)) { ctx.moveTo(X, Y); ctx.lineTo(X + cw, Y); }
+      if (!inSpot(ix, iy - 1)) { ctx.moveTo(X, Y + ch); ctx.lineTo(X + cw, Y + ch); }
+    }
+    ctx.stroke();
+  }
+  /* scale and phase legend */
+  font(ctx, 10); ctx.fillStyle = C.dim; ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+  ctx.fillText(`FOV ${P.fov} mm · ${nx} × ${ny} voxels`, x0, y0 + S + 18);
+  if (ro.on) {
+    const q = ro.info();
+    ctx.fillStyle = C.ui; ctx.textAlign = 'left';
+    ctx.fillText(`← ${fmt(q.lo, 0)} Hz`, x0, y0 + S + 54);
+    ctx.textAlign = 'right'; ctx.fillText(`${fmt(q.hi, 0)} Hz →`, x0 + S, y0 + S + 54);
+    ctx.textAlign = 'center'; ctx.fillText(`readout along x · ${fmt(q.df, 2)} Hz per voxel`, x0 + S / 2, y0 + S + 54);
+    ctx.textAlign = 'left';
+  }
+  if (P.phase !== 'off') drawWheel(ctx, x0 + S - 16, y0 + S + 26, 11);
+  let hint = '';
+  if (ro.on) hint = 'readout: kx follows time · point at k-space to change the ky line';
+  else if (SPOT.pinned) hint = 'spot held · click to release';
+  else if (P.arrows && !arrowsOK) hint = 'arrows hidden: voxels too small at this matrix';
+  else if (P.kvec && kk > 1e-6) hint = 'teal arrow: one wavelength, phase turns once';
+  $('hintI').textContent = hint;
+}
+function drawWheel(ctx, cx, cy, r) {
+  const n = 48;
+  for (let i = 0; i < n; i++) {
+    const a0 = i / n * TAU, a1 = (i + 1.05) / n * TAU;
+    ctx.fillStyle = rgbStr(hue((i + 0.5) / n * TAU));
+    ctx.beginPath(); ctx.arc(cx, cy, r, -a0, -a1, true); ctx.arc(cx, cy, r * 0.55, -a1, -a0, false); ctx.closePath(); ctx.fill();
+  }
+  font(ctx, 9); ctx.fillStyle = C.dim; ctx.textBaseline = 'middle';
+  ctx.textAlign = 'right'; ctx.fillText('phase', cx - r - 16, cy);
+  ctx.textAlign = 'left'; ctx.fillText('0', cx + r + 3, cy);
+  ctx.textAlign = 'right'; ctx.fillText('π', cx - r - 3, cy);
+}
+
+/* ==================== SUM PANEL ==================== */
+function drawS() {
+  const { ctx, w, h } = fit($('cvS'));
+  const T = 34, B = 76;
+  const avail = Math.min(w - 40, h - T - B);
+  const cx = w / 2, cy = T + (h - T - B) / 2, R = 0.46 * avail;
+  const [sr, si] = signal(), S0 = D.S0, mag = Math.hypot(sr, si) / S0;
+  const N = D.sp.length, spotOn = SPOT.ix >= 0;
+  /* zoom */
+  let zoom = 1;
+  if (P.zoom) {
+    if (P.sum === 'fan') {
+      let m2 = mag;
+      if (spotOn) { const q = spotSignal(); m2 = Math.max(m2, Math.hypot(q[0], q[1]) / S0); }
+      zoom = m2 > 1e-6 ? 0.92 / m2 : 1e4;
+    }
+    else {
+      let a = 0, b = 0, dm = 0;
+      for (const s of D.sp) { const p = phaseOf(s); a += s.r * Math.cos(p); b += s.r * Math.sin(p); dm = Math.max(dm, Math.hypot(a, b)); }
+      zoom = dm > 1e-9 ? 0.92 * S0 / dm : 1e4;
+    }
+    zoom = Math.min(1e4, Math.max(1, zoom));
+  }
+  /* axes */
+  ctx.strokeStyle = C.grid; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(cx - R * 1.08, cy); ctx.lineTo(cx + R * 1.08, cy); ctx.moveTo(cx, cy - R * 1.08); ctx.lineTo(cx, cy + R * 1.08); ctx.stroke();
+  ctx.strokeStyle = C.axis; ctx.setLineDash([3, 4]);
+  ctx.beginPath(); ctx.arc(cx, cy, R, 0, TAU); ctx.stroke(); ctx.setLineDash([]);
+  font(ctx, 10); ctx.fillStyle = C.dim; ctx.textBaseline = 'alphabetic';
+  ctx.textAlign = 'left'; subText(ctx, 'M', 'x', cx + R * 1.08 + 4, cy + 4, 'left');
+  subText(ctx, 'M', 'y', cx + 5, cy - R * 1.08 + 2, 'left');
+  const tf = 0.5 + 0.5 / Math.sqrt(Math.max(1, N));
+  const spinCol = p => P.phase === 'off' ? C.spin : rgbStr(hue(p));
+  if (P.sum === 'fan') {
+    /* every spin from the common origin; the longest is one circle radius */
+    const a0 = Math.min(0.95, Math.max(0.12, 3 / Math.sqrt(N))), lw = N > 400 ? 1 : 1.6;
+    const sel = [];
+    for (const s of D.sp) {
+      if (spotOn && inSpot(s.ix, s.iy)) { sel.push(s); continue; }
+      const p = phaseOf(s), L = R * s.r / D.rmax;
+      const x1 = cx + L * Math.cos(p), y1 = cy - L * Math.sin(p);
+      ctx.globalAlpha = spotOn ? a0 * 0.3 : a0;
+      if (N <= 64) arrow(ctx, cx, cy, x1, y1, 8, spinCol(p), lw);
+      else { ctx.strokeStyle = spinCol(p); ctx.lineWidth = lw; ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(x1, y1); ctx.stroke(); }
+    }
+    ctx.globalAlpha = Math.min(1, Math.max(0.35, 4 / Math.sqrt(Math.max(1, sel.length))));
+    for (const s of sel) {
+      const p = phaseOf(s), L = R * s.r / D.rmax;
+      arrow(ctx, cx, cy, cx + L * Math.cos(p), cy - L * Math.sin(p), sel.length <= 30 ? 9 : 0.1, spinCol(p), 2);
+    }
+    ctx.globalAlpha = 1;
+  } else {
+    /* head to tail, row by row; the chain ends at the sum */
+    const sc = R * zoom / S0;
+    let a = 0, b = 0;
+    ctx.lineWidth = N > 1500 ? 1.2 : 1.8; ctx.lineCap = 'round';
+    const few = N <= 40, lw0 = ctx.lineWidth, hi = [];
+    for (const s of D.sp) {
+      const p = phaseOf(s), a1 = a + s.r * Math.cos(p), b1 = b + s.r * Math.sin(p);
+      const X0 = cx + a * sc, Y0 = cy - b * sc, X1 = cx + a1 * sc, Y1 = cy - b1 * sc;
+      const on = spotOn && inSpot(s.ix, s.iy);
+      if (on) hi.push([X0, Y0, X1, Y1]);
+      ctx.globalAlpha = spotOn ? 0.25 : 1;
+      if (few) arrow(ctx, X0, Y0, X1, Y1, 9, spinCol(p), 1.8);
+      else { ctx.strokeStyle = spinCol(p); ctx.lineWidth = lw0; ctx.beginPath(); ctx.moveTo(X0, Y0); ctx.lineTo(X1, Y1); ctx.stroke(); }
+      a = a1; b = b1;
+    }
+    ctx.globalAlpha = 1;
+    for (const q of hi) {
+      if (few) arrow(ctx, q[0], q[1], q[2], q[3], 10, C.ui, 3);
+      else { ctx.strokeStyle = C.ui; ctx.lineWidth = lw0 + 1.6; ctx.beginPath(); ctx.moveTo(q[0], q[1]); ctx.lineTo(q[2], q[3]); ctx.stroke(); }
+    }
+    ctx.lineCap = 'butt';
+  }
+  /* total magnetization */
+  const sc2 = R * zoom;
+  const X = cx + sc2 * sr / S0, Y = cy - sc2 * si / S0;
+  if (Math.hypot(X - cx, Y - cy) > 2) {
+    arrow(ctx, cx, cy, X, Y, 15, 'rgba(0,0,0,.55)', 6);
+    arrow(ctx, cx, cy, X, Y, 13, C.sig, 3.4);
+  } else { ctx.fillStyle = C.sig; ctx.beginPath(); ctx.arc(cx, cy, 3.5, 0, TAU); ctx.fill(); }
+  /* the spot's contribution, same scale as the total */
+  let sp = null;
+  if (spotOn) {
+    sp = spotSignal();
+    const Xs = cx + sc2 * sp[0] / S0, Ys = cy - sc2 * sp[1] / S0;
+    if (Math.hypot(Xs - cx, Ys - cy) > 2) {
+      arrow(ctx, cx, cy, Xs, Ys, 13, 'rgba(0,0,0,.55)', 5);
+      arrow(ctx, cx, cy, Xs, Ys, 11, C.ui, 2.6);
+    } else { ctx.fillStyle = C.ui; ctx.beginPath(); ctx.arc(cx, cy, 3, 0, TAU); ctx.fill(); }
+  }
+  /* text */
+  font(ctx, 11); ctx.textAlign = 'left'; ctx.fillStyle = C.text; ctx.textBaseline = 'alphabetic';
+  const yb = cy + Math.min(R * 1.08 + 24, (h - B) - cy + 24);
+  const deg = Math.atan2(si, sr) * 180 / Math.PI;
+  ctx.fillStyle = C.sig; ctx.fillText('■', 14, yb);
+  ctx.fillStyle = C.text; ctx.fillText(`total  |S|/S(0) = ${fmt(mag, 3)}   ∠S = ${mag > 1e-9 ? fmt(deg, 0) + '°' : '—'}`, 30, yb);
+  font(ctx, 10); ctx.fillStyle = C.dim;
+  const line2 = P.sum === 'fan'
+    ? `${N} spins from one origin · longest = circle · total: circle = S(0)`
+    : `${N} spins head to tail · straight chain = S(0) = circle`;
+  ctx.fillText(line2, 14, yb + 16);
+  if (sp) {
+    const sm = Math.hypot(sp[0], sp[1]) / S0, S2 = sr * sr + si * si;
+    const share = S2 > 1e-18 * S0 * S0 ? (sp[0] * sr + sp[1] * si) / S2 : NaN;
+    font(ctx, 11); ctx.fillStyle = C.ui; ctx.fillText('■', 14, yb + 36);
+    ctx.fillStyle = C.text;
+    ctx.fillText(`spot   |s|/S(0) = ${fmt(sm, 3)}   share of S = ${isFinite(share) ? fmt(100 * share, 0) + '%' : '—'}`, 30, yb + 36);
+    font(ctx, 10); ctx.fillStyle = C.dim;
+    ctx.fillText(`${sp[2]} spins in the spot, highlighted; the rest dimmed`, 14, yb + 52);
+  }
+  $('hintS').textContent = zoom > 1.0001 ? `zoom ×${zoom < 10 ? zoom.toFixed(1) : Math.round(zoom)} (circle no longer S(0))` : '';
+}
+
+/* ==================== READOUT ==================== */
+function readout() {
+  const [sr, si] = signal(), mag = Math.hypot(sr, si) / D.S0;
+  const kk = Math.hypot(K.m, K.n);
+  $('rK').textContent = `(${kFmt(K.m)}, ${kFmt(K.n)})`;
+  $('rKmm').textContent = `${fmt(K.m / P.fov, 4)}, ${fmt(K.n / P.fov, 4)}`;
+  $('rLam').textContent = kk > 1e-6 ? `${fmt(P.fov / kk, 1)} mm` : '∞';
+  $('rDphx').textContent = `${fmt(-360 * K.m / D.nx, 1)}°`;
+  $('rDphy').textContent = `${fmt(-360 * K.n / D.ny, 1)}°`;
+  $('rMag').textContent = fmt(mag, 4);
+  $('rAng').textContent = mag > 1e-9 ? `${fmt(Math.atan2(si, sr) * 180 / Math.PI, 1)}°` : '—';
+  $('rNs').textContent = `${D.sp.length} of ${D.nx * D.ny}`;
+  if (SPOT.ix >= 0) {
+    const sp = spotSignal(), S2 = sr * sr + si * si;
+    $('rSpot').textContent = fmt(Math.hypot(sp[0], sp[1]) / D.S0, 4);
+    $('rShare').textContent = S2 > 1e-18 * D.S0 * D.S0 ? `${fmt(100 * (sp[0] * sr + sp[1] * si) / S2, 1)}%` : '—';
+  } else { $('rSpot').textContent = '—'; $('rShare').textContent = '—'; }
+  $('vSpotR').textContent = SPOT.r === 0 ? 'one voxel' : `${SPOT.r} voxels (${fmt(SPOT.r * P.fov / D.nx, 0)} mm)`;
+  const vx = P.fov / D.nx, vy = P.fov / D.ny;
+  $('rVox').textContent = Math.abs(vx - vy) < 1e-9 ? `${fmt(vx, 2)} mm` : `${fmt(vx, 2)} × ${fmt(vy, 2)} mm`;
+  $('rDk').textContent = `${fmt(1 / P.fov, 5)} mm⁻¹`;
+  const kx = 1 / (2 * vx), ky = 1 / (2 * vy);
+  $('rKmax').textContent = Math.abs(kx - ky) < 1e-12 ? `${fmt(kx, 4)} mm⁻¹` : `${fmt(kx, 3)}, ${fmt(ky, 3)} mm⁻¹`;
+}
+
+/* ==================== DRAW ==================== */
+let raf = 0;
+function draw() {
+  if (raf) return;
+  raf = requestAnimationFrame(() => { raf = 0; readTheme(); drawK(); drawI(); drawS(); readout(); sound.update(); ro.info(); ro.sync(); });
+}
+function clearSpot() { SPOT.ix = SPOT.iy = -1; SPOT.pinned = false; }
+function rebuild() { build(); clampK(); clearSpot(); draw(); }
+
+/* ==================== INTERACTION ==================== */
+function kFromPointer(e, strict) {
+  if (!GK) return null;
+  const r = $('cvK').getBoundingClientRect(), px = e.clientX - r.left, py = e.clientY - r.top;
+  const pad = strict ? 0 : 0.5 * GK.cell;
+  if (px < GK.x0 - pad || px > GK.x0 + GK.W + pad || py < GK.y0 - pad || py > GK.y0 + GK.H + pad) return null;
+  return [(px - GK.x0) / GK.cell - D.nx / 2 - 0.5, D.ny / 2 - 0.5 - (py - GK.y0) / GK.cell];
+}
+function setK(m, n) {
+  const om = K.m, on = K.n;
+  if (ro.on) m = K.m;   /* during a readout, time sets kx; pointing only chooses the ky line */
+  K.m = m; K.n = n; clampK();
+  if (K.m !== om || K.n !== on) draw();
+}
+function setPinned(v) { K.pinned = v; $('bPin').setAttribute('aria-pressed', String(v)); $('bPin').textContent = v ? 'Release' : 'Pin'; draw(); }
+const cvK = $('cvK');
+cvK.addEventListener('pointermove', e => {
+  if (e.pointerType === 'mouse') { if (K.pinned) return; }
+  else if (!e.buttons) return;
+  const k = kFromPointer(e, false); if (k) setK(k[0], k[1]);
+});
+cvK.addEventListener('pointerdown', e => {
+  const k = kFromPointer(e, false);
+  if (e.pointerType === 'mouse') {
+    if (e.button !== 0) return;
+    if (!k) return;
+    setK(k[0], k[1]); setPinned(!K.pinned);
+  } else {
+    cvK.setPointerCapture(e.pointerId);
+    if (k) setK(k[0], k[1]);
+  }
+});
+const cvI = $('cvI');
+function voxFromPointer(e) {
+  if (!GI) return null;
+  const r = cvI.getBoundingClientRect(), px = e.clientX - r.left - GI.x0, py = e.clientY - r.top - GI.y0;
+  if (px < 0 || py < 0 || px >= GI.S || py >= GI.S) return null;
+  return [Math.min(D.nx - 1, Math.floor(px / GI.cw)), Math.max(0, D.ny - 1 - Math.floor(py / GI.ch))];
+}
+function setSpot(v) {
+  const ix = v ? v[0] : -1, iy = v ? v[1] : -1;
+  if (ix !== SPOT.ix || iy !== SPOT.iy) { SPOT.ix = ix; SPOT.iy = iy; draw(); }
+}
+cvI.addEventListener('pointermove', e => {
+  if (SPOT.pinned) return;
+  if (e.pointerType !== 'mouse' && !e.buttons) return;
+  const v = voxFromPointer(e); if (v || e.pointerType === 'mouse') setSpot(v);
+});
+cvI.addEventListener('pointerleave', e => { if (!SPOT.pinned && e.pointerType === 'mouse') setSpot(null); });
+cvI.addEventListener('pointerdown', e => {
+  const v = voxFromPointer(e);
+  if (e.pointerType === 'mouse' && e.button !== 0) return;
+  if (!v) { if (SPOT.pinned) { SPOT.pinned = false; draw(); } return; }
+  if (e.pointerType === 'mouse') { setSpot(v); SPOT.pinned = !SPOT.pinned; draw(); }
+  else { SPOT.pinned = true; setSpot(v); draw(); }
+});
+$('sSpotR').addEventListener('input', e => { SPOT.r = +e.target.value; draw(); });
+$('bSpotClr').addEventListener('click', () => { clearSpot(); draw(); });
+document.addEventListener('keydown', e => {
+  if (!$('about').hidden) return;
+  const map = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, 1], ArrowDown: [0, -1] };
+  if (!map[e.key]) return;
+  if (e.target.closest && e.target.closest('input,select,textarea')) return;
+  e.preventDefault();
+  const st = e.shiftKey ? 4 : 1;
+  if (!K.pinned) setPinned(true);
+  setK(Math.round(K.m) + map[e.key][0] * st, Math.round(K.n) + map[e.key][1] * st);
+});
+$('bPin').addEventListener('click', () => setPinned(!K.pinned));
+$('bK0').addEventListener('click', () => { setPinned(true); setK(0, 0); });
+$('bKx1').addEventListener('click', () => { setPinned(true); setK(1, 0); });
+$('bKmax').addEventListener('click', () => { setPinned(true); setK(-D.nx / 2, 0); });
+
+/* controls */
+function syncRes() {
+  $('sNx').value = P.nx; $('sNy').value = P.ny; $('sFov').value = P.fov;
+  $('vNx').textContent = P.nx; $('vNy').textContent = P.ny; $('vFov').textContent = P.fov + ' mm';
+  $('cLink').checked = P.link; $('sNy').disabled = P.link; $('ctlNy').classList.toggle('off', P.link);
+}
+$('sNx').addEventListener('input', e => { P.nx = +e.target.value; if (P.link) P.ny = P.nx; syncRes(); rebuild(); });
+$('sNy').addEventListener('input', e => { P.ny = +e.target.value; syncRes(); rebuild(); });
+$('cLink').addEventListener('change', e => { P.link = e.target.checked; if (P.link) P.ny = P.nx; syncRes(); rebuild(); });
+$('sFov').addEventListener('input', e => { P.fov = +e.target.value; syncRes(); draw(); });
+document.querySelectorAll('button[data-n]').forEach(b => b.addEventListener('click', () => {
+  P.nx = P.ny = +b.dataset.n; P.link = true; syncRes(); rebuild();
+}));
+$('phantom').addEventListener('change', e => { P.phantom = e.target.value; $('note').innerHTML = NOTES[P.phantom] + NOTE_ALL; rebuild(); });
+$('kview').addEventListener('change', e => { P.kview = e.target.value; renderKImage(); draw(); });
+$('cSnap').addEventListener('change', e => { P.snap = e.target.checked; clampK(); draw(); });
+$('phase').addEventListener('change', e => { P.phase = e.target.value; draw(); });
+function syncArrows() { $('lArrowLen').classList.toggle('off', !P.arrows); $('cArrowLen').disabled = !P.arrows; }
+$('cArrows').addEventListener('change', e => { P.arrows = e.target.checked; syncArrows(); draw(); });
+$('cArrowLen').addEventListener('change', e => { P.arrowLen = e.target.checked; draw(); });
+$('cKvec').addEventListener('change', e => { P.kvec = e.target.checked; draw(); });
+function setSum(v) { P.sum = v; $('bFan').setAttribute('aria-pressed', String(v === 'fan')); $('bChain').setAttribute('aria-pressed', String(v === 'chain')); draw(); }
+$('bFan').addEventListener('click', () => setSum('fan'));
+$('bChain').addEventListener('click', () => setSum('chain'));
+$('cZoom').addEventListener('change', e => { P.zoom = e.target.checked; draw(); });
+
+new ResizeObserver(() => draw()).observe(document.querySelector('main'));
+$('theme').addEventListener('click', () => {
+  const root = document.documentElement, dark = root.getAttribute('data-theme') !== 'light';
+  root.setAttribute('data-theme', dark ? 'light' : 'dark'); $('theme').textContent = dark ? 'Dark' : 'Light'; draw();
+});
+
+/* ==================== ABOUT ==================== */
+/* ==================== SOUND ==================== */
+/* Two phase-locked oscillators, cosine and sine at the carrier, weighted by Re S and Im S:
+   out(t) = Re{S*·e^{i2πft}}/S(0) = (Re S·cos 2πft + Im S·sin 2πft)/S(0). */
+let AC_ = null;
+function audioCtx() {
+  const AC = window.AudioContext || window.webkitAudioContext;
+  if (!AC) return null;
+  if (!AC_) AC_ = new AC();
+  if (AC_.state === 'suspended') AC_.resume();
+  return AC_;
+}
+const sound = (() => {
+  let ac = null, gC = null, gS = null, master = null, oC = null, oS = null, on = false;
+  const SM = 0.02;
+  function amp() {
+    let a, b;
+    if ($('sndSrc').value === 'spot') { if (SPOT.ix < 0) return [0, 0]; [a, b] = spotSignal(); }
+    else [a, b] = signal();
+    a /= D.S0; b /= D.S0;
+    const m = Math.hypot(a, b);
+    if ($('sndMap').value === 'log' && m > 0) {
+      const g = Math.max(0, 1 + 20 * Math.log10(m) / 60);
+      a *= g / m; b *= g / m;
+    }
+    return [a, b];
+  }
+  function level() {
+    let a, b;
+    if ($('sndSrc').value === 'spot') { if (SPOT.ix < 0) return null; [a, b] = spotSignal(); } else [a, b] = signal();
+    return Math.hypot(a, b) / D.S0;
+  }
+  function start() {
+    ac = audioCtx();
+    if (!ac) { $('rLvl').textContent = 'no Web Audio'; return; }
+    if (ro.on) ro.stop();
+    master = ac.createGain(); master.gain.value = 0; master.connect(ac.destination);
+    gC = ac.createGain(); gS = ac.createGain(); gC.connect(master); gS.connect(master);
+    const f = +$('sFc').value;
+    oC = ac.createOscillator(); oS = ac.createOscillator();
+    oC.setPeriodicWave(ac.createPeriodicWave(new Float32Array([0, 1]), new Float32Array([0, 0])));  // cos
+    oS.setPeriodicWave(ac.createPeriodicWave(new Float32Array([0, 0]), new Float32Array([0, 1])));  // sin
+    oC.frequency.value = f; oS.frequency.value = f;
+    oC.connect(gC); oS.connect(gS);
+    const [a, b] = amp(); gC.gain.value = a; gS.gain.value = b;
+    const t0 = ac.currentTime + 0.03; oC.start(t0); oS.start(t0);
+    master.gain.setTargetAtTime(0.4 * (+$('sVol').value / 100), t0, 0.03);
+    on = true; ui();
+  }
+  function stop() {
+    if (!on) return;
+    const t = ac.currentTime, m = master, c = oC, s2 = oS;
+    m.gain.cancelScheduledValues(t); m.gain.setTargetAtTime(0, t, 0.03);
+    c.stop(t + 0.25); s2.stop(t + 0.25);
+    setTimeout(() => { try { m.disconnect(); } catch (e) { /* already gone */ } }, 400);
+    on = false; ui();
+  }
+  function ui() { $('bPlay').textContent = on ? 'Stop' : 'Play'; $('bPlay').setAttribute('aria-pressed', String(on)); }
+  function update() {
+    const L = D ? level() : null;
+    $('rLvl').textContent = L == null ? 'no spot' : (L > 1e-6 ? `${fmt(20 * Math.log10(L), 1)} dB` : '−∞ dB');
+    $('vFc').textContent = $('sFc').value + ' Hz';
+    $('vVol').textContent = $('sVol').value + '%';
+    if (!on) return;
+    const t = ac.currentTime, [a, b] = amp(), f = +$('sFc').value;
+    gC.gain.setTargetAtTime(a, t, SM); gS.gain.setTargetAtTime(b, t, SM);
+    oC.frequency.setTargetAtTime(f, t, SM); oS.frequency.setTargetAtTime(f, t, SM);
+    master.gain.setTargetAtTime(0.4 * (+$('sVol').value / 100), t, SM);
+  }
+  return { start, stop, update, get on() { return on; } };
+})();
+/* Readout: kx(t) = −N/2 + N·t/T over T = 1/Δf, at the chosen ky. The audio buffer holds one sweep,
+   y(t) = Re{S*(kx(t), ky)·e^{i2πf_c t}}/S(0), computed sample by sample and looped. */
+const BWS = [0.5, 1, 2, 3, 5, 8, 12, 20, 30, 50, 80];
+const ro = (() => {
+  let ac = null, src = null, g = null, master = null, on = false, t0 = 0, key = '', anim = 0;
+  const Q = { T: 1, df: 1, fc: 440, L: 0, lo: 0, hi: 0 };
+  function params(fs) {
+    const N = D.nx, dfReq = BWS[+$('sBw').value];
+    Q.L = Math.round(fs / dfReq); Q.T = Q.L / fs; Q.df = 1 / Q.T;
+    const fmin = (N / 2) * Q.df + 30;
+    Q.fc = (+$('sFc').value < fmin ? Math.ceil(fmin / Q.df) : Math.round(+$('sFc').value / Q.df)) * Q.df;
+    Q.lo = Q.fc - (N / 2) * Q.df; Q.hi = Q.fc + (N / 2 - 1) * Q.df;
+    Q.raised = +$('sFc').value < fmin;
+  }
+  function synth() {
+    const fs = ac.sampleRate, { nx, ny } = D;
+    params(fs);
+    /* column projections at this ky: A[ix] = Σ_iy ρ·e^{−i2π ky v} */
+    const spotOnly = $('sndSrc').value === 'spot', Ar = new Float64Array(nx), Ai = new Float64Array(nx);
+    for (const s of D.sp) {
+      if (spotOnly && !inSpot(s.ix, s.iy)) continue;
+      const p = -TAU * K.n * s.v; Ar[s.ix] += s.r * Math.cos(p); Ai[s.ix] += s.r * Math.sin(p);
+    }
+    const L = Q.L, buf = ac.createBuffer(1, L, fs), y = buf.getChannelData(0);
+    const comp = $('sndMap').value === 'log', S0 = D.S0;
+    const us = []; for (let ix = 0; ix < nx; ix++) us.push((ix - nx / 2) / nx);
+    const zr = new Float64Array(nx), zi = new Float64Array(nx), wr = new Float64Array(nx), wi = new Float64Array(nx);
+    for (let ix = 0; ix < nx; ix++) { const d = -TAU * (nx / L) * us[ix]; wr[ix] = Math.cos(d); wi[ix] = Math.sin(d); }
+    for (let i = 0; i < L; i++) {
+      if (i % 256 === 0) {   /* exact phasors every 256 samples, rotated in between */
+        const kx = -nx / 2 + nx * i / L;
+        for (let ix = 0; ix < nx; ix++) { const p = -TAU * kx * us[ix]; zr[ix] = Math.cos(p); zi[ix] = Math.sin(p); }
+      }
+      let a = 0, b = 0;
+      for (let ix = 0; ix < nx; ix++) {
+        const ar = Ar[ix], ai = Ai[ix]; if (ar === 0 && ai === 0) continue;
+        a += ar * zr[ix] - ai * zi[ix]; b += ar * zi[ix] + ai * zr[ix];
+      }
+      for (let ix = 0; ix < nx; ix++) { const r = zr[ix] * wr[ix] - zi[ix] * wi[ix]; zi[ix] = zr[ix] * wi[ix] + zi[ix] * wr[ix]; zr[ix] = r; }
+      a /= S0; b /= S0;
+      if (comp) { const m = Math.hypot(a, b); if (m > 0) { const gg = Math.max(0, 1 + 20 * Math.log10(m) / 60) / m; a *= gg; b *= gg; } }
+      const th = TAU * Q.fc * i / fs;
+      y[i] = a * Math.cos(th) + b * Math.sin(th);
+    }
+    return buf;
+  }
+  function keyNow() {
+    const spotK = $('sndSrc').value === 'spot' ? [SPOT.ix, SPOT.iy, SPOT.r].join(',') : '';
+    return [D.id, K.n, $('sndSrc').value, $('sndMap').value, $('sBw').value, $('sFc').value, spotK].join('|');
+  }
+  function launch(fresh) {
+    const buf = synth(), now = ac.currentTime, ts = now + 0.03;
+    if (fresh || !(src && src.buffer && Math.abs(src.buffer.duration - Q.T) < 1e-9)) t0 = ts;
+    const off = ((ts - t0) % Q.T + Q.T) % Q.T;
+    const s2 = ac.createBufferSource(), g2 = ac.createGain();
+    s2.buffer = buf; s2.loop = true; s2.connect(g2); g2.connect(master);
+    g2.gain.setValueAtTime(0, now); g2.gain.setTargetAtTime(1, ts, 0.01);
+    s2.start(ts, off);
+    if (src) { const os = src, og = g; og.gain.setTargetAtTime(0, ts, 0.01); os.stop(ts + 0.12); }
+    src = s2; g = g2; key = keyNow();
+  }
+  function start() {
+    ac = audioCtx(); if (!ac) return;
+    if (sound.on) sound.stop();
+    master = ac.createGain(); master.gain.value = 0.4 * (+$('sVol').value / 100); master.connect(ac.destination);
+    on = true; launch(true); ui();
+    const tick = () => { if (!on) return; frame(); anim = requestAnimationFrame(tick); };
+    anim = requestAnimationFrame(tick);
+  }
+  function stop() {
+    if (!on) return;
+    on = false; cancelAnimationFrame(anim);
+    const t = ac.currentTime, m = master, s2 = src;
+    m.gain.setTargetAtTime(0, t, 0.02); if (s2) s2.stop(t + 0.15);
+    setTimeout(() => { try { m.disconnect(); } catch (e) { /* gone */ } }, 300);
+    src = null; g = null;
+    clampK(); ui(); draw();
+  }
+  function frame() {
+    const frac = (((ac.currentTime - t0) % Q.T) + Q.T) % Q.T / Q.T;
+    K.m = -D.nx / 2 + D.nx * frac;
+    draw();
+  }
+  function sync() {
+    if (!on) return;
+    master.gain.setTargetAtTime(0.4 * (+$('sVol').value / 100), ac.currentTime, 0.02);
+    if (keyNow() !== key) launch(false);
+  }
+  function ui() { $('bRead').textContent = on ? 'Stop readout' : 'Play readout'; $('bRead').setAttribute('aria-pressed', String(on)); }
+  function info() {
+    params(ac ? ac.sampleRate : 48000);
+    $('vBw').textContent = BWS[+$('sBw').value] + ' Hz';
+    $('rRoT').textContent = Q.T >= 1 ? `${fmt(Q.T, 2)} s` : `${fmt(1000 * Q.T, 0)} ms`;
+    $('rRoF').textContent = `${fmt(Q.lo, 0)} – ${fmt(Q.hi, 0)} Hz`;
+    $('roNote').textContent = Q.raised ? `Carrier raised to ${fmt(Q.fc, 0)} Hz so the lowest note stays above 30 Hz.` : '';
+    return Q;
+  }
+  return { start, stop, sync, info, get on() { return on; }, _synth: (c) => { ac = c; return synth(); } };
+})();
+$('bRead').addEventListener('click', () => { ro.on ? ro.stop() : ro.start(); });
+for (const id of ['sBw']) $(id).addEventListener('input', () => draw());
+$('bPlay').addEventListener('click', () => { sound.on ? sound.stop() : sound.start(); sound.update(); });
+for (const id of ['sFc', 'sVol']) $(id).addEventListener('input', () => { sound.update(); draw(); });
+for (const id of ['sndSrc', 'sndMap']) $(id).addEventListener('change', () => { sound.update(); draw(); });
+document.addEventListener('visibilitychange', () => { if (document.hidden) { sound.stop(); ro.stop(); } });
+
+const VERSION = '0.4.0';
+const AUTHORS = 'Designed by Filip Sz (Lund University) and coded by Claude (Anthropic)';
+const CHANGELOG = [
+  ['0.4.0', '2026-11-07',
+   'Readout: Play readout switches on a read gradient along x. kx sweeps the line in real time (duration 1/Δf), the arrows ' +
+   'turn at rates proportional to x, and the sound is the received signal, a chord with one note per column at ' +
+   'f_c + n·Δf whose envelope is the echo |S(kx(t))|. Bandwidth per voxel 0.5–80 Hz; carrier 100–2000 Hz, raised ' +
+   'automatically to keep the lowest note above 30 Hz. Pointing at k-space during a readout chooses the ky line. The ' +
+   'steady tone now uses Re{S*·e^{i2πft}}, so +x (higher field) sounds higher.'],
+  ['0.3.0', '2026-11-07',
+   'Sound: plays the summed signal as a tone on an audible carrier (200–500 Hz). Two phase-locked oscillators, cosine and ' +
+   'sine, are weighted by Re S and −Im S, so the tone carries the amplitude and phase of S(k), or of the spot alone. ' +
+   'Follows k and the spot live; linear or compressed (60 dB) loudness, volume, and a level readout in dB re S(0).'],
+  ['0.2.0', '2026-11-07',
+   'MR brain object: an axial slice of the ICBM 2009a T1-weighted template (MNI152). Spot in the image: hover to pick ' +
+   'a spot (one voxel or a disc up to 12 voxels in radius), click to hold it. The rest of the image dims, the spot\'s spins ' +
+   'are highlighted on the right and their sum is drawn as a teal arrow at the same scale as the total, with its magnitude ' +
+   'and its share of S(k). New k-space view of the spot alone.'],
+  ['0.1.0', '2026-11-07',
+   'First version. Three linked panels: k-space (log or linear magnitude, real part or phase), the image with ' +
+   'each voxel\'s transverse magnetization at the chosen k (spin arrows and optional phase colour on the object or ' +
+   'the whole FOV, plus one wavelength along k), and all spins gathered from a common origin or head to tail with ' +
+   'their sum. k follows the mouse; click to pin, arrow keys to step. Objects: single point, two points, rectangle, ' +
+   'disc, grating and Shepp–Logan. Matrix 4–64 per axis (square or not) and FOV 100–400 mm; readout of k, wavelength, ' +
+   'phase step per voxel and S(k).']
+];
+$('ver').textContent = 'v' + VERSION;
+$('credit').textContent = `Fourier sim v${VERSION} · ${AUTHORS}`;
+document.querySelector('#about .by').textContent = AUTHORS;
+$('changelog').innerHTML = CHANGELOG.map(([v, d, t], i) => `<div class="rel"><h5>${v} <em>· ${i === 0 ? 'current, ' : ''}${d}</em></h5><p>${t}</p></div>`).join('');
+{
+  const about = $('about'), close = () => { about.hidden = true; $('ver').focus(); };
+  $('ver').addEventListener('click', () => { about.hidden = false; about.querySelector('.sheet').scrollTop = 0; $('aboutClose').focus({ preventScroll: true }); });
+  $('aboutClose').addEventListener('click', close);
+  about.addEventListener('click', e => { if (e.target === about) close(); });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && !about.hidden) close(); });
+}
+
+/* ==================== GO ==================== */
+syncRes(); syncArrows();
+$('note').innerHTML = NOTES[P.phantom] + NOTE_ALL;
+readTheme(); build(); clampK(); draw();
+</script>
+<script>
+/* House style (shared by the MRI simulators): one light/dark preference for the
+   whole suite. The saved choice (or the operating-system setting on a first
+   visit) is applied by clicking the app's own theme button, so each app redraws
+   through its usual path. The button always names the theme it switches TO. */
+(function () {
+  "use strict";
+  var KEY = "mrisim.theme", LEGACY = [];
+  function saved() {
+    try {
+      var keys = [KEY].concat(LEGACY);
+      for (var i = 0; i < keys.length; i++) {
+        var v = localStorage.getItem(keys[i]);
+        if (v === "light" || v === "dark") return v;
+      }
+    } catch (e) { /* storage can be unavailable for file:// pages */ }
+    return null;
+  }
+  window.addEventListener("load", function () {
+    setTimeout(function () {
+      var btn = document.getElementById("theme");
+      if (!btn) return;
+      var root = document.documentElement;
+      var cur = function () { return root.getAttribute("data-theme") === "light" ? "light" : "dark"; };
+      var label = function () { btn.textContent = cur() === "dark" ? "Light" : "Dark"; };
+      var want = saved() || (window.matchMedia &&
+        window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark");
+      if (want !== cur()) btn.click();
+      label();
+      btn.addEventListener("click", function () {
+        label();
+        try { localStorage.setItem(KEY, cur()); } catch (e) { /* file:// */ }
+      });
+    }, 0);
+  });
+})();
+</script>
+</body>
+</html>

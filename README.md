@@ -17,10 +17,12 @@ credits and changelog under the version chip in its header.
 | [`mriFieldSim.html`](#mrifieldsimhtml--field-sim) | Gradient and concomitant (Maxwell) fields |
 | [`mriInductSim.html`](#mriinductsimhtml--induction-sim) | Signal induction in a receive coil |
 | [`mriSliceSim.html`](#mrislicesimhtml--slice-sim) | Slice-selective excitation and the rewinder |
+| [`mriBandwidthSim.html`](#mribandwidthsimhtml--bandwidth-sim) | Slice thickness, FOV, voxel size and fat shift from gradients and bandwidth |
 | [`mriReadoutSim.html`](#mrireadoutsimhtml--readout-sim) | K-space trajectories in spin-echo imaging |
 | [`mriArtifactSim.html`](#mriartifactsimhtml--artifact-sim) | Image artifacts from the signal equation |
 | [`mriBTensorSim.html`](#mribtensorsimhtml--b-tensor-sim) | b-tensor glyphs from tensors or gradient waveforms |
 | [`mriBuildSim.html`](#mribuildsimhtml--build-sim) | Building pulse sequences from RF, gradient and ADC blocks |
+| [`mriFourierSim.html`](#mrifouriersimhtml--fourier-sim) | How every voxel contributes to one point in k-space |
 
 ## How to use
 
@@ -85,6 +87,24 @@ spectrum onto position, f = γ̄G<sub>s</sub>x. Lecture presets step from RF
 alone to slice selection with and without a rewinder, then to multiband. The
 model is the rotating-frame Bloch equation without relaxation.
 
+## `mriBandwidthSim.html` — Bandwidth sim
+
+![Bandwidth sim](docs/img/mriBandwidthSim.png)
+
+How a gradient turns frequency into position, used twice. In slice selection,
+the band of frequencies in the RF pulse meets the resonance line
+f = γ̄G<sub>s</sub>z, which gives Δz = BW<sub>rf</sub>/(γ̄G<sub>s</sub>) and the
+slice position f<sub>0</sub>/(γ̄G<sub>s</sub>). In the readout, the receiver band
+±BW/2 spans FOV = BW/(γ̄G<sub>r</sub>), and the N samples split it into N bins,
+one per voxel. A zoom on a few voxels shows fat, about 434 Hz below water at
+3 T, being placed as if it were water: it shifts by Δf/(BW/N) voxels, or
+Δf/(γ̄G<sub>r</sub>) mm. A water/fat abdomen phantom is imaged through k-space,
+showing the chemical shift, aliasing when the FOV is too small, and noise scaled
+by the relative SNR. Sliders set G<sub>s</sub>, BW<sub>rf</sub>, f<sub>0</sub>,
+G<sub>r</sub>, BW and N. Slice thickness, slice position and FOV can be held,
+and worked examples are included. Small-tip slice profile, a single fat peak,
+and no relaxation.
+
 ## `mriReadoutSim.html` — Readout sim
 
 ![Readout sim](docs/img/mriReadoutSim.png)
@@ -146,6 +166,27 @@ cover gradient echo, spin echo, stimulated echo, double spin echo and
 inversion-recovery spin echo. The signal model is an extended-phase-graph style
 coherence-pathway calculation with ideal, instantaneous RF and rectangular
 slabs; the phantom is taken from Seqret.
+
+## `mriFourierSim.html` — Fourier sim
+
+![Fourier sim](docs/img/mriFourierSim.png)
+
+How every voxel contributes to one point in k-space. Point at k-space and the
+image shows each voxel's transverse magnetization at that k, turned by
+φ = −2πk·r (as arrows, and optionally as phase colour on the object or the
+whole field of view). A third panel gathers all the spins, from a common origin
+or head to tail, with their vector sum, which is the k-space value S(k).
+Hovering over the image picks a spot (one voxel or a small disc): its spins
+are highlighted, their sum is drawn beside the total with its share of S(k),
+and k-space can show the spot alone. A Play button sounds the sum on an
+audible carrier, so its loudness follows |S(k)| as you move. Play readout
+switches on a read gradient: k<sub>x</sub> sweeps in real time, each column
+sounds at its own frequency, and the chord swells into the echo at
+k<sub>x</sub> = 0. Objects range from a single point and two
+points to a grating, a Shepp–Logan head and a T1-weighted MR brain (one slice
+of the ICBM 2009a MNI152 template), with adjustable matrix and FOV. Each voxel
+is one vector at its centre, so S(k) is exactly the discrete Fourier transform
+of the image; no relaxation or off-resonance.
 
 ## Licence
 
