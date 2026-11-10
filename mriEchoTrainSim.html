@@ -1,0 +1,1121 @@
+<!doctype html>
+<!--
+  Echo train sim — how the echo order of a fast (turbo) spin echo sets contrast and blur.
+  Designed by Filip Sz and Malwina M (Lund University) and coded by Claude (Anthropic).
+
+  Single self-contained file: no build step, no network, no dependencies.
+  Forward model: an analytic head phantom with four tissue compartments, each with its own
+  proton density and T2, is sampled exactly in k-space (closed-form ellipse transforms).
+  Every phase-encoding line is weighted by exp(−t/T2) of the echo that acquired it, and the
+  image is reconstructed by an inverse DFT. Nothing is painted on.
+  Version history lives in the CHANGELOG constant below and is shown in the version dialog.
+-->
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Echo train sim — TSE view order, T2 contrast and blur</title>
+<meta name="author" content="Filip Sz, Malwina M (Lund University); Claude (Anthropic)">
+<meta name="description" content="Interactive fast spin echo simulator: how the order of echoes in k-space sets the effective TE, the T2 contrast and the blurring.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23151b24'/%3E%3Cpath d='M5 9h22M5 14h18M5 19h13M5 24h8' stroke='%232fb6b0' stroke-width='2.2' stroke-linecap='round'/%3E%3C/svg%3E">
+<style>
+:root{
+  --bg:#0e1219; --panel:#151b24; --panel2:#1b2230; --line:#26303f;
+  --text:#ccd6e4; --muted:#7c8a9d; --dim:#4d5a6b; --ui:#2fb6b0;
+  --btn:#1b2230; --btnh:#232c3c; --btna:#2a3547;
+  --axis:#5c6b7e; --grid:#1f2836; --imgbg:#000000;
+  --scalp:#d77a92; --brain:#b9c4d2; --csf:#6f9bff; --les:#e3a53c;
+}
+html[data-theme="light"]{
+  --bg:#f2f4f7; --panel:#ffffff; --panel2:#f7f9fb; --line:#d7dde5;
+  --text:#1b2430; --muted:#5f6c7d; --dim:#9aa5b3; --ui:#0f8f8a;
+  --btn:#eef1f5; --btnh:#e4e9f0; --btna:#d9e0ea;
+  --axis:#8b96a4; --grid:#e6eaf0; --imgbg:#000000;
+  --scalp:#b03a5b; --brain:#4a5566; --csf:#1a4bd6; --les:#a86a00;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0; background:var(--bg); color:var(--text);
+  font:13px/1.45 ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
+  -webkit-font-smoothing:antialiased;
+  display:grid; grid-template-columns:300px 1fr; height:100vh; overflow:hidden;
+}
+/* ------------------------------------------------------------- rail */
+#rail{background:var(--panel); border-right:1px solid var(--line); overflow-y:auto; padding:0 0 24px}
+#rail::-webkit-scrollbar{width:9px}
+#rail::-webkit-scrollbar-thumb{background:var(--line)}
+#rail .brand{
+  position:sticky; top:0; z-index:3; background:var(--panel);
+  border-bottom:1px solid var(--line); padding:13px 14px 11px; margin:0;
+  display:flex; flex-wrap:wrap; align-items:baseline; gap:0 5px;
+}
+#rail .brand h1{margin:0 auto 0 0; font-size:12px; font-weight:600; line-height:1.45; letter-spacing:.16em; text-transform:uppercase; white-space:nowrap; color:var(--text)}
+#rail .brand .brand-sub{flex:1 0 100%; margin:6px 0 0; font-size:11px; line-height:1.4; color:var(--muted)}
+.themebtn,button.themebtn{
+  appearance:none; background:transparent; border:1px solid var(--line); color:var(--muted);
+  font:inherit; font-size:10px; line-height:1.45; letter-spacing:.1em; text-transform:uppercase;
+  padding:3px 7px; cursor:pointer; border-radius:2px; margin:0;
+}
+.themebtn:hover,button.themebtn:hover{background:transparent; color:var(--text); border-color:var(--muted)}
+section{border-bottom:1px solid var(--line); padding:11px 14px 13px}
+h2{font-size:10px; font-weight:600; letter-spacing:.18em; text-transform:uppercase; color:var(--dim); margin:0 0 9px}
+.row{display:flex; gap:6px; flex-wrap:wrap}
+button{
+  font:inherit; font-size:11.5px; color:var(--text); background:var(--btn);
+  border:1px solid var(--line); border-radius:3px; padding:5px 9px; cursor:pointer;
+}
+button:hover{background:var(--btnh)}
+button:active{background:var(--btna)}
+button[aria-pressed="true"]{border-color:var(--ui); color:var(--ui)}
+:focus-visible{outline:2px solid var(--ui); outline-offset:2px}
+.ctl{margin:0 0 11px}
+.ctl:last-child{margin-bottom:0}
+.lab{display:flex; justify-content:space-between; align-items:baseline; gap:8px; margin-bottom:3px}
+.lab span:first-child{color:var(--muted); font-size:12px}
+.val{color:var(--text); font-size:12px; font-variant-numeric:tabular-nums}
+.sub{color:var(--dim); font-size:10.5px; line-height:1.35; margin:3px 0 0}
+label.chk{display:flex; align-items:center; gap:7px; padding:2.5px 0; cursor:pointer; font-size:11.5px}
+input[type=checkbox]{margin:0; cursor:pointer; accent-color:var(--ui)}
+select{
+  font:inherit; font-size:12px; color:var(--text); background:var(--panel2);
+  border:1px solid var(--line); border-radius:3px; padding:4px 6px; width:100%; cursor:pointer;
+}
+.two{display:grid; grid-template-columns:1fr 1fr; gap:8px}
+input[type=range]{-webkit-appearance:none; appearance:none; width:100%; height:18px; margin:0; background:transparent; cursor:pointer}
+input[type=range]::-webkit-slider-runnable-track{height:2px; background:var(--line)}
+input[type=range]::-moz-range-track{height:2px; background:var(--line)}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none; width:12px; height:12px; margin-top:-5px; border:0; border-radius:50%; background:var(--ui)}
+input[type=range]::-moz-range-thumb{width:12px; height:12px; border:0; border-radius:50%; background:var(--ui)}
+input[type=range]:disabled{cursor:default; opacity:.5}
+.ctl.off{opacity:.5}
+.sw{display:inline-block; width:8px; height:8px; border-radius:1px; margin-right:6px; vertical-align:0}
+#exRow button{flex:1 1 40%}
+.seg{display:grid; grid-template-columns:1fr 1fr; margin:0 0 10px}
+.seg button{border-radius:0; padding:5px 0}
+.seg button:first-child{border-radius:3px 0 0 3px}
+.seg button:last-child{border-radius:0 3px 3px 0; margin-left:-1px}
+.seg button[aria-pressed="true"]{background:var(--btna); border-color:var(--ui); color:var(--ui)}
+/* Simple: the examples, the echo train length, the comparison and the notes. Advanced: everything. */
+body[data-level="simple"] .adv{display:none}
+body[data-level="advanced"] #subSimple{display:none}
+body[data-level="simple"] #subAdv{display:none}
+#note{color:var(--muted); font-size:11px; line-height:1.55}
+#note b{color:var(--text); font-weight:600}
+#note p{margin:0 0 7px}
+#note p:last-child{margin:0}
+.credit{margin:14px 14px 0; font-size:10px; line-height:1.6; color:var(--dim); letter-spacing:.02em}
+/* ------------------------------------------------------------- views */
+main{display:grid; grid-template-rows:minmax(0,1fr) clamp(240px,33vh,330px); min-width:0; overflow:hidden}
+#top{display:grid; grid-template-columns:1fr 1fr 1.25fr; min-height:0; border-bottom:1px solid var(--line)}
+#bot{display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1.05fr); min-height:0}
+.pane{position:relative; min-width:0; min-height:0}
+.pane+.pane{border-left:1px solid var(--line)}
+.pane canvas{position:absolute; inset:0; width:100%; height:100%; display:block}
+.tag{position:absolute; top:9px; left:12px; z-index:2; pointer-events:none; font-size:10px; letter-spacing:.13em; text-transform:uppercase; color:var(--dim)}
+#cvImg{touch-action:none}
+#phys{position:absolute; inset:0; overflow-y:auto; padding:30px 16px 14px}
+#phys h3{margin:0 0 8px; font-size:12px; font-weight:600; color:var(--text)}
+.eq{font-size:12px; line-height:1.95; color:var(--muted); margin:0 0 10px; overflow-x:auto; white-space:nowrap}
+.eq .hl{color:var(--ui); border-bottom:1px solid var(--ui)}
+.eq .res{color:var(--text)}
+.eq sub,.eq sup{font-size:9.5px}
+table.read{width:100%; border-collapse:collapse; font-size:11.5px; font-variant-numeric:tabular-nums}
+table.read td{padding:1.5px 0; vertical-align:top}
+table.read td:last-child{text-align:right; color:var(--muted); padding-left:10px; white-space:nowrap}
+table.read tr.hi td:last-child{color:var(--ui)}
+.cols{display:grid; grid-template-columns:1fr 1fr; gap:0 20px}
+/* ------------------------------------------------------------- about */
+#about[hidden]{display:none}
+#about{position:fixed; inset:0; z-index:40; display:grid; place-items:center; background:rgba(0,0,0,.5); padding:20px}
+#about .sheet{background:var(--panel); border:1px solid var(--line); border-radius:4px; padding:20px 22px; max-width:560px; width:100%; max-height:82vh; overflow-y:auto}
+#about h3{margin:0 0 3px; font-size:13px; letter-spacing:.16em; text-transform:uppercase}
+#about .by{margin:0 0 12px; color:var(--ui); font-size:12px}
+#about .note{margin:0 0 16px; color:var(--muted); font-size:11.5px; line-height:1.6}
+#about .rel{border-top:1px solid var(--line); padding-top:9px; margin-top:9px}
+#about .rel h5{margin:0 0 5px; font-size:11px; letter-spacing:.1em; font-weight:600; color:var(--text)}
+#about .rel h5 em{color:var(--dim); font-style:normal; font-weight:400; letter-spacing:0}
+#about .rel p{margin:0; color:var(--muted); font-size:11.5px; line-height:1.6}
+#about #aboutClose{margin-top:18px}
+@media (max-width:1000px){
+  body{grid-template-columns:1fr; grid-template-rows:auto auto; overflow:auto; height:auto}
+  #rail{border-right:none; border-bottom:1px solid var(--line); overflow:visible}
+  main{grid-template-rows:auto auto; overflow:visible}
+  #top{grid-template-columns:1fr; border-bottom:none}
+  #top .pane{height:88vw; max-height:560px}
+  #bot{grid-template-columns:1fr; border-top:1px solid var(--line)}
+  #phys{position:static; overflow:visible}
+  #diagPane{height:320px}
+  .pane+.pane{border-left:none; border-top:1px solid var(--line)}
+  .cols{grid-template-columns:1fr}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important; animation:none!important}}
+</style>
+</head>
+<body>
+
+<div id="rail">
+  <div class="brand">
+    <h1>Echo train sim</h1>
+    <button class="themebtn" id="ver" type="button" title="Version, credits and changelog"></button>
+    <button class="themebtn" id="theme" type="button" title="Switch colour theme">Light</button>
+    <p class="brand-sub">How the echo order of a fast spin echo sets contrast and blur</p>
+  </div>
+
+  <section>
+    <h2>Examples</h2>
+    <div class="seg" role="group" aria-label="Level of control">
+      <button id="lvlSimple" type="button" aria-pressed="true">Simple</button><button id="lvlAdv" type="button" aria-pressed="false">Advanced</button>
+    </div>
+    <div class="row" id="exRow"></div>
+    <p class="sub">Seven view orders with realistic timing. Single shot uses 5 ms echo spacing, TSE 10 ms.</p>
+    <p class="sub" id="subSimple">Pick an example, then change the echo train length to see how contrast, blur and ringing follow. Switch to Advanced to change anything yourself.</p>
+    <p class="sub" id="subAdv">Every control is available. Examples set the view order, echo train length and echo spacing, and keep everything else.</p>
+  </section>
+
+  <section>
+    <h2>Echo train</h2>
+    <div class="ctl adv">
+      <div class="lab"><span>View order</span></div>
+      <select id="order" aria-label="View order">
+        <option value="linear">Linear, bottom to top</option>
+        <option value="wrap">Linear from the centre (wrapped)</option>
+        <option value="centric">Centric, centre out</option>
+        <option value="seq">Sequential per shot</option>
+        <option value="seqlong">Sequential, long TE_eff</option>
+      </select>
+    </div>
+    <div class="ctl">
+      <div class="lab"><span>Echo train length</span></div>
+      <select id="etl" aria-label="Echo train length"></select>
+    </div>
+    <div class="ctl adv">
+      <div class="lab"><span>Echo spacing ESP</span><span class="val" id="vEsp"></span></div>
+      <input type="range" id="sEsp" min="2" max="160" step="0.5" value="10">
+    </div>
+    <p class="sub" id="subTrain"></p>
+  </section>
+
+  <section class="adv">
+    <h2>Tissue</h2>
+    <div class="ctl">
+      <div class="lab"><span><i class="sw" style="background:var(--brain)"></i>Brain T2</span><span class="val" id="vT2brain"></span></div>
+      <input type="range" id="sT2brain" min="0" max="1000" step="1">
+    </div>
+    <div class="ctl" data-multi>
+      <div class="lab"><span><i class="sw" style="background:var(--les)"></i>Lesion T2</span><span class="val" id="vT2les"></span></div>
+      <input type="range" id="sT2les" min="0" max="1000" step="1">
+    </div>
+    <div class="ctl" data-multi>
+      <div class="lab"><span><i class="sw" style="background:var(--csf)"></i>CSF T2</span><span class="val" id="vT2csf"></span></div>
+      <input type="range" id="sT2csf" min="0" max="1000" step="1">
+    </div>
+    <div class="ctl" data-multi>
+      <div class="lab"><span><i class="sw" style="background:var(--scalp)"></i>Scalp T2</span><span class="val" id="vT2scalp"></span></div>
+      <input type="range" id="sT2scalp" min="0" max="1000" step="1">
+    </div>
+    <div class="ctl">
+      <label class="chk"><input type="checkbox" id="oneT2"> One T2 for all tissue (blurring only)</label>
+      <p class="sub">Proton density: scalp 0.90, brain 0.70, lesions 0.75, CSF 1.00. With one T2 the contrast stays proton density and only the blurring changes.</p>
+    </div>
+    <div class="ctl" id="ctlJ">
+      <label class="chk"><input type="checkbox" id="jfat"> Scalp is fat: J-coupling</label>
+      <p class="sub">Closely spaced refocusing pulses suppress J-coupling dephasing, so fat decays more slowly in a long echo train than in a conventional spin echo. Scalp T2 then follows the echo spacing: about 130 ms at ESP 10 ms, about 70 ms for ETL 1 at TE 80 ms.</p>
+    </div>
+  </section>
+
+  <section class="adv">
+    <h2>Matrix</h2>
+    <div class="ctl">
+      <div class="lab"><span>N (readout × phase)</span></div>
+      <select id="nMat" aria-label="Matrix size">
+        <option value="64">64 × 64</option>
+        <option value="128">128 × 128</option>
+        <option value="256">256 × 256</option>
+      </select>
+      <p class="sub" id="subMat"></p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Display</h2>
+    <div class="ctl two adv">
+      <div><div class="lab"><span>Object</span></div>
+        <select id="objView" aria-label="Object panel"><option value="tissue">Tissues</option><option value="rho">Proton density</option><option value="t2">T2 map</option></select></div>
+      <div><div class="lab"><span>k-space</span></div>
+        <select id="kview" aria-label="k-space display"><option value="both">Echo and |s|</option><option value="echo">Echo only</option><option value="mag">|s| only</option></select></div>
+    </div>
+    <div class="ctl adv">
+      <div class="lab"><span>Plot</span></div>
+      <select id="diag" aria-label="Plot">
+        <option value="edge">Weights and edge response</option>
+        <option value="psf">Weights and |PSF| (zoom)</option>
+        <option value="psflog">Weights and |PSF| (full, log)</option>
+        <option value="profile">Profile along phase, x = 0</option>
+      </select>
+    </div>
+    <div class="ctl adv">
+      <div class="lab"><span>Window (white level)</span><span class="val" id="vWin"></span></div>
+      <input type="range" id="sWin" min="0.1" max="1.5" step="0.01" value="1">
+      <p class="sub">Fixed scale in proton-density units, so images from different orders can be compared directly.</p>
+    </div>
+    <div class="row">
+      <button id="split" aria-pressed="false" title="Show the image without T2 decay on the left (R)">Compare with no decay</button>
+      <button id="png" title="Save the three top panels and the plot as a PNG">Save PNG</button>
+    </div>
+  </section>
+
+  <section>
+    <h2>What to look for</h2>
+    <div id="note"></div>
+  </section>
+
+  <p class="credit" id="credit"></p>
+</div>
+
+<main>
+  <div id="top">
+    <div class="pane" id="objPane"><div class="tag" id="objTag">Object</div><canvas id="cvObj"></canvas></div>
+    <div class="pane" id="kPane"><div class="tag">k-space — echo per line</div><canvas id="cvK"></canvas></div>
+    <div class="pane" id="imgPane"><div class="tag">Image — reconstructed</div><canvas id="cvImg"></canvas></div>
+  </div>
+  <div id="bot">
+    <div class="pane" id="physPane"><div id="phys"></div></div>
+    <div class="pane" id="diagPane"><div class="tag" id="diagTag">Plot</div><canvas id="cvDiag"></canvas></div>
+  </div>
+</main>
+
+<div id="about" hidden>
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="aboutTitle">
+    <h3 id="aboutTitle">Echo train sim</h3>
+    <p class="by"></p>
+    <p class="note">
+      A teaching aid, not a quantitative simulator. In a fast (turbo) spin echo each excitation
+      is followed by a train of refocused echoes, and each echo fills one phase-encoding line.
+      Echo n is weighted by e<sup>−n·ESP/T2</sup>, so the order in which lines are filled becomes
+      a filter along k<sub>PE</sub>: the weight at the centre sets the contrast (the effective
+      TE), and its shape across k<sub>PE</sub> sets the blur and any ringing or ghosts.
+      The object is an analytic head phantom (Shepp–Logan geometry with non-overlapping
+      compartments) whose Fourier transform is exact, so the only blur besides T2 decay is the
+      truncation of k-space at ±N/2, which is also present in the comparison image.
+      Simplifications: full T1 recovery between shots (TR ≫ T1, no T1 weighting); ideal 180°
+      refocusing (no stimulated echoes, no B₁ errors); echo n at exactly n·ESP; no decay during
+      the readout of one line; no noise; no partial Fourier; no magnetisation transfer from the
+      refocusing pulses; a single 2D slice. J-coupling in fat, when switched on, is a
+      phenomenological apparent T2 that lengthens as the echo spacing shortens (after Henkelman
+      et al., JMRI 1992). Tissue values are illustrative.
+    </p>
+    <div id="changelog"></div>
+    <button class="themebtn" id="aboutClose" type="button">Close</button>
+  </div>
+</div>
+
+<script>
+"use strict";
+/* ==================== PHYSICS CORE (pure, no DOM) ====================
+ *  Units: lengths in mm, spatial frequency in 1/mm, times in ms.
+ *
+ *    s(k_RO, k_PE) = Σ_c ρ_c F_c(k) · exp(−t(k_PE)/T2_c),   t(k_PE) = e(k_PE)·ESP
+ *
+ *  F_c is the exact Fourier transform of compartment c (signed sums of ellipses), e(k_PE) is
+ *  the echo number that acquired line k_PE, built explicitly from the view order. The image is
+ *  the inverse DFT, scaled to density units, ρ̂ = (1/FOV²)·IDFT{s}.
+ */
+const FOV = 240, U = FOV/2;
+function bessj1(x){
+  const ax = Math.abs(x);
+  if(ax < 8){
+    const y = x*x;
+    const a1 = x*(72362614232.0+y*(-7895059235.0+y*(242396853.1+y*(-2972611.439+y*(15704.48260+y*(-30.16036606))))));
+    const a2 = 144725228442.0+y*(2300535178.0+y*(18583304.74+y*(99447.43394+y*(376.9991397+y))));
+    return a1/a2;
+  }
+  const z = 8/ax, y = z*z, xx = ax-2.356194491;
+  const b1 = 1.0+y*(0.183105e-2+y*(-0.3516396496e-4+y*(0.2457520174e-5+y*(-0.240337019e-6))));
+  const b2 = 0.04687499995+y*(-0.2002690873e-3+y*(0.8449199096e-5+y*(-0.88228987e-6+y*0.105787412e-6)));
+  const r = Math.sqrt(0.636619772/ax)*(Math.cos(xx)*b1-z*Math.sin(xx)*b2);
+  return x < 0 ? -r : r;
+}
+// ellipse in normalised Shepp–Logan units (±1 = ±FOV/2), semi-axes a (x) and b (y), rotated
+function Ell(x0, y0, a, b, deg){ const th = deg*Math.PI/180; return {x0:x0*U, y0:y0*U, a:a*U, b:b*U, c:Math.cos(th), s:Math.sin(th)}; }
+function inEll(e, x, y){ const dx = x - e.x0, dy = y - e.y0, u = dx*e.c + dy*e.s, v = -dx*e.s + dy*e.c; return (u/e.a)*(u/e.a) + (v/e.b)*(v/e.b) <= 1; }
+// Shepp–Logan outline and ventricles; lesions moved so that no compartment overlaps another
+const SL = {
+  head:Ell(0, 0, .69, .92, 0), brain:Ell(0, -.0184, .6624, .874, 0),
+  vR:Ell(.22, 0, .11, .31, -18), vL:Ell(-.22, 0, .16, .41, 18),
+  L1:Ell(.04, .47, .17, .15, 0), L2:Ell(0, -.45, .046, .046, 0),
+  L3:Ell(-.08, -.605, .046, .023, 0), L4:Ell(0, -.606, .023, .023, 0), L5:Ell(.06, -.605, .023, .046, 0)
+};
+const LESIONS = [SL.L1, SL.L2, SL.L3, SL.L4, SL.L5];
+// tissue compartments: ρ, default T2 (ms), and the shape as a signed sum of ellipses
+const TISSUES = [
+  {key:"scalp", name:"Scalp", rho:0.90, T2:70, parts:[[SL.head, 1], [SL.brain, -1]]},
+  {key:"brain", name:"Brain", rho:0.70, T2:80, parts:[[SL.brain, 1], [SL.vR, -1], [SL.vL, -1]].concat(LESIONS.map(e => [e, -1]))},
+  {key:"les",   name:"Lesions", rho:0.75, T2:150, parts:LESIONS.map(e => [e, 1])},
+  {key:"csf",   name:"CSF", rho:1.00, T2:1500, parts:[[SL.vR, 1], [SL.vL, 1]]}
+];
+function tissueAt(x, y){                                   // index into TISSUES, or −1 outside
+  if(!inEll(SL.head, x, y)) return -1;
+  if(!inEll(SL.brain, x, y)) return 0;
+  if(LESIONS.some(e => inEll(e, x, y))) return 2;
+  if(inEll(SL.vR, x, y) || inEll(SL.vL, x, y)) return 3;
+  return 1;
+}
+// exact k-space of every compartment on an N × N grid, index i = m·N + r,
+// k_RO = (r − N/2)/FOV along x, k_PE = (m − N/2)/FOV along y
+function kspaceTissues(N){
+  const n = N*N, out = TISSUES.map(() => ({re:new Float64Array(n), im:new Float64Array(n)}));
+  const TWO_PI = 2*Math.PI;
+  for(let m=0;m<N;m++){
+    const ky = (m - N/2)/FOV;
+    for(let r=0;r<N;r++){
+      const kx = (r - N/2)/FOV, i = m*N + r;
+      TISSUES.forEach((T, c) => {
+        let re = 0, im = 0;
+        for(const [e, sg] of T.parts){
+          const u = kx*e.c + ky*e.s, v = -kx*e.s + ky*e.c, kap = Math.hypot(e.a*u, e.b*v);
+          const A = sg*(kap < 1e-12 ? Math.PI*e.a*e.b : e.a*e.b*bessj1(TWO_PI*kap)/kap);
+          const ph = -TWO_PI*(kx*e.x0 + ky*e.y0);
+          re += A*Math.cos(ph); im += A*Math.sin(ph);
+        }
+        out[c].re[i] = re; out[c].im[i] = im;
+      });
+    }
+  }
+  return out;
+}
+
+/* ---------- view order: which echo acquires which phase-encoding line
+ *  Lines are indexed j = 0 … N−1 from the bottom of k-space (k_PE = −N/2) to the top; the
+ *  centre k_PE = 0 is j = N/2. S = N/ETL shots. "seq" and "seqlong" fill blocks of ETL adjacent
+ *  lines, one block per shot; "seqlong" shifts the blocks so that the middle echo, ETL/2 + 1, falls
+ *  on the centre (TE_eff as in linear order). Otherwise an order is a list of lines
+ *  in the order of filling; the lines at list positions p = 0 … S−1 are acquired by echo 1
+ *  (one per shot), the next S by echo 2, and so on. The echo at the centre gives TE_eff.
+ */
+function viewOrder(order, N, ETL){
+  const S = N/ETL, echo = new Int32Array(N), shot = new Int32Array(N);
+  if(order === "seq" || order === "seqlong"){              // each shot fills ETL adjacent lines
+    const j0 = order === "seq" ? 0 : N/2 - Math.floor(ETL/2);   // where the first block starts
+    for(let j=0;j<N;j++){ const q = ((j - j0) % N + N) % N; echo[j] = q % ETL + 1; shot[j] = Math.floor(q/ETL); }
+    return {echo, shot, S};
+  }
+  const list = [];
+  if(order === "linear") for(let j=0;j<N;j++) list.push(j);
+  else if(order === "wrap"){ const j0 = N/2 - Math.floor(S/2); for(let p=0;p<N;p++) list.push((j0 + p) % N); }
+  else {                                                   // centric: 0, −1, +1, −2, +2, …
+    list.push(N/2);
+    for(let d=1; list.length < N; d++){
+      if(N/2 - d >= 0) list.push(N/2 - d);
+      if(N/2 + d < N && list.length < N) list.push(N/2 + d);
+    }
+  }
+  list.forEach((j, p) => { echo[j] = Math.floor(p/S) + 1; shot[j] = p % S; });
+  return {echo, shot, S};
+}
+
+/* ---------- FFT (power-of-two radix 2) and centred 2D inverse DFT */
+function fftPow2(re, im, inv){
+  const n = re.length;
+  for(let i=1, j=0; i<n; i++){
+    let bit = n >> 1;
+    for(; j & bit; bit >>= 1) j ^= bit;
+    j ^= bit;
+    if(i < j){ let t = re[i]; re[i] = re[j]; re[j] = t; t = im[i]; im[i] = im[j]; im[j] = t; }
+  }
+  const sgn = inv ? 1 : -1;
+  for(let len=2; len<=n; len<<=1){
+    const ang = sgn*2*Math.PI/len, wr = Math.cos(ang), wi = Math.sin(ang), h = len >> 1;
+    for(let i=0;i<n;i+=len){
+      let cr = 1, ci = 0;
+      for(let k=0;k<h;k++){
+        const a = i+k, b = a+h, xr = re[b]*cr - im[b]*ci, xi = re[b]*ci + im[b]*cr;
+        re[b] = re[a]-xr; im[b] = im[a]-xi; re[a] += xr; im[a] += xi;
+        const t = cr*wr - ci*wi; ci = cr*wi + ci*wr; cr = t;
+      }
+    }
+  }
+}
+// in place, N × N row-major [m][r]; stored index s ↔ frequency/position index s − N/2
+function ifft2c(Re, Im, N){
+  const tr = new Float64Array(N), ti = new Float64Array(N);
+  for(let m=0;m<N;m++){
+    const o = m*N;
+    for(let s=0;s<N;s++){ const q = (s + N/2) % N; tr[q] = Re[o+s]; ti[q] = Im[o+s]; }
+    fftPow2(tr, ti, true);
+    for(let q=0;q<N;q++){ const s = (q + N/2) % N; Re[o+s] = tr[q]; Im[o+s] = ti[q]; }
+  }
+  for(let r=0;r<N;r++){
+    for(let s=0;s<N;s++){ const q = (s + N/2) % N; tr[q] = Re[s*N+r]; ti[q] = Im[s*N+r]; }
+    fftPow2(tr, ti, true);
+    for(let q=0;q<N;q++){ const s = (q + N/2) % N; Re[s*N+r] = tr[q]; Im[s*N+r] = ti[q]; }
+  }
+}
+// acquire with per-line weights w[c][j] and reconstruct; returns k-space and image
+function acquireRecon(K, N, rho, w){
+  const n = N*N, Sr = new Float64Array(n), Si = new Float64Array(n);
+  for(let c=0;c<K.length;c++){
+    const Kc = K[c], wc = w[c], a = rho[c];
+    for(let m=0;m<N;m++){ const g = a*wc[m], o = m*N; for(let r=0;r<N;r++){ Sr[o+r] += g*Kc.re[o+r]; Si[o+r] += g*Kc.im[o+r]; } }
+  }
+  const Ir = Sr.slice(), Ii = Si.slice();
+  ifft2c(Ir, Ii, N);
+  const sc = 1/(FOV*FOV);
+  for(let i=0;i<n;i++){ Ir[i] *= sc; Ii[i] *= sc; }
+  return {Sr, Si, Ir, Ii};
+}
+// point-spread function along phase of a line weighting w (y in pixels):
+// PSF(y) = N⁻¹ Σ_j w_j e^{i2π (j − N/2) y / N}; equals 1 at y = 0 for w ≡ 1
+function psfAbs(w, y){
+  const N = w.length; let re = 0, im = 0;
+  for(let j=0;j<N;j++){ const a = 2*Math.PI*(j - N/2)*y/N; re += w[j]*Math.cos(a); im += w[j]*Math.sin(a); }
+  return Math.hypot(re, im)/N;
+}
+function psfMetrics(w){
+  const p0 = psfAbs(w, 0), half = p0/2, N = w.length;
+  let lo = null, hi = null;
+  for(let y=0.01; y<=20; y+=0.01){ if(hi === null && psfAbs(w, y) < half) hi = y; if(lo === null && psfAbs(w, -y) < half) lo = y; if(lo !== null && hi !== null) break; }
+  return {peak:p0, fwhm:(lo !== null && hi !== null) ? lo + hi : null};
+}
+/* ---------- response to a sharp edge
+ *  |PSF| hides ringing in three ways: in an asymmetric order the PSF is complex and the
+ *  oscillation sits in its sign, not its size; its peak (the mean weight) is not the level of a
+ *  flat region (the weight at k = 0); and between whole pixels the PSF rings even without decay.
+ *  So we image a uniform slab, wide compared with the ringing, evaluated continuously across its
+ *  upper edge and scaled so that the flat inside is 1. y is the distance from the edge in pixels,
+ *  negative inside the slab.
+ */
+const EDGE_Y = 12, EDGE_DY = 0.1;
+function edgeResponse(w){
+  const N = w.length, Wd = N/2 + 0.37, yE = Wd/2, n = Math.round(2*EDGE_Y/EDGE_DY) + 1;
+  const A = new Float64Array(N);                           // w_j · O(k_j), O = FT of the slab
+  for(let j=0;j<N;j++){ const q = j - N/2; A[j] = w[j]*(q === 0 ? Wd : Math.sin(Math.PI*q*Wd/N)/(Math.PI*q/N)); }
+  const out = new Float64Array(n), w0 = w[N/2];
+  for(let i=0;i<n;i++){
+    const y = -EDGE_Y + i*EDGE_DY, ph = 2*Math.PI*(yE + y)/N;
+    let re = 0, im = 0;
+    for(let j=0;j<N;j++){ const a = ph*(j - N/2); re += A[j]*Math.cos(a); im += A[j]*Math.sin(a); }
+    out[i] = Math.hypot(re, im)/N/w0;
+  }
+  return out;
+}
+// overshoot above the flat level, and ringing: half the largest swing between neighbouring
+// turning points more than 3 px from the edge (a smooth blur tail has no turning points)
+function edgeMetrics(er){
+  const n = er.length, yOf = i => -EDGE_Y + i*EDGE_DY;
+  let over = 0; for(let i=0;i<n;i++) over = Math.max(over, er[i] - 1);
+  let ring = 0;
+  for(const inside of [true, false]){
+    const ext = [];
+    for(let i=1;i<n-1;i++){
+      const y = yOf(i); if(inside ? y > -3 : y < 3) continue;
+      if((er[i] - er[i-1])*(er[i+1] - er[i]) < 0) ext.push(er[i]);
+    }
+    for(let k=1;k<ext.length;k++) ring = Math.max(ring, Math.abs(ext[k] - ext[k-1])/2);
+  }
+  return {over, ring};
+}
+/* ---------- J-coupling in fat (phenomenological)
+ *  Most fat protons are J-coupled (J ≈ 7 Hz). Between two refocusing pulses the coupled part of
+ *  the signal dephases; closely spaced pulses suppress this, which is why fat is bright in fast
+ *  spin echo but darker in a conventional spin echo at the same TE. Modelled as an apparent T2
+ *  that depends on the pulse spacing:
+ *     1/T2app = 1/T2int + R_J·(1 − e^(−ESP/τ_J)),   τ_J = 1/(πJ)
+ *  with T2int = 180 ms and R_J = 0.0104 /ms, so T2app ≈ 130 ms at ESP = 10 ms and ≈ 70 ms for a
+ *  conventional spin echo (ETL 1) at TE = 80 ms.
+ */
+const FAT_T2INT = 180, FAT_RJ = 0.0104, FAT_J = 7e-3;     // ms, 1/ms, 1/ms (7 Hz)
+function fatT2app(esp){ return 1/(1/FAT_T2INT + FAT_RJ*(1 - Math.exp(-esp*Math.PI*FAT_J))); }
+/* ================== END PHYSICS CORE ================== */
+
+
+/* ---------------------------------------------------------- version */
+const VERSION = "0.4.0";
+const AUTHORS = "Designed by Filip Sz and Malwina M (Lund University) and coded by Claude (Anthropic)";
+const CHANGELOG = [
+  ["0.4.0", "2026-11-10",
+   "Simple and Advanced views, as in the Artifact sim. Simple shows the examples, the echo train " +
+   "length, the comparison without decay and the notes; Advanced adds the view order, echo spacing, " +
+   "tissue, matrix and display controls. The page opens in Simple."],
+  ["0.3.0", "2026-11-10",
+   "Ringing is now measured where it shows. A new default plot images a sharp edge, evaluated " +
+   "between pixels and scaled so that a flat region is 1, for every tissue and without decay. New " +
+   "readouts: detail gain (mean line weight ÷ weight at k = 0; edges and fine detail are boosted by " +
+   "this factor relative to flat regions), edge overshoot and ringing beyond 3 px, each with its " +
+   "value without decay. They replace the side-lobe readout, which used |PSF| at whole pixels and so " +
+   "missed both the oscillation carried in the phase of an asymmetric PSF and ordinary truncation " +
+   "ringing. Sequential orders report the ghost at N/ETL directly. ETL 1 (a conventional spin echo, " +
+   "TE = ESP) is available, and the echo spacing goes up to 160 ms. Optional J-coupling for the " +
+   "scalp, treated as fat: an apparent T2 that lengthens as the echo spacing shortens, so fat is " +
+   "bright in long echo trains."],
+  ["0.2.0", "2026-11-09",
+   "New view order: sequential per shot with the middle echo at the centre of k-space. The blocks of " +
+   "ETL adjacent lines are shifted so that echo ETL/2 + 1 fills k_PE = 0, which gives a long effective " +
+   "TE (as in linear order). The ghosts every N/ETL pixels are the same size as in the plain sequential " +
+   "order, because shifting the blocks only changes their phase. " +
+   "Added as a seventh example, \"TSE sequential, long TE\"."],
+  ["0.1.0", "2026-11-08",
+   "First version. The line-to-echo map is built explicitly from the view order (linear, linear " +
+   "from the centre with wrap, centric, sequential per shot) and the echo train length, and the " +
+   "effective TE is read from the centre line and shown. " +
+   "The phantom is analytic with four non-overlapping compartments (scalp, brain, lesions, CSF), " +
+   "each with its own proton density and T2, so no mask depends on round-off and no smoothing is " +
+   "needed. Default timing is realistic (ESP 10 ms for TSE, 5 ms for single shot). Images use a fixed " +
+   "scale in proton-density units, so signal loss between orders is visible. The plot shows the " +
+   "weights of every tissue, and the point-spread function or a profile along phase, with a " +
+   "comparison image without decay."]
+];
+
+/* ---------------------------------------------------------- state */
+const $ = id => document.getElementById(id);
+const T2_LO = 10, T2_HI = 3000;
+const logTo = (s, lo, hi) => lo*Math.pow(hi/lo, s/1000);
+const logFrom = (v, lo, hi) => Math.round(1000*Math.log(v/lo)/Math.log(hi/lo));
+const BASE = {order:"linear", etl:16, esp:10, N:128, oneT2:false, jfat:false,
+  T2:{scalp:70, brain:80, les:150, csf:1500}, objView:"tissue", kview:"both", diag:"edge", win:1, split:false};
+const P = JSON.parse(JSON.stringify(BASE));
+const EXAMPLES = [
+  ["Single shot, linear", {etl:"ss", order:"linear", esp:5}],
+  ["Single shot, centric", {etl:"ss", order:"centric", esp:5}],
+  ["TSE sequential", {etl:16, order:"seq", esp:10}],
+  ["TSE sequential, long TE", {etl:16, order:"seqlong", esp:10}],
+  ["TSE linear", {etl:16, order:"linear", esp:10}],
+  ["TSE from centre", {etl:16, order:"wrap", esp:10}],
+  ["TSE centric", {etl:16, order:"centric", esp:10}]
+];
+let exampleIdx = 3, CUR = null, split = 0.5;
+const etlOf = () => P.etl === "ss" ? P.N : Math.min(P.etl, P.N);
+
+/* ---------------------------------------------------------- compute */
+const KCACHE = {N:0, K:null, ref:null};
+function compute(){
+  const N = P.N, ETL = etlOf();
+  if(KCACHE.N !== N){
+    KCACHE.K = kspaceTissues(N); KCACHE.N = N;
+    const ones = new Float64Array(N).fill(1);
+    KCACHE.ref = acquireRecon(KCACHE.K, N, TISSUES.map(T => T.rho), TISSUES.map(() => ones));
+  }
+  const V = viewOrder(P.order, N, ETL);
+  const t = Float64Array.from(V.echo, e => e*P.esp);
+  const T2 = TISSUES.map(T => P.oneT2 ? P.T2.brain : (T.key === "scalp" && P.jfat) ? fatT2app(P.esp) : P.T2[T.key]);
+  const w = T2.map(T => Float64Array.from(t, tt => Math.exp(-tt/T)));
+  const R = acquireRecon(KCACHE.K, N, TISSUES.map(T => T.rho), w);
+  const TEeff = t[N/2];
+  const met = w.map(psfMetrics);
+  // edge response of each tissue shown, and without decay (cached per N)
+  const ones = new Float64Array(N).fill(1);
+  if(KCACHE.erN !== N){ KCACHE.er0 = edgeResponse(ones); KCACHE.em0 = edgeMetrics(KCACHE.er0); KCACHE.erN = N; }
+  const er = [], em = [];
+  shownTissues().forEach(c => { er[c] = edgeResponse(w[c]); em[c] = edgeMetrics(er[c]); });
+  const gain = w.map(wc => { let m = 0; for(let j=0;j<N;j++) m += wc[j]; return m/N/wc[N/2]; });
+  const seqOrd = (P.order === "seq" || P.order === "seqlong") && ETL > 1 && ETL < N;
+  const ghost = seqOrd ? psfAbs(w[1], N/ETL)/psfAbs(w[1], 0) : null;
+  CUR = {N, ETL, S:V.S, V, t, T2, w, R, ref:KCACHE.ref, TEeff, met, dpx:FOV/N, er, em, er0:KCACHE.er0, em0:KCACHE.em0, gain, ghost};
+}
+
+/* ---------------------------------------------------------- theme colours */
+const C = {};
+function readTheme(){
+  const cs = getComputedStyle(document.documentElement);
+  for(const k of ["bg","panel","panel2","line","text","muted","dim","ui","axis","grid","imgbg","scalp","brain","csf","les"])
+    C[k] = cs.getPropertyValue("--"+k).trim();
+  OBJCACHE.key = "";
+  schedule();
+}
+const tCol = c => C[TISSUES[c].key];
+
+/* ---------------------------------------------------------- canvas helpers */
+function fit(cv){
+  const r = cv.getBoundingClientRect(), d = window.devicePixelRatio || 1;
+  const w = Math.max(1, Math.round(r.width*d)), h = Math.max(1, Math.round(r.height*d));
+  if(cv.width !== w || cv.height !== h){ cv.width = w; cv.height = h; }
+  const ctx = cv.getContext("2d"); ctx.setTransform(d,0,0,d,0,0);
+  return {ctx, w:r.width, h:r.height};
+}
+function viewFit(w, h, x0, y0, ex, ey, padT, padB, padX){
+  const s = Math.min((w-2*padX)/ex, (h-padT-padB)/ey);
+  const ox = (w - ex*s)/2, oy = padT + (h-padT-padB - ey*s)/2;
+  return {s, X:x => ox + (x-x0)*s, Y:y => oy + (y0+ey-y)*s, ox, oy};
+}
+const VIR = [[68,1,84],[71,45,123],[59,82,139],[44,114,142],[33,145,140],[40,174,128],[94,201,98],[173,220,48],[253,231,37]];
+function viridis(t){
+  t = Math.min(1, Math.max(0, t))*8; const i = Math.min(7, Math.floor(t)), f = t-i, a = VIR[i], b = VIR[i+1];
+  return [a[0]+(b[0]-a[0])*f, a[1]+(b[1]-a[1])*f, a[2]+(b[2]-a[2])*f];
+}
+function hexRGB(h){ h = h.replace("#",""); if(h.length === 3) h = h.split("").map(c=>c+c).join(""); const n = parseInt(h,16); return [n>>16&255, n>>8&255, n&255]; }
+function arrow(ctx, x1, y1, x2, y2, col, lw){
+  ctx.strokeStyle = col; ctx.fillStyle = col; ctx.lineWidth = lw || 1.4;
+  ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
+  const a = Math.atan2(y2-y1, x2-x1), L = 7;
+  ctx.beginPath(); ctx.moveTo(x2,y2);
+  ctx.lineTo(x2-L*Math.cos(a-0.4), y2-L*Math.sin(a-0.4)); ctx.lineTo(x2-L*Math.cos(a+0.4), y2-L*Math.sin(a+0.4));
+  ctx.closePath(); ctx.fill();
+}
+function label(ctx, txt, x, y, col, align, base, size){
+  ctx.fillStyle = col; ctx.font = (size || 10.5) + "px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace";
+  ctx.textAlign = align || "left"; ctx.textBaseline = base || "alphabetic"; ctx.fillText(txt, x, y);
+}
+function legendRow(ctx, xr, y, items){
+  ctx.font = "10.5px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace";
+  let x = xr;
+  for(let i=items.length-1;i>=0;i--){
+    const [col, txt, dsh] = items[i], tw = ctx.measureText(txt).width;
+    label(ctx, txt, x, y, C.muted, "right"); x -= tw + 5;
+    ctx.strokeStyle = col; ctx.lineWidth = 2; ctx.setLineDash(dsh || []);
+    ctx.beginPath(); ctx.moveTo(x - 12, y - 3.5); ctx.lineTo(x, y - 3.5); ctx.stroke(); ctx.setLineDash([]);
+    x -= 12 + 14;
+  }
+  return x;
+}
+function niceTicks(lo, hi, n){
+  const span = hi-lo; if(!(span > 0)) return [lo];
+  const raw = span/n, mag = Math.pow(10, Math.floor(Math.log10(raw)));
+  const st = [1,2,2.5,5,10].map(v=>v*mag).find(v => span/v <= n) || 10*mag;
+  const out = []; for(let v=Math.ceil(lo/st)*st; v<=hi+1e-9*st; v+=st) out.push(Math.abs(v) < 1e-12 ? 0 : v);
+  return out;
+}
+function fmtTick(v){ const a = Math.abs(v); if(a === 0) return "0"; if(a >= 1000) return (v/1000).toFixed(a%1000 ? 1 : 0) + "k"; if(a >= 10 || Number.isInteger(v)) return v.toFixed(0); return v.toFixed(a >= 1 ? 1 : 2); }
+function axes(ctx, bx, by, bw, bh, xr, yr, xlab, ylab, opt){
+  opt = opt || {};
+  const X = v => bx + (v-xr[0])/(xr[1]-xr[0])*bw, Y = v => by + bh - (v-yr[0])/(yr[1]-yr[0])*bh;
+  ctx.lineWidth = 1; ctx.strokeStyle = C.grid;
+  const yt = opt.yticks || niceTicks(yr[0], yr[1], 4);
+  for(const t of yt){ ctx.beginPath(); ctx.moveTo(bx, Y(t)); ctx.lineTo(bx+bw, Y(t)); ctx.stroke(); }
+  ctx.strokeStyle = C.axis; ctx.beginPath(); ctx.moveTo(bx, by); ctx.lineTo(bx, by+bh); ctx.lineTo(bx+bw, by+bh); ctx.stroke();
+  for(const t of niceTicks(xr[0], xr[1], opt.nx || 6)){
+    ctx.beginPath(); ctx.moveTo(X(t), by+bh); ctx.lineTo(X(t), by+bh+3); ctx.stroke();
+    label(ctx, fmtTick(t), X(t), by+bh+13, C.muted, "center");
+  }
+  for(const t of yt){
+    ctx.beginPath(); ctx.moveTo(bx-3, Y(t)); ctx.lineTo(bx, Y(t)); ctx.stroke();
+    label(ctx, opt.yfmt ? opt.yfmt(t) : fmtTick(t), bx-5, Y(t)+3.5, C.muted, "right");
+  }
+  if(xlab) label(ctx, xlab, bx+bw, by+bh+26, C.dim, "right");
+  if(ylab) label(ctx, ylab, bx, by-6, C.dim, "left");
+  return {X, Y};
+}
+function scaleBar(ctx, V, xr, y){
+  const mm = 50, L = mm*V.s;
+  ctx.strokeStyle = C.muted; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.moveTo(xr-L, y); ctx.lineTo(xr, y); ctx.stroke();
+  label(ctx, mm + " mm", xr - L/2, y - 5, C.muted, "center");
+}
+function encodeArrows(ctx, V){
+  const gx = V.X(-U) + 10, gy = V.Y(-U) - 10, L = 22;
+  arrow(ctx, gx, gy, gx + L, gy, C.muted); arrow(ctx, gx, gy, gx, gy - L, C.ui);
+  label(ctx, "RO", gx + L + 4, gy + 3.5, C.muted); label(ctx, "PE", gx - 3, gy - L - 5, C.ui);
+}
+
+/* ---------------------------------------------------------- object panel */
+const OBJCACHE = {key:"", cv:document.createElement("canvas")};
+const T2LOG = v => (Math.log(v) - Math.log(20))/(Math.log(3000) - Math.log(20));
+function drawObject(){
+  const cv = $("cvObj"), {ctx, w, h} = fit(cv);
+  ctx.fillStyle = C.bg; ctx.fillRect(0,0,w,h);
+  const V = viewFit(w, h, -U, -U, FOV, FOV, 30, 46, 14);
+  const M = 320, key = [P.objView, CUR.T2.join(","), C.scalp, C.brain].join("|");
+  if(OBJCACHE.key !== key){
+    const oc = OBJCACHE.cv; oc.width = M; oc.height = M;
+    const c2 = oc.getContext("2d"), img = c2.createImageData(M, M);
+    const cols = TISSUES.map((T, c) => hexRGB(tCol(c)));
+    for(let iy=0;iy<M;iy++) for(let ix=0;ix<M;ix++){
+      const x = -U + (ix+0.5)*FOV/M, y = U - (iy+0.5)*FOV/M, c = tissueAt(x, y), o = 4*(iy*M + ix);
+      let rgb = [0,0,0];
+      if(c >= 0){
+        if(P.objView === "tissue") rgb = cols[c];
+        else if(P.objView === "rho"){ const g = Math.min(1, TISSUES[c].rho)*255; rgb = [g,g,g]; }
+        else rgb = viridis(T2LOG(CUR.T2[c]));
+      }
+      img.data[o] = rgb[0]; img.data[o+1] = rgb[1]; img.data[o+2] = rgb[2]; img.data[o+3] = 255;
+    }
+    c2.putImageData(img, 0, 0); OBJCACHE.key = key;
+  }
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(OBJCACHE.cv, V.X(-U), V.Y(U), FOV*V.s, FOV*V.s);
+  encodeArrows(ctx, V); scaleBar(ctx, V, V.X(U) - 6, V.Y(-U) - 10);
+  $("objTag").textContent = {tissue:"Object — tissues", rho:"Object — proton density ρ", t2:"Object — T2 map"}[P.objView];
+  if(P.objView === "tissue"){
+    const items = TISSUES.map((T, c) => [tCol(c), `${T.name} ${fmtT2(CUR.T2[c])}`]);
+    ctx.font = "10.5px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace";
+    let x = 12, y = h - 24;
+    items.forEach(([col, txt]) => { const tw = ctx.measureText(txt).width; if(x + tw + 12 > w - 8){ x = 12; y += 14; }
+      ctx.fillStyle = col; ctx.fillRect(x, y - 8, 8, 8); label(ctx, txt, x + 12, y, C.muted); x += tw + 24; });
+  } else if(P.objView === "t2"){
+    const bx = V.X(-U), bw = FOV*V.s, by = h - 28;
+    for(let i=0;i<bw;i++){ const c = viridis(i/bw); ctx.fillStyle = `rgb(${c[0]|0},${c[1]|0},${c[2]|0})`; ctx.fillRect(bx+i, by, 1.2, 6); }
+    label(ctx, "20 ms", bx, by + 18, C.muted, "left"); label(ctx, "T2, log scale", bx + bw/2, by + 18, C.dim, "center"); label(ctx, "3 s", bx + bw, by + 18, C.muted, "right");
+  }
+}
+const fmtT2 = v => v >= 1000 ? (v/1000).toFixed(1) + " s" : Math.round(v) + " ms";
+
+/* ---------------------------------------------------------- k-space panel */
+const KCV = document.createElement("canvas");
+function drawK(){
+  const cv = $("cvK"), {ctx, w, h} = fit(cv);
+  ctx.fillStyle = C.bg; ctx.fillRect(0,0,w,h);
+  const {N, ETL, R, V: VO} = CUR;
+  if(KCV.width !== N || KCV.height !== N){ KCV.width = N; KCV.height = N; }
+  const kc = KCV.getContext("2d"), img = kc.createImageData(N, N);
+  let mx = 0; for(let i=0;i<N*N;i++){ const v = R.Sr[i]*R.Sr[i] + R.Si[i]*R.Si[i]; if(v > mx) mx = v; }
+  mx = Math.sqrt(mx) || 1; const LD = Math.log(1 + 1e4);
+  for(let m=0;m<N;m++){
+    const e = VO.echo[m], cE = viridis(ETL > 1 ? (e - 1)/(ETL - 1) : 0.5);
+    for(let r=0;r<N;r++){
+      const i = m*N + r, o = 4*((N-1-m)*N + r);
+      const L = Math.log(1 + 1e4*Math.hypot(R.Sr[i], R.Si[i])/mx)/LD;
+      let rgb;
+      if(P.kview === "mag") rgb = [L*255, L*255, L*255];
+      else { const b = P.kview === "echo" ? 1 : 0.16 + 0.84*L; rgb = [cE[0]*b, cE[1]*b, cE[2]*b]; }
+      img.data[o] = rgb[0]; img.data[o+1] = rgb[1]; img.data[o+2] = rgb[2]; img.data[o+3] = 255;
+    }
+  }
+  kc.putImageData(img, 0, 0);
+  const kE = N/FOV, showBar = P.kview !== "mag";
+  const V = viewFit(w, h, -kE/2, -kE/2, kE, kE, 40, showBar ? 46 : 26, 60);
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(KCV, V.X(-kE/2), V.Y(kE/2), kE*V.s, kE*V.s);
+  ctx.strokeStyle = "rgba(255,255,255,0.18)"; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(V.X(-kE/2), V.Y(0)); ctx.lineTo(V.X(kE/2), V.Y(0));
+  ctx.moveTo(V.X(0), V.Y(-kE/2)); ctx.lineTo(V.X(0), V.Y(kE/2)); ctx.stroke();
+  label(ctx, "k_RO", V.X(kE/2), V.Y(-kE/2) + 13, C.muted, "right");
+  label(ctx, "k_PE", V.X(-kE/2), V.Y(kE/2) - 6, C.muted, "left");
+  // the centre line and its echo: TE_eff
+  const yc = V.Y(0), xr = V.X(kE/2);
+  arrow(ctx, xr + 46, yc, xr + 6, yc, C.ui, 1.2);
+  label(ctx, "TE_eff", xr + 8, yc - 6, C.ui); label(ctx, `${fmtMs(CUR.TEeff)}`, xr + 8, yc + 14, C.ui);
+  label(ctx, `${CUR.S} shot${CUR.S > 1 ? "s" : ""} × ${ETL} echoes`, w - 12, 18, C.dim, "right");
+  if(showBar){
+    const bx = V.X(-kE/2), bw = kE*V.s, by = h - 26;
+    for(let i=0;i<bw;i++){ const c = viridis(i/bw); ctx.fillStyle = `rgb(${c[0]|0},${c[1]|0},${c[2]|0})`; ctx.fillRect(bx+i, by, 1.2, 6); }
+    label(ctx, `echo 1 · ${fmtMs(P.esp)}`, bx, by + 18, C.muted, "left");
+    label(ctx, `echo ${ETL} · ${fmtMs(ETL*P.esp)}`, bx + bw, by + 18, C.muted, "right");
+  }
+}
+const fmtMs = v => (v < 10 ? v.toFixed(1) : v.toFixed(0)) + " ms";
+
+/* ---------------------------------------------------------- image panel */
+const ICV = document.createElement("canvas"), RCV = document.createElement("canvas");
+let IMGVIEW = null;
+function paint(target, Ir, Ii, N){
+  if(target.width !== N || target.height !== N){ target.width = N; target.height = N; }
+  const c = target.getContext("2d"), img = c.createImageData(N, N);
+  for(let m=0;m<N;m++) for(let r=0;r<N;r++){
+    const i = m*N + r, o = 4*((N-1-m)*N + r), g = Math.min(1, Math.hypot(Ir[i], Ii[i])/P.win)*255;
+    img.data[o] = g; img.data[o+1] = g; img.data[o+2] = g; img.data[o+3] = 255;
+  }
+  c.putImageData(img, 0, 0);
+}
+function drawImage(){
+  const cv = $("cvImg"), {ctx, w, h} = fit(cv);
+  ctx.fillStyle = C.bg; ctx.fillRect(0,0,w,h);
+  const {N, R, ref} = CUR, d = FOV/N, x0 = -U - d/2, y0 = -U - d/2;   // pixel n centred at (n − N/2)·d
+  const V = viewFit(w, h, x0, y0, FOV, FOV, 30, 26, 14); IMGVIEW = V;
+  paint(ICV, R.Ir, R.Ii, N);
+  ctx.imageSmoothingEnabled = false;
+  const L = V.X(x0), T = V.Y(y0 + FOV), S = FOV*V.s, sx = L + split*S;
+  if(P.split){
+    paint(RCV, ref.Ir, ref.Ii, N);
+    ctx.save(); ctx.beginPath(); ctx.rect(0, 0, sx, h); ctx.clip(); ctx.drawImage(RCV, L, T, S, S); ctx.restore();
+    ctx.save(); ctx.beginPath(); ctx.rect(sx, 0, w - sx, h); ctx.clip(); ctx.drawImage(ICV, L, T, S, S); ctx.restore();
+    ctx.strokeStyle = C.ui; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(sx, 26); ctx.lineTo(sx, h - 22); ctx.stroke();
+    ctx.fillStyle = C.ui; ctx.beginPath(); ctx.arc(sx, h/2, 5, 0, 2*Math.PI); ctx.fill();
+    label(ctx, "no decay", sx - 6, h - 8, C.muted, "right"); label(ctx, "TSE", sx + 6, h - 8, C.muted, "left");
+  } else {
+    ctx.drawImage(ICV, L, T, S, S);
+    label(ctx, `${N} × ${N} px · ${(FOV/N).toFixed(2)} mm`, w - 12, h - 8, C.dim, "right");
+  }
+  if(P.diag === "profile"){ ctx.strokeStyle = C.ui; ctx.globalAlpha = 0.7; ctx.setLineDash([3,3]); ctx.beginPath(); ctx.moveTo(V.X(0), T); ctx.lineTo(V.X(0), T + S); ctx.stroke(); ctx.setLineDash([]); ctx.globalAlpha = 1; }
+  encodeArrows(ctx, V); scaleBar(ctx, V, V.X(U) - 6, V.Y(-U) - 10);
+}
+
+/* ---------------------------------------------------------- plot */
+function drawDiag(){
+  const cv = $("cvDiag"), {ctx, w, h} = fit(cv);
+  ctx.fillStyle = C.bg; ctx.fillRect(0,0,w,h);
+  if(P.diag === "profile"){ drawProfile(ctx, w, h); return; }
+  $("diagTag").textContent = P.diag === "edge" ? "Line weights, and the image of a sharp edge along phase" : "Line weights and |PSF| along phase";
+  const {N, w: W, t, ETL} = CUR, show = shownTissues();
+  const bx = 52, bw = w - bx - 52, top = 60, mid = top + (h - top - 36)*0.45, bh1 = mid - top - 4, by2 = mid + 40, bh2 = h - 36 - by2;
+  // top: echo time per line (bars, right axis) and the weight of each tissue
+  const xr = [-N/2 - 0.5, N/2 - 0.5], A1 = axes(ctx, bx, top, bw, bh1, xr, [0, 1.05], null, "weight e^(−t/T2)", {nx:8, yticks:[0, 0.5, 1]});
+  const tmax = ETL*P.esp;
+  ctx.fillStyle = C.grid;
+  for(let j=0;j<N;j++){ const x0 = A1.X(j - N/2 - 0.5), x1 = A1.X(j - N/2 + 0.5), y = A1.Y(1.05*t[j]/tmax); ctx.fillRect(x0, y, Math.max(1, x1 - x0), top + bh1 - y); }
+  ctx.strokeStyle = C.axis; ctx.beginPath(); ctx.moveTo(bx + bw, top); ctx.lineTo(bx + bw, top + bh1); ctx.stroke();
+  for(const v of niceTicks(0, tmax, 3)){ const y = A1.Y(1.05*v/tmax); ctx.beginPath(); ctx.moveTo(bx + bw, y); ctx.lineTo(bx + bw + 3, y); ctx.stroke(); label(ctx, fmtTick(v), bx + bw + 5, y + 3.5, C.muted, "left"); }
+  label(ctx, "t (ms)", bx + bw + 4, top - 6, C.dim, "left");
+  label(ctx, "k_PE line", bx + bw, top + bh1 + 26, C.dim, "right");
+  show.forEach(c => {
+    ctx.strokeStyle = tCol(c); ctx.lineWidth = 1.5; ctx.beginPath();
+    for(let j=0;j<N;j++){ const y = A1.Y(W[c][j]); const xa = A1.X(j - N/2 - 0.5), xb = A1.X(j - N/2 + 0.5); j ? ctx.lineTo(xa, y) : ctx.moveTo(xa, y); ctx.lineTo(xb, y); }
+    ctx.stroke();
+  });
+  ctx.strokeStyle = C.ui; ctx.setLineDash([3,3]); ctx.beginPath(); ctx.moveTo(A1.X(0), top); ctx.lineTo(A1.X(0), top + bh1); ctx.stroke(); ctx.setLineDash([]);
+  label(ctx, `TE_eff ${fmtMs(CUR.TEeff)}`, A1.X(0) + 4, top + bh1 - 6, C.ui);
+  legendRow(ctx, bx + bw, 38, show.map(c => [tCol(c), TISSUES[c].name]).concat([[C.grid, "echo time"]]));
+  if(P.diag === "edge"){ drawEdge(ctx, bx, by2, bw, bh2, show); return; }
+  // bottom: |PSF| along phase for each tissue, against the no-decay PSF
+  const log = P.diag === "psflog", R = log ? N/2 : 8, ny = log ? N : 400;   // log: pixel positions only
+  const yr = log ? [-4, 0] : [0, 1.05];
+  const A2 = axes(ctx, bx, by2, bw, bh2, [-R, R], yr, "position along phase (px)", log ? "|PSF| / its peak, log₁₀" : "|PSF| / its peak",
+                  {nx:8, yticks: log ? [-4, -3, -2, -1, 0] : [0, 0.5, 1]});
+  const ones = new Float64Array(N).fill(1);
+  const curve = (wv, col, lw, dash) => {
+    ctx.strokeStyle = col; ctx.lineWidth = lw; ctx.setLineDash(dash || []); ctx.beginPath();
+    const p0 = psfAbs(wv, 0);
+    for(let i=0;i<=ny;i++){ const y = -R + 2*R*i/ny, v = psfAbs(wv, y)/p0, Y = A2.Y(log ? Math.max(-4, Math.log10(v + 1e-12)) : v); i ? ctx.lineTo(A2.X(y), Y) : ctx.moveTo(A2.X(y), Y); }
+    ctx.stroke(); ctx.setLineDash([]);
+  };
+  curve(ones, C.dim, 1, [3,3]);
+  show.forEach(c => curve(W[c], tCol(c), 1.5));
+  legendRow(ctx, bx + bw, by2 - 6, [[C.dim, "no decay", [3,3]]]);
+}
+function shownTissues(){ return P.oneT2 ? [1] : [1, 2, 3, 0]; }
+// image of a sharp edge: flat inside = 1, evaluated between pixels; dashed without decay
+function drawEdge(ctx, bx, by, bw, bh, show){
+  const {er, er0} = CUR, n = er0.length, xs = i => -EDGE_Y + i*EDGE_DY;
+  let mx = 1.2; show.forEach(c => { for(let i=0;i<n;i++) mx = Math.max(mx, er[c][i]); });
+  mx = Math.min(4, Math.ceil(mx*10 + 0.5)/10);
+  const A = axes(ctx, bx, by, bw, bh, [-EDGE_Y, EDGE_Y], [0, mx], "distance from the edge along phase (px), inside ← → outside",
+                 "|image| at a sharp edge, flat region = 1", {nx:8, yticks: niceTicks(0, mx, 3)});
+  ctx.strokeStyle = C.axis; ctx.setLineDash([2,3]); ctx.beginPath(); ctx.moveTo(A.X(0), by); ctx.lineTo(A.X(0), by + bh);
+  ctx.moveTo(A.X(-EDGE_Y), A.Y(1)); ctx.lineTo(A.X(0), A.Y(1)); ctx.stroke(); ctx.setLineDash([]);
+  const curve = (v, col, lw, dash) => { ctx.strokeStyle = col; ctx.lineWidth = lw; ctx.setLineDash(dash || []); ctx.beginPath();
+    for(let i=0;i<n;i++){ const X = A.X(xs(i)), Y = A.Y(Math.min(mx, v[i])); i ? ctx.lineTo(X, Y) : ctx.moveTo(X, Y); } ctx.stroke(); ctx.setLineDash([]); };
+  curve(er0, C.dim, 1, [3,3]);
+  show.forEach(c => curve(er[c], tCol(c), 1.5));
+  legendRow(ctx, bx + bw, by - 6, [[C.dim, "no decay", [3,3]]]);
+}
+function drawProfile(ctx, w, h){
+  $("diagTag").textContent = "Profile along phase through x = 0 (lesions and the head outline)";
+  const {N, R, ref} = CUR, d = FOV/N, r0 = N/2;
+  const cur = [], rf = []; let mx = 0;
+  for(let m=0;m<N;m++){ const i = m*N + r0; cur.push(Math.hypot(R.Ir[i], R.Ii[i])); rf.push(Math.hypot(ref.Ir[i], ref.Ii[i])); mx = Math.max(mx, rf[m], cur[m]); }
+  const bx = 52, by = 56, bw = w - bx - 18, bh = h - by - 40;
+  const A = axes(ctx, bx, by, bw, bh, [-U, U], [0, Math.max(1.1, mx*1.05)], "y along phase (mm)", "|image|, proton-density units", {nx:8});
+  const line = (v, col, lw, dash) => { ctx.strokeStyle = col; ctx.lineWidth = lw; ctx.setLineDash(dash || []); ctx.beginPath(); v.forEach((a, m) => { const x = A.X((m - N/2)*d), y = A.Y(a); m ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }); ctx.stroke(); ctx.setLineDash([]); };
+  line(rf, C.muted, 1.2, [3,3]); line(cur, C.ui, 1.8);
+  // where the lesions are along this line
+  [SL.L1, SL.L2, SL.L4].forEach(e => { const ya = e.y0 - e.b, yb = e.y0 + e.b; ctx.fillStyle = C.les; ctx.globalAlpha = 0.18; ctx.fillRect(A.X(ya), by, A.X(yb) - A.X(ya), bh); ctx.globalAlpha = 1; });
+  legendRow(ctx, bx + bw, 38, [[C.muted, "no decay", [3,3]], [C.ui, "TSE"], [C.les, "lesions"]]);
+}
+
+/* ---------------------------------------------------------- physics panel */
+const ORDER_TITLE = {
+  linear:"Linear order: the middle echo fills the centre of k-space",
+  wrap:"Wrapped order: the first echo at the centre, the last one right beside it",
+  centric:"Centric order: the first echo fills the centre, later echoes move outward",
+  seq:"Sequential per shot: the weight repeats every ETL lines",
+  seqlong:"Sequential, middle echo at the centre: long TE_eff, same ghosts"
+};
+const ORDER_RULE = {
+  linear:"e = segment number, bottom to top",
+  wrap:"e = segment number from the centre up, wrapped",
+  centric:"e grows with |k<sub>PE</sub>|, both sides",
+  seq:"e = (line mod ETL) + 1",
+  seqlong:"e = ((line − N/2 + ETL/2) mod ETL) + 1"
+};
+function physHTML(){
+  const {N, ETL, S, TEeff, T2, met, w} = CUR;
+  let eq = `s(k) = Σ<sub>c</sub> ρ<sub>c</sub> F<sub>c</sub>(k) · <span class="hl">e<sup>−t(k<sub>PE</sub>)/T2<sub>c</sub></sup></span><br>`;
+  eq += `t(k<sub>PE</sub>) = e(k<sub>PE</sub>)·ESP,&nbsp; <span class="hl">${ORDER_RULE[P.order]}</span><br>`;
+  eq += `ρ̂(r) = Σ<sub>c</sub> ρ<sub>c</sub> [ shape<sub>c</sub> ⊛<sub>PE</sub> PSF<sub>c</sub> ],&nbsp; PSF<sub>c</sub>(y) = N<sup>−1</sup> Σ<sub>m</sub> e<sup>−t<sub>m</sub>/T2<sub>c</sub></sup> e<sup>i2πmy/N</sup><br>`;
+  eq += `<span class="res">TE<sub>eff</sub> = t(0) = ${CUR.V.echo[N/2]}·ESP = ${fmtMs(TEeff)}</span>`;
+  const rows = []; const r = (a, b, hi) => rows.push(`<tr${hi ? ' class="hi"' : ""}><td>${a}</td><td>${b}</td></tr>`);
+  r("Echo train length ETL", ETL === N ? `${ETL} (single shot)` : ETL === 1 ? "1 (conventional SE)" : `${ETL}`);
+  r("Excitations N/ETL (∝ scan time)", `${S}`);
+  r("Train duration ETL·ESP", fmtMs(ETL*P.esp));
+  r("Effective TE (echo at k = 0)", fmtMs(TEeff), true);
+  const show = shownTissues();
+  show.forEach(c => {
+    const T = TISSUES[c], s = T.rho*Math.exp(-TEeff/T2[c]);
+    r(`${T.name}: ρ·e<sup>−TE<sub>eff</sub>/T2</sup>`, f2(s));
+    r(`${T.name}: PSF width (FWHM)`, met[c].fwhm === null ? "> 40 px" : `${f2(met[c].fwhm)} px`, c === 1);
+  });
+  if(!P.oneT2){
+    const sB = TISSUES[1].rho*Math.exp(-TEeff/T2[1]), sL = TISSUES[2].rho*Math.exp(-TEeff/T2[2]), sC = TISSUES[3].rho*Math.exp(-TEeff/T2[3]);
+    r("Lesion / brain (ρ alone: 1.07)", f2(sL/sB), true);
+    r("CSF / brain (ρ alone: 1.43)", f2(sC/sB));
+  }
+  if(P.jfat && !P.oneT2) r("Scalp apparent T2 (J-coupling)", fmtT2(T2[0]));
+  const {em, em0, gain} = CUR;
+  r("Brain: detail gain, mean w ÷ w(k = 0) (no decay: 1.00)", f2(gain[1]), true);
+  r(`Brain: edge overshoot (no decay: ${f1(100*em0.over)} %)`, `${f1(100*em[1].over)} %`, true);
+  r(`Brain: ringing beyond 3 px (no decay: ${f1(100*em0.ring)} %)`, `${f1(100*em[1].ring)} %`, true);
+  if(CUR.ghost !== null){
+    r("Brain: ghost at N/ETL px", `${f1(100*CUR.ghost)} %`, true);
+    r("Ghost spacing N/ETL", `${N/ETL} px = ${f1(N/ETL*FOV/N)} mm`);
+  }
+  const half = Math.ceil(rows.length/2);
+  const title = ETL === 1 ? "ETL 1: a conventional spin echo, every line at TE = ESP" : ORDER_TITLE[P.order];
+  return `<h3>${title}</h3><div class="eq">${eq}</div>` +
+    `<div class="cols"><table class="read">${rows.slice(0,half).join("")}</table><table class="read">${rows.slice(half).join("")}</table></div>`;
+}
+const f1 = v => v.toFixed(1), f2 = v => v.toFixed(2);
+
+const NOTES = {
+  linear:`<p>Each echo fills one contiguous segment of k-space, from the bottom edge to the top, so the weight falls steadily across k<sub>PE</sub>. The centre of k-space, which sets the contrast, is filled by the echo in the middle of the train: <b>TE<sub>eff</sub> ≈ (ETL/2 + 1)·ESP</b>. This is the usual order for T2-weighted TSE. Lesions and CSF, with their long T2, come out bright.</p>
+<p>The early, strong echoes fill one edge of k-space, so fine detail and edges are boosted relative to flat regions by the <b>detail gain</b>, mean weight ÷ weight at k = 0, about e<sup>(TE<sub>eff</sub> − ESP)/T2</sup> at that edge. Edges overshoot and ring, and since TE<sub>eff</sub> grows with ETL, the ringing grows quickly with longer trains: compare ETL 8, 16 and 32 in the edge response. The far edge of k-space, filled by late echoes, is suppressed, so the PSF is also asymmetric and broadened. With a single shot (ETL = N) the train is so long that short-T2 tissue has almost no signal left at the far edge. Small lesions blur and lose contrast. Compare the profile with the image without decay. Real single-shot TSE (HASTE) acquires only a little more than half of k-space to shorten TE<sub>eff</sub> and the train.</p>`,
+  wrap:`<p>The first echo fills the segment centred on k = 0, and later echoes continue upward. At the top edge the train wraps to the bottom edge and climbs back towards the centre. <b>TE<sub>eff</sub> = ESP</b>, so the contrast is close to proton density.</p>
+<p>The last echo lands right beside the first, just below the centre, so the weight <b>jumps</b> from e<sup>−ETL·ESP/T2</sup> to 1 within one line. A step in k-space adds a slowly decaying oscillation to the image, and because this step sits near the centre, the oscillation is slow: broad halos along phase around the head outline and the ventricles, strongest for short-T2 tissue. Compare with the image without decay. Orders without such jumps, like centric, are preferred.</p>`,
+  centric:`<p>Echoes are placed in order of distance from the centre. The first echo fills the lines around k = 0, and later echoes move outward on both sides. <b>TE<sub>eff</sub> = ESP</b>: proton-density weighting, or T1 weighting with a short TR. Lesions with a proton density close to brain almost disappear.</p>
+<p>The weight is symmetric, so the PSF is real and symmetric. It falls towards the edges of k-space, which is a low-pass filter: the detail gain is below 1, edges blur instead of ringing, and short-T2 tissue blurs most. A long CSF T2 keeps the ventricles sharp while brain and scalp soften.</p>`,
+  seqlong:`<p>The same sequential sampling, with each shot filling ETL neighbouring lines, but the blocks are shifted so that the <b>middle echo, ETL/2 + 1, fills the centre</b> of k-space. TE<sub>eff</sub> ≈ (ETL/2 + 1)·ESP, the same as linear order, so the contrast is T2-weighted: lesions and CSF are bright.</p>
+<p>The weight still repeats every ETL lines, so the <b>ghosts every N/ETL pixels along phase</b> remain. Shifting the blocks only moves the sawtooth along k<sub>PE</sub>, which changes the phase of the ghosts, not their size relative to the image: the PSF is the same as in "TSE sequential". Moving the centre only changes the contrast.</p>
+<p>Compare with "TSE linear": same TE<sub>eff</sub> and the same contrast, but segmented ordering gives each echo one contiguous region of k-space, so the weight changes slowly and the ghosts disappear. This is why T2-weighted TSE uses segmented, not sequential, ordering.</p>`,
+  seq:`<p>Each shot acquires ETL neighbouring lines one after the other, then the next shot moves on to the next block. The weight therefore repeats every ETL lines: a sawtooth along k<sub>PE</sub>. A periodic modulation in k-space makes shifted copies of the image, <b>ghosts every N/ETL pixels along phase</b>, with a strength set by how much the signal decays across the train.</p>
+<p>Segmented orders such as linear or centric avoid it by giving each echo its own contiguous region of k-space, so the weight changes slowly. Switch to the full |PSF| to see the ghost peaks.</p>`
+};
+
+/* ---------------------------------------------------------- UI sync */
+function fillEtl(){
+  const opts = [`<option value="1">1 (conventional SE)</option>`]; for(let e=4; e<P.N; e*=2) opts.push(`<option value="${e}">${e}</option>`);
+  opts.push(`<option value="ss">${P.N} (single shot)</option>`);
+  $("etl").innerHTML = opts.join("");
+  if(P.etl !== "ss" && P.etl >= P.N) P.etl = "ss";
+}
+function pushControls(){
+  fillEtl();
+  $("order").value = P.order; $("etl").value = String(P.etl); $("sEsp").value = P.esp; $("nMat").value = String(P.N);
+  for(const k of ["brain","les","csf","scalp"]) $("sT2"+k).value = logFrom(P.T2[k], T2_LO, T2_HI);
+  $("oneT2").checked = P.oneT2; $("jfat").checked = P.jfat; $("objView").value = P.objView; $("kview").value = P.kview; $("diag").value = P.diag;
+  $("sWin").value = P.win; $("split").setAttribute("aria-pressed", P.split ? "true" : "false");
+  renderExamples(); schedule();
+}
+function pullControls(){
+  P.order = $("order").value; P.etl = $("etl").value === "ss" ? "ss" : +$("etl").value; P.esp = +$("sEsp").value;
+  const N = +$("nMat").value; if(N !== P.N){ P.N = N; fillEtl(); $("etl").value = String(P.etl); }
+  for(const k of ["brain","les","csf","scalp"]) P.T2[k] = logTo(+$("sT2"+k).value, T2_LO, T2_HI);
+  P.oneT2 = $("oneT2").checked; P.jfat = $("jfat").checked; P.objView = $("objView").value; P.kview = $("kview").value; P.diag = $("diag").value;
+  P.win = +$("sWin").value;
+}
+function renderExamples(){
+  const box = $("exRow"); box.innerHTML = "";
+  EXAMPLES.forEach(([lab, ov], i) => {
+    const b = document.createElement("button"); b.type = "button"; b.textContent = lab;
+    const match = Object.keys(ov).every(k => P[k] === ov[k]);
+    b.setAttribute("aria-pressed", match ? "true" : "false");
+    b.addEventListener("click", () => { exampleIdx = i; Object.assign(P, ov); pushControls(); });
+    box.appendChild(b);
+  });
+}
+function syncLabels(){
+  const {N, ETL, S} = CUR;
+  $("vEsp").textContent = fmtMs(P.esp);
+  $("subTrain").innerHTML = ETL === 1 ? `One echo per excitation (${S} excitations): a conventional spin echo with TE = ESP = ${fmtMs(P.esp)}.`
+    : `${S} shot${S > 1 ? "s" : ""} of ${ETL} echoes, train ${fmtMs(ETL*P.esp)}, TE<sub>eff</sub> ${fmtMs(CUR.TEeff)}.`;
+  for(const k of ["brain","les","csf","scalp"]) $("vT2"+k).textContent = fmtT2(P.T2[k]);
+  document.querySelectorAll("[data-multi]").forEach(el => { el.classList.toggle("off", P.oneT2); el.querySelector("input").disabled = P.oneT2; });
+  const jOn = P.jfat && !P.oneT2;
+  $("ctlJ").classList.toggle("off", P.oneT2); $("jfat").disabled = P.oneT2;
+  if(jOn){ $("sT2scalp").disabled = true; $("sT2scalp").closest(".ctl").classList.add("off"); $("vT2scalp").textContent = fmtT2(CUR.T2[0]) + " (J)"; }
+  $("subMat").textContent = `FOV ${FOV} mm, pixel ${(FOV/N).toFixed(2)} mm. Readout horizontal, phase vertical.`;
+  $("vWin").textContent = f2(P.win);
+  $("phys").innerHTML = physHTML();
+  $("note").innerHTML = (ETL === 1 ? `<p>With <b>ETL 1</b> every line is acquired at the same TE, so the view order has no effect: there is no blur or ringing from T2 decay, only truncation ringing as without decay. This is the reference for the longer trains.</p>` : NOTES[P.order]) + (P.oneT2 ? `<p>With <b>one T2 for all tissue</b> the contrast is the proton density at every TE<sub>eff</sub>, and only the blurring and artefacts of the order remain.</p>` : "")
+    + (P.jfat && !P.oneT2 ? `<p>With <b>J-coupling</b>, the scalp's apparent T2 follows the echo spacing: ${fmtT2(CUR.T2[0])} here. Short spacing keeps fat bright in a long train; ETL 1 with a long ESP (a conventional spin echo) makes it darker.</p>` : "");
+  document.querySelectorAll("#exRow button").forEach((b, i) => { const ov = EXAMPLES[i][1]; b.setAttribute("aria-pressed", Object.keys(ov).every(k => P[k] === ov[k]) ? "true" : "false"); });
+}
+
+let pending = false;
+function schedule(){ if(pending) return; pending = true; requestAnimationFrame(render); }
+function render(){
+  pending = false;
+  compute(); syncLabels();
+  drawObject(); drawK(); drawImage(); drawDiag();
+}
+
+/* ---------------------------------------------------------- wiring */
+document.querySelectorAll("#rail input, #rail select").forEach(el => {
+  el.addEventListener(el.type === "range" ? "input" : "change", () => { pullControls(); schedule(); });
+});
+function toggleSplit(){ P.split = !P.split; split = 0.5; $("split").setAttribute("aria-pressed", P.split ? "true" : "false"); schedule(); }
+$("split").addEventListener("click", toggleSplit);
+document.addEventListener("keydown", e => { if(e.target.matches("input,select,button")) return; if(e.key === "r" || e.key === "R") toggleSplit(); });
+{
+  const cv = $("cvImg"); let drag = false;
+  const at = e => { if(!IMGVIEW) return; const r = cv.getBoundingClientRect(), S = FOV*IMGVIEW.s; split = Math.max(0, Math.min(1, (e.clientX - r.left - IMGVIEW.ox)/S)); schedule(); };
+  cv.addEventListener("pointerdown", e => { if(!P.split) return; drag = true; cv.setPointerCapture(e.pointerId); at(e); });
+  cv.addEventListener("pointermove", e => { if(drag) at(e); });
+  cv.addEventListener("pointerup", () => { drag = false; }); cv.addEventListener("pointercancel", () => { drag = false; });
+}
+$("png").addEventListener("click", () => {
+  const cvs = ["cvObj","cvK","cvImg"].map($), dg = $("cvDiag");
+  const H = Math.max(...cvs.map(c => c.height)), W = cvs.reduce((s, c) => s + c.width, 0);
+  const out = document.createElement("canvas"); out.width = W; out.height = H + dg.height;
+  const o = out.getContext("2d"); o.fillStyle = C.bg; o.fillRect(0, 0, out.width, out.height);
+  let x = 0; cvs.forEach(c => { o.drawImage(c, x, 0); x += c.width; }); o.drawImage(dg, 0, H);
+  const a = document.createElement("a"); a.download = `mriEchoTrainSim_${P.order}_etl${etlOf()}.png`;
+  a.href = out.toDataURL("image/png"); document.body.appendChild(a); a.click(); a.remove();
+});
+$("theme").addEventListener("click", () => {
+  const dark = document.documentElement.dataset.theme === "dark";
+  document.documentElement.dataset.theme = dark ? "light" : "dark";
+  $("theme").textContent = dark ? "Dark" : "Light";
+  readTheme();
+});
+window.addEventListener("resize", schedule);
+if(window.ResizeObserver){ const ro = new ResizeObserver(schedule); ["objPane","kPane","imgPane","diagPane"].forEach(id => ro.observe($(id))); }
+
+/* ------------------------------------------------------------- go */
+$("ver").textContent = "v" + VERSION;
+$("credit").textContent = `Echo train sim v${VERSION} · ${AUTHORS}`;
+document.querySelector("#about .by").textContent = AUTHORS;
+$("changelog").innerHTML = CHANGELOG.map(([v, d, t], i) =>
+  `<div class="rel"><h5>${v} <em>· ${i === 0 ? "current, " : ""}${d}</em></h5><p>${t}</p></div>`).join("");
+{
+  const about = $("about");
+  const close = () => { about.hidden = true; $("ver").focus(); };
+  $("ver").addEventListener("click", () => { about.hidden = false; about.querySelector(".sheet").scrollTop = 0; $("aboutClose").focus({preventScroll:true}); });
+  $("aboutClose").addEventListener("click", close);
+  about.addEventListener("click", e => { if(e.target === about) close(); });
+  document.addEventListener("keydown", e => { if(e.key === "Escape" && !about.hidden) close(); });
+}
+/* Simple shows the examples, the echo train length, the comparison and the notes; Advanced shows every control */
+let level = "simple";
+function applyLevel(){
+  document.body.dataset.level = level;
+  $("lvlSimple").setAttribute("aria-pressed", level === "simple" ? "true" : "false");
+  $("lvlAdv").setAttribute("aria-pressed", level === "advanced" ? "true" : "false");
+  schedule();
+}
+$("lvlSimple").addEventListener("click", () => { level = "simple"; applyLevel(); });
+$("lvlAdv").addEventListener("click", () => { level = "advanced"; applyLevel(); });
+applyLevel();
+readTheme();
+pushControls();
+</script>
+<script>
+/* House style (shared by the MRI simulators): one light/dark preference for the
+   whole suite. The saved choice (or the operating-system setting on a first
+   visit) is applied by clicking the app's own theme button, so each app redraws
+   through its usual path. The button always names the theme it switches TO. */
+(function () {
+  "use strict";
+  var KEY = "mrisim.theme";
+  function saved() {
+    try { var v = localStorage.getItem(KEY); if (v === "light" || v === "dark") return v; }
+    catch (e) { /* storage can be unavailable for file:// pages */ }
+    return null;
+  }
+  window.addEventListener("load", function () {
+    setTimeout(function () {
+      var btn = document.getElementById("theme");
+      if (!btn) return;
+      var root = document.documentElement;
+      var cur = function () { return root.getAttribute("data-theme") === "light" ? "light" : "dark"; };
+      var label = function () { btn.textContent = cur() === "dark" ? "Light" : "Dark"; };
+      var want = saved() || (window.matchMedia &&
+        window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark");
+      if (want !== cur()) btn.click();
+      label();
+      btn.addEventListener("click", function () {
+        label();
+        try { localStorage.setItem(KEY, cur()); } catch (e) { /* file:// */ }
+      });
+    }, 0);
+  });
+})();
+</script>
+</body>
+</html>
