@@ -20,6 +20,7 @@ credits and changelog under the version chip in its header.
 | [`mriBandwidthSim.html`](#mribandwidthsimhtml--bandwidth-sim) | Slice thickness, FOV, voxel size and fat shift from gradients and bandwidth |
 | [`mriReadoutSim.html`](#mrireadoutsimhtml--readout-sim) | K-space trajectories in spin-echo imaging |
 | [`mriArtifactSim.html`](#mriartifactsimhtml--artifact-sim) | Image artifacts from the signal equation |
+| [`mriEchoTrainSim.html`](#mriechotrainsimhtml--echo-train-sim) | Fast spin echo view order: T2 contrast, blur and ringing |
 | [`mriBTensorSim.html`](#mribtensorsimhtml--b-tensor-sim) | b-tensor glyphs from tensors or gradient waveforms |
 | [`mriBuildSim.html`](#mribuildsimhtml--build-sim) | Building pulse sequences from RF, gradient and ADC blocks |
 | [`mriFourierSim.html`](#mrifouriersimhtml--fourier-sim) | How every voxel contributes to one point in k-space |
@@ -131,12 +132,32 @@ responsible term highlighted. Artifacts covered:
 - susceptibility around a metal or air sphere, displaced along the
   low-bandwidth direction (readout in line-by-line imaging, phase in EPI)
 - eddy currents and gradient delay (Nyquist ghost, diffusion distortions)
+- the EPI N/2 (Nyquist) ghost from a gradient delay, and its reference-scan
+  correction
 - pulsatile flow ghosts
 - k-space spikes and RF zippers
 
 It covers spin echo, gradient echo and EPI, with four phantoms. A Simple mode
 gives worked examples, and an Advanced mode gives full controls. Proton density
 only: no relaxation.
+
+## `mriEchoTrainSim.html` — Echo train sim
+
+![Echo train sim](docs/img/mriEchoTrainSim.png)
+
+How the echo order of a fast (turbo) spin echo sets the contrast and the blur.
+Each phase-encoding line is weighted by e<sup>−t/T2</sup> of the echo that
+acquired it, so the view order becomes a filter along k<sub>PE</sub>: the echo at
+the centre of k-space gives the effective TE, and the shape of the weighting
+gives blur, edge overshoot and ringing, or ghosts. An analytic head phantom with
+four tissues, each with its own proton density and T2, is sampled exactly in
+k-space. View orders are linear, linear from the centre, centric and sequential,
+with ETL from 1 (a conventional spin echo) to single shot. Panels show the
+object, k-space by echo number, the image with a comparison without decay, the
+line weights, and the image of a sharp edge for each tissue. Optional J-coupling
+makes fat bright in long echo trains. A Simple mode gives worked examples, and an
+Advanced mode gives full controls. No T1 weighting, stimulated echoes or
+magnetisation transfer.
 
 ## `mriBTensorSim.html` — B-tensor sim
 

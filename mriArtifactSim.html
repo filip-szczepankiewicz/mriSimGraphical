@@ -78,6 +78,9 @@ select:focus-visible{outline:2px solid var(--accent); outline-offset:2px}
 .ctl.hot .lab span:first-child{color:var(--accent)}
 .ctl.hot .lab span:first-child::before{content:"● "; font-size:8px; vertical-align:2px}
 .ctl.off{opacity:.45}
+.ctl.na{display:none}
+.ctl.hot label.chk.mark{color:var(--accent)}
+.ctl.hot label.chk.mark::before{content:"●"; font-size:8px; margin-right:-3px}
 section.fold h2{display:flex; align-items:center; gap:6px; cursor:pointer; user-select:none; margin:0}
 section.fold h2:hover{color:var(--muted)}
 section.fold h2 .chev{margin-left:auto; width:7px; height:7px; border-right:1px solid currentColor; border-bottom:1px solid currentColor; transform:rotate(45deg); transition:transform .12s; position:relative; top:-2px}
@@ -222,6 +225,7 @@ h2{font-weight:400; letter-spacing:.18em; margin-bottom:9px}
         <option value="gibbs">Gibbs ringing — truncation</option>
         <option value="susc">Susceptibility — metal and air</option>
         <option value="eddy">Eddy currents and gradient delay</option>
+        <option value="ghost">N/2 ghost — EPI echo shift</option>
         <option value="flow">Flow — pulsatile ghosts</option>
         <option value="spike">Spike and RF interference</option>
       </select>
@@ -306,7 +310,7 @@ h2{font-weight:400; letter-spacing:.18em; margin-bottom:9px}
       </div>
       <p class="sub" id="subTE"></p>
     </div>
-    <div class="ctl" data-hot="fat1">
+    <div class="ctl" data-hot="fat1 ghost">
       <div class="lab"><span>Readout bandwidth</span><span class="val" id="vBW"></span></div>
       <input type="range" id="sBW" min="0" max="1000" step="1" value="400">
       <p class="sub" id="subBW"></p>
@@ -361,20 +365,20 @@ h2{font-weight:400; letter-spacing:.18em; margin-bottom:9px}
   </section>
 
   <section class="fold">
-    <h2 tabindex="0" role="button" aria-expanded="true" data-modes="eddy">Eddy currents and gradient timing<span class="chev"></span></h2>
+    <h2 tabindex="0" role="button" aria-expanded="true" data-modes="eddy ghost"><span id="ecTitle">Eddy currents and gradient timing</span><span class="chev"></span></h2>
     <div class="body">
-    <div class="ctl" data-hot="eddy">
+    <div class="ctl" data-hot="eddy" data-skip="ghost">
       <div class="lab"><span>Eddy current amplitude a</span><span class="val" id="vEc"></span></div>
       <input type="range" id="sEc" min="0" max="1" step="0.01" value="0">
       <div class="lab" style="margin-top:6px"><span>Time constant τ</span><span class="val" id="vTau"></span></div>
       <input type="range" id="sTau" min="0" max="1000" step="1" value="500">
       <p class="sub">g<sub>ec</sub> = −(dG/dt) ⊗ a·e<sup>−t/τ</sup> on each axis: a gradient step of ΔG leaves a field −a·ΔG that decays with τ. Residual amplitudes after pre-emphasis are typically well below 1 %.</p>
     </div>
-    <div class="ctl" data-hot="eddy">
+    <div class="ctl" data-hot="eddy ghost">
       <div class="lab"><span>Gradient delay δt</span><span class="val" id="vDelay"></span></div>
       <input type="range" id="sDelay" min="-5" max="5" step="0.1" value="0">
     </div>
-    <div class="ctl" data-hot="eddy" id="ctlDiff">
+    <div class="ctl" data-hot="eddy" data-skip="ghost" id="ctlDiff">
       <div class="lab"><span>Diffusion encoding (spin echo)</span></div>
       <select id="diff" aria-label="Diffusion direction">
         <option value="none">None (b = 0)</option>
@@ -386,15 +390,17 @@ h2{font-weight:400; letter-spacing:.18em; margin-bottom:9px}
       <input type="range" id="sB" min="0" max="3000" step="50" value="1000">
       <p class="sub">The lobes only drive eddy currents here; diffusion attenuation itself is not modelled.</p>
     </div>
-    <div class="ctl" data-hot="eddy" id="ctlDiff2">
+    <div class="ctl" data-hot="eddy" data-skip="ghost" id="ctlDiff2">
       <div class="lab"><span>Diffusion gradient</span><span class="val" id="vGd"></span></div>
       <input type="range" id="sGd" min="10" max="80" step="1" value="45">
       <div class="lab" style="margin-top:6px"><span>Slice offset z₀</span><span class="val" id="vZ0"></span></div>
       <input type="range" id="sZ0" min="-80" max="80" step="1" value="0">
     </div>
-    <div class="ctl" data-hot="eddy">
-      <label class="chk"><input type="checkbox" id="nyq"> Nyquist ghost correction (reference scan)</label>
-      <div class="row" style="margin-top:6px"><button id="freezeB0" title="Freeze the image without diffusion lobes as the reference">Freeze b = 0 reference</button></div>
+    <div class="ctl" data-hot="eddy ghost">
+      <label class="chk mark"><input type="checkbox" id="nyq"> Nyquist ghost correction (reference scan)</label>
+    </div>
+    <div class="ctl" data-skip="ghost">
+      <div class="row"><button id="freezeB0" title="Freeze the image without diffusion lobes as the reference">Freeze b = 0 reference</button></div>
     </div>
   </div>
   </section>
@@ -584,7 +590,9 @@ h2{font-weight:400; letter-spacing:.18em; margin-bottom:9px}
       echo train, with no g-factor. Eddy currents are linear fields, one exponential per axis, with no
       cross-terms or higher spatial orders and no B₀ term apart from the slice offset. Diffusion lobes
       drive eddy currents but do not attenuate the signal. The Nyquist correction uses the ideal
-      odd–even difference at the centre of the echo train. Flow is plug flow through the slice in a
+      odd–even difference at the centre of the echo train. The N/2 ghost comes from a gradient–ADC
+      delay alone, so the odd–even error is a pure echo shift; constant odd–even phase errors (B₀ eddy
+      currents, receiver timing) are not modelled. Flow is plug flow through the slice in a
       single disk-shaped vessel, with no velocity profile, in-plane flow or turbulence. Blood T1 (1.8 s)
       and a 30° flip enter only the inflow effect. RF interference has a random phase per excitation.
       Readout aliasing, shown when readout oversampling is off, is normally
@@ -1404,9 +1412,27 @@ function edgeMetrics(N, filter){
 
 
 /* ---------------------------------------------------------- version */
-const VERSION = "0.4.0";
+const VERSION = "0.5.2";
 const AUTHORS = "Designed by Filip Sz (Lund University) and coded by Claude (Anthropic)";
 const CHANGELOG = [
+  ["0.5.2", "2026-11-10",
+   "N/2 ghost: the controls that drive the ghost are marked ● in the advanced view. These are the " +
+   "readout bandwidth (Δk = 2δt/dwell), the gradient delay and the Nyquist ghost correction. " +
+   "The correction checkbox is now marked in the eddy-current " +
+   "artifact too, where it was already listed as a driving control."],
+  ["0.5.1", "2026-11-10",
+   "Advanced view of the N/2 ghost shows only what that artifact models: the gradient delay and the " +
+   "reference-scan correction. The eddy-current amplitude and time constant, the diffusion encoding, " +
+   "the slice offset and the frozen b = 0 reference are hidden there, and the section is called " +
+   "\"Gradient timing\". The eddy-current artifact keeps all of them."],
+  ["0.5.0", "2026-11-08",
+   "N/2 ghost as its own artifact, in the simple view. A gradient–ADC delay δt shifts the echo by " +
+   "γ̄G_RO·δt in k, in opposite directions on lines read in opposite directions. It uses the existing " +
+   "trajectory-error model with eddy currents off. The odd–even difference is modulated at the Nyquist " +
+   "frequency along k_PE and puts a ghost at FOV/2 along phase, weighted by sin(πΔk·x) across readout. " +
+   "Three examples: the ghost, the reference-scan correction, and a line-by-line gradient echo with the " +
+   "same delay and no ghost. A new plot shows the two central echoes as acquired and the ghost and parent " +
+   "weights across the readout FOV."],
   ["0.4.0", "2026-09-21",
    "Two new artifacts. Flow: the head phantom has a superior sagittal sinus whose k-space is kept " +
    "separately, and every phase-encoding line gets the vessel's complex amplitude at the time it was " +
@@ -1497,6 +1523,8 @@ const PRESETS = {
         mat:"ti", sr:6, sx:0, sy:0, b0dir:"y", objView:"field", noise:0.3, win:1.1, profY:10}),
   eddy:Object.assign({}, BASE, {phantom:"head", seq:"epi", B0:3, TE:30e-3, bw:1500, fov:240, pePct:100,
         nRO:128, nPE:128, fatSat:true, noise:0.2, ecAmp:0.3, ecTau:0.5, delay:1.5, diff:"none", nyq:false}),
+  ghost:Object.assign({}, BASE, {phantom:"head", seq:"epi", B0:3, TE:30e-3, bw:1500, fov:240, pePct:100,
+        nRO:128, nPE:128, fatSat:true, noise:0.2, ecAmp:0, delay:1.5, diff:"none", nyq:false}),
   flow:Object.assign({}, BASE, {phantom:"head", B0:3, bw:250, fov:240, pePct:100, nRO:192, nPE:192,
         TRms:500, hr:70, vmean:150, puls:40, noise:0.2, win:1.2, profY:-90}),
   spike:Object.assign({}, BASE, {phantom:"head", B0:3, bw:250, fov:240, pePct:100, nRO:256, nPE:256,
@@ -1524,6 +1552,9 @@ const EXAMPLES = {
   eddy:[["Nyquist ghost", {}],
         ["Ghost corrected", {nyq:true}],
         ["Diffusion along phase", {seq:"epise", ecAmp:0.15, ecTau:40, delay:0, diff:"pe", bval:1000, nyq:true}]],
+  ghost:[["Gradient delay", {}],
+        ["Ghost corrected", {nyq:true}],
+        ["Line by line", {seq:"gre"}]],
   flow:[["Pulsatile sinus", {}],
         ["Flow compensation", {flowComp:true}],
         ["Saturation band", {satBand:true}]],
@@ -1927,6 +1958,7 @@ function drawDiag(){
   else if(P.mode === "alias"){ $("diagTag").textContent = "Projection along phase encoding"; drawAliasPlot(ctx, w, h); }
   else if(P.mode === "susc"){ drawDisplacement(ctx, w, h); }
   else if(P.mode === "eddy"){ drawEddy(ctx, w, h); }
+  else if(P.mode === "ghost"){ drawGhost(ctx, w, h); }
   else if(P.mode === "flow"){ drawFlow(ctx, w, h); }
   else if(P.mode === "spike"){ drawSpike(ctx, w, h); }
   else { $("diagTag").textContent = "Edge response of the acquisition"; drawEdge(ctx, w, h); }
@@ -2171,6 +2203,62 @@ function drawEddy(ctx, w, h){
   legendRow(ctx, bx + bw, 28, names.map((n,i) => [cols[i], n]).concat([[C.panel2, "readout window"]]));
 }
 
+// N/2 ghost: odd–even readout k-shift Δk (1/mm) from the trajectory errors at the centre of the
+// train, and what is left of it after the idealised reference-scan correction
+function ghostDk(G, Ed){
+  if(!Ed || !G.isEPI) return {dk:0, left:0};
+  const dk = Ed.nyq.dk[0] - Ed.nyq.dk[1];
+  return {dk, left: P.nyq ? 0 : dk};
+}
+// the two central echoes as acquired, and the ghost and parent weights across readout
+function drawGhost(ctx, w, h){
+  const G = CUR.G, A = CUR.A, Ed = A.eddy, NR = G.NacqRO, NP = G.NacqPE;
+  $("diagTag").textContent = G.isEPI ? "Odd and even echoes, and the ghost across readout" : "Two lines, and the ghost across readout";
+  if(!Ed){ label(ctx, "No gradient delay: the echoes coincide and there is no ghost.", w/2, h/2, C.muted, "center"); return; }
+  const {dk, left} = ghostDk(G, Ed);
+  const bx = 52, bw = w - bx - 18, top = 44, mid = top + (h - top - 36)*0.46, bh1 = mid - top - 12, by2 = mid + 34, bh2 = h - 36 - by2;
+  // top: |s| along k_RO for the line through k_PE = 0 and its neighbour (opposite direction in EPI)
+  const lines = [NP/2, NP/2 - 1], W = 8, cols = [C.water, C.fat];
+  const echo = lines.map(m => { const v = []; for(let j=-W;j<=W;j++){ const i = m*NR + NR/2 + j; v.push(Math.hypot(A.Sr[i], A.Si[i])); } return v; });
+  echo.forEach(v => { const m = Math.max(1e-30, ...v); v.forEach((a,i) => { v[i] = a/m; }); });   // shapes, each / its peak
+  const A1 = axes(ctx, bx, top, bw, bh1, [-W, W], [0, 1.35], null, "|s| near the echo, as acquired (each / its peak)", {noY:true, nx:8});
+  label(ctx, "k_RO (samples)", bx + bw, top + bh1 + 26, C.dim, "right");
+  const peak = v => { let k = 0; v.forEach((a,i) => { if(a > v[k]) k = i; });
+    if(k === 0 || k === v.length-1) return k - W;
+    const y0 = v[k-1], y1 = v[k], y2 = v[k+1], den = y0 - 2*y1 + y2;
+    return k - W + (den !== 0 ? 0.5*(y0 - y2)/den : 0); };
+  echo.forEach((v, n) => {
+    ctx.strokeStyle = cols[n]; ctx.fillStyle = cols[n]; ctx.lineWidth = 1.4; ctx.beginPath();
+    v.forEach((a,i) => { const x = A1.X(i - W), y = A1.Y(a); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }); ctx.stroke();
+    v.forEach((a,i) => ctx.fillRect(A1.X(i - W) - 1.5, A1.Y(a) - 1.5, 3, 3));
+    const pk = peak(v); ctx.setLineDash([3,3]); ctx.beginPath(); ctx.moveTo(A1.X(pk), top); ctx.lineTo(A1.X(pk), top + bh1); ctx.stroke(); ctx.setLineDash([]);
+  });
+  legendRow(ctx, bx + bw, 28, G.isEPI
+    ? [[cols[0], `line ${A.parity[lines[0]] ? "odd" : "even"}`], [cols[1], `line ${A.parity[lines[1]] ? "odd" : "even"}`]]
+    : [[cols[0], "line n"], [cols[1], "line n − 1"]]);
+  label(ctx, G.isEPI ? `echo centres Δk = ${f2(Math.abs(dk*G.FOVaRO))} samples apart` : "same direction: same shift on every line", bx + 6, top + 12, C.text);
+  // bottom: ghost |sin(πΔk·x)| and parent |cos(πΔk·x)| across the readout FOV, over the tissue
+  const d = CUR.disp, roX = P.roAxis === "x", n = roX ? d.W : d.H, prof = new Float64Array(n);
+  for(let iy=0;iy<d.H;iy++) for(let ix=0;ix<d.W;ix++){ const v = Math.hypot(d.re[iy*d.W+ix], d.im[iy*d.W+ix]); prof[roX ? ix : d.H-1-iy] += v; }
+  const pmx = Math.max(1e-12, ...prof), pix = roX ? d.px : d.py, x0 = -n/2*pix, xr = [x0, x0 + n*pix];
+  const A2 = axes(ctx, bx, by2, bw, bh2, xr, [0, 1.4], "position along readout x (mm)", "weight", {nx:6});
+  ctx.fillStyle = C.grid; ctx.strokeStyle = C.rule; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(A2.X(xr[0]), A2.Y(0));
+  prof.forEach((v,i) => ctx.lineTo(A2.X(x0 + (i+0.5)*pix), A2.Y(v/pmx))); ctx.lineTo(A2.X(xr[1]), A2.Y(0)); ctx.closePath(); ctx.fill(); ctx.stroke();
+  const curve = (fn, col, lw, dash) => { ctx.strokeStyle = col; ctx.lineWidth = lw; ctx.setLineDash(dash || []); ctx.beginPath();
+    for(let i=0;i<=200;i++){ const x = xr[0] + i/200*(xr[1]-xr[0]), y = A2.Y(fn(x)); i ? ctx.lineTo(A2.X(x), y) : ctx.moveTo(A2.X(x), y); }
+    ctx.stroke(); ctx.setLineDash([]); };
+  if(left !== dk) curve(x => Math.abs(Math.sin(Math.PI*dk*x)), C.dim, 1, [3,3]);
+  curve(x => Math.abs(Math.cos(Math.PI*left*x)), C.muted, 1.4);
+  curve(x => Math.abs(Math.sin(Math.PI*left*x)), C.accent, 1.8);
+  const xq = G.fovRO/4;
+  ctx.strokeStyle = C.dim; ctx.setLineDash([2,3]); [-xq, xq].forEach(x => { ctx.beginPath(); ctx.moveTo(A2.X(x), by2); ctx.lineTo(A2.X(x), by2 + bh2); ctx.stroke(); }); ctx.setLineDash([]);
+  label(ctx, G.isEPI ? (P.nyq ? `ghost removed by the reference scan (was ${f1(100*Math.abs(Math.sin(Math.PI*dk*xq)))} % at ±FOV/4)`
+                               : `ghost ${f1(100*Math.abs(Math.sin(Math.PI*dk*xq)))} % of the object at ±FOV/4`)
+                     : "no alternation, no ghost", bx + 6, by2 + 12, C.text);
+  legendRow(ctx, bx + bw, by2 - 6, (left !== dk ? [[C.dim, "uncorrected", [3,3]]] : [])
+    .concat([[C.accent, "ghost |sin|"], [C.muted, "parent |cos|"], [C.rule, "tissue"]]));
+}
+
 // spacing of flow ghosts along phase, in pixels, wrapped into [−N/2, N/2)
 function ghostSpacing(G, Fl){
   const N = G.NacqPE, dtLine = G.isEPI ? G.ESPeff : Fl.TR;
@@ -2255,6 +2343,7 @@ const MODE_TITLE = {
   gibbs:"Gibbs ringing: k-space ends at k<sub>max</sub>",
   susc:"Susceptibility: a field offset moves signal along the low-bandwidth direction",
   eddy:"Eddy currents: the gradients that were played are not the ones that were asked for",
+  ghost:"N/2 ghost: lines read in opposite directions are sampled at different k",
   flow:"Flow: pulsation changes the vessel's signal from line to line",
   spike:"Spike and RF interference: one bad sample is felt in every pixel"
 };
@@ -2265,8 +2354,8 @@ function physHTML(){
   const tExpr = {
     se:`t(k) = <span${hl(m==="fat1"||m==="susc")}>τ(k<sub>RO</sub>)</span>`,
     gre:`t(k) = <span${hl(m==="fat2"||m==="susc")}>TE</span> + <span${hl(m==="fat1"||m==="susc")}>τ(k<sub>RO</sub>)</span>`,
-    epi:`t(k) = <span${hl(m==="fat2")}>TE</span> + <span${hl(m==="fat1"||m==="susc")}>${espTxt}</span> + (−1)<sup>n</sup><span${hl(m==="fat1")}>τ(k<sub>RO</sub>)</span>`,
-    epise:`t(k) = <span${hl(m==="fat1"||m==="susc")}>${espTxt}</span> + (−1)<sup>n</sup><span${hl(m==="fat1")}>τ(k<sub>RO</sub>)</span>`
+    epi:`t(k) = <span${hl(m==="fat2")}>TE</span> + <span${hl(m==="fat1"||m==="susc")}>${espTxt}</span> + <span${hl(m==="ghost")}>(−1)<sup>n</sup></span><span${hl(m==="fat1")}>τ(k<sub>RO</sub>)</span>`,
+    epise:`t(k) = <span${hl(m==="fat1"||m==="susc")}>${espTxt}</span> + <span${hl(m==="ghost")}>(−1)<sup>n</sup></span><span${hl(m==="fat1")}>τ(k<sub>RO</sub>)</span>`
   }[P.seq];
   let eq = `s(k) = ∬ [ ρ<sub>W</sub>(r) + <span${hl(fatOn)}>ρ<sub>F</sub>(r) Σ<sub>p</sub> α<sub>p</sub> e<sup>−i2π f<sub>p</sub> t(k)</sup></span> ] <span${hl(susc)}>e<sup>−i2π Δf(r) t(k)</sup></span> e<sup>−i2π k·r</sup> d²r<br>`;
   eq += `${tExpr},&nbsp; τ(k<sub>RO</sub>) = k<sub>RO</sub>Δx<sub>RO</sub>/BW<sub>px</sub> ∈ [−T<sub>acq</sub>/2, T<sub>acq</sub>/2]<br>`;
@@ -2275,7 +2364,9 @@ function physHTML(){
   if(G.vat) eq += `VAT: off-resonance cancelled during readout, s(k) × sinc(BW<sub>RF</sub>·τ)<br>`;
   if(m === "flow") eq += `<span class="hl">s(k) → s(k) + [A(t<sub>n</sub>) − 1]·V(k),&nbsp; A = M(v)·e<sup>i2πM₁v</sup>,&nbsp; v = v(t<sub>n</sub>)</span><br>`;
   if(m === "spike") eq += `<span class="hl">s(k) → s(k) + a·δ(k − k₀)` + (P.rfi ? ` + b·e<sup>−i2πf·t</sup>` : ``) + `</span><br>`;
-  if(m === "eddy" || eddyActive(P)) eq += `<span${hl(m==="eddy")}>k is really k(t) + γ̄∫[G(t′−δt) − G(t′) + g<sub>ec</sub>(t′)]dt′,&nbsp; g<sub>ec</sub> = −(dG/dt) ⊗ a·e<sup>−t/τ</sup></span><br>`;
+  if(m === "ghost") eq += G.isEPI ? `<span class="hl">k<sub>RO</sub> is really k<sub>RO</sub> + (−1)<sup>n</sup>·Δk/2,&nbsp; Δk = 2γ̄G<sub>RO</sub>·δt</span><br>`
+                                  : `<span class="hl">k<sub>RO</sub> is really k<sub>RO</sub> − γ̄G<sub>RO</sub>·δt, the same on every line</span><br>`;
+  else if(m === "eddy" || eddyActive(P)) eq += `<span${hl(m==="eddy")}>k is really k(t) + γ̄∫[G(t′−δt) − G(t′) + g<sub>ec</sub>(t′)]dt′,&nbsp; g<sub>ec</sub> = −(dG/dt) ⊗ a·e<sup>−t/τ</sup></span><br>`;
   const rows = []; const r = (a, b, hi) => rows.push(`<tr${hi ? ' class="hi"' : ""}><td>${a}</td><td>${b}</td></tr>`);
   const p = P.roPol ? -1 : 1, q = P.pePol ? -1 : 1;
   const roName = P.roAxis === "x" ? "x" : "y", peName = P.roAxis === "x" ? "y" : "x";
@@ -2346,6 +2437,29 @@ function physHTML(){
       r("Spread along phase", G.isEPI ? "coherent within the shot" : "random phase per excitation");
     }
     if(!(P.spAmp > 0) && !P.rfi) r("Corruption", "none: raise the spike or enable interference", true);
+  } else if(m === "ghost"){
+    const Ed = A.eddy;
+    if(!Ed){ r("Gradient delay", "none: no ghost", true); }
+    else {
+      const {dk, left} = ghostDk(G, Ed), xq = G.fovRO/4, ns = Ed.ro[(G.NacqPE/2)*G.NacqRO + G.NacqRO/2]*G.FOVaRO;
+      if(G.isEPI){
+        eq += `<span class="res">ρ̂(r) = ρ(r)·cos(πΔk·x) ± i·ρ(r + ½FOV<sub>PE</sub>ê<sub>PE</sub>)·sin(πΔk·x)</span>`;
+        r("Gradient delay δt", fmtSigned(P.delay, 1) + " µs");
+        r("Readout dwell time", (G.dwell*1e6).toFixed(2) + " µs");
+        r("Odd–even echo shift Δk", `${fmtSigned(dk*G.FOVaRO, 2)} samples` + (P.nyq ? ", corrected" : ""), true);
+        r("Odd–even phase at x = ±FOV/4", `${fmtSigned(2*Math.PI*dk*xq*180/Math.PI, 0)}°`);
+        r("Ghost position along phase", `FOV<sub>PE</sub>/2 = ${f1(G.fovPE/2)} mm`, true);
+        r("Ghost / object at x = ±FOV/4", P.nyq ? "≈ 0 (corrected)" : `${f1(100*Math.abs(Math.sin(Math.PI*left*xq)))} %`, true);
+        r("Ghost / object at x = 0", "0 (no phase difference)");
+        r("Echo spacing ESP", fmtMs(G.ESP));
+      } else {
+        eq += `<span class="res">one readout direction ⇒ a linear image phase, no ghost</span>`;
+        r("Gradient delay δt", fmtSigned(P.delay, 1) + " µs");
+        r("Readout dwell time", (G.dwell*1e6).toFixed(2) + " µs");
+        r("Echo shift, same on every line", `${fmtSigned(ns, 2)} samples`, true);
+        r("Ghost", "none", true);
+      }
+    }
   } else if(m === "eddy"){
     const Ed = A.eddy;
     if(Ed){
@@ -2441,6 +2555,9 @@ const NOTES = {
 <p><b>Nyquist ghost.</b> EPI traverses readout in alternating directions. A delay, or eddy fields from the readout ramps, shifts the echo one way on even lines and the other way on odd lines. The difference is modulated at the Nyquist frequency in k<sub>PE</sub>, which puts a ghost at FOV/2. Scanners measure the odd–even difference with a reference scan without phase blips and remove it: tick the correction. The part that varies along the train, from short time constants, remains.</p>
 <p><b>Diffusion weighting.</b> The large diffusion lobes leave fields that are still present during the readout. In EPI any field is a displacement along phase: an eddy gradient along phase <b>scales</b> the image, one along readout <b>shears</b> it, and one along slice at a slice offset z₀ <b>shifts</b> it. Freeze the b = 0 reference, choose a direction and compare with the split view. This is the misregistration that eddy-current correction (e.g. FSL eddy) must undo. Long time constants hurt the most, because the field survives into the readout. Twice-refocused spin echoes are designed to null a chosen τ.</p>
 <p>Line-by-line sequences are robust. Every line is played with the same gradients and sees the same small error at the same time after excitation. There is no alternation to make a ghost and no error that builds up along phase, so there is hardly any distortion. Spatially higher-order eddy fields and cross-terms between axes are not modelled.</p>`,
+  ghost:`<p>EPI reads k-space in alternating directions: even lines left to right, odd lines right to left. A small delay δt between the gradients and the ADC moves the echo by γ̄G<sub>RO</sub>δt in k, but <b>in opposite directions on odd and even lines</b>. Along k<sub>PE</sub> the data now alternate line by line, a modulation at the Nyquist frequency, which shifts part of the signal by <b>half the FOV along phase</b>. Look above and below the head.</p>
+<p>After the Fourier transform along readout, a k-shift is a linear phase in x. The odd–even difference Δk is a phase 2πΔk·x, zero at the centre of the readout FOV and largest at its edges. The ghost is weighted by sin(πΔk·x) and the image by cos(πΔk·x), so the ghost brightens towards the readout edges and the parent image darkens there. The plot shows both, with the two central echoes as acquired.</p>
+<p>Scanners measure the odd–even difference with a <b>reference scan</b>, a few echoes without phase blips, and remove it from every line before the phase Fourier transform. With a pure delay the correction is exact. A line-by-line sequence reads every line in the same direction, so the same delay is only a linear image phase and leaves no ghost. Constant odd–even phase errors, from B₀ eddy currents for example, give the same FOV/2 ghost with a uniform weight; they are not modelled here.</p>`,
   flow:`<p>Blood in the superior sagittal sinus flows through the slice, and its velocity pulses with the heart. A moving spin's signal carries a phase 2π·M₁·v, set by the first moment M₁ of the gradients it has experienced. Most of M₁ comes from the slice gradient and, in spin echoes, the crushers around the refocusing pulse. The magnitude changes too. In spin echo, fast blood leaves the slice between the 90° and 180° pulses (washout). In gradient echo, unsaturated blood flowing in brightens the vessel (inflow).</p>
 <p>Line-by-line imaging acquires one phase-encoding line per TR, so the vessel's signal is modulated from line to line at the heart rate, sampled every TR. A modulation along k<sub>PE</sub> produces <b>ghosts along the phase direction only</b>, at multiples of N<sub>PE</sub>·TR/T<sub>c</sub> pixels, wrapped into the FOV. They run across the brain wherever the vessel is. Readout sees a fixed velocity, because each line takes only milliseconds. Change the heart rate or TR and the ghosts move. In Advanced, swap the phase direction and they turn with it.</p>
 <p>Remedies: <b>flow compensation</b> nulls M₁, which removes the phase modulation. Any ghosts that remain come from the magnitude changes. A <b>saturation band</b> upstream saturates the inflowing blood, so the vessel has little signal left to modulate. EPI acquires all lines within one heartbeat, so it barely ghosts. Cardiac gating is the other standard remedy.</p>
@@ -2549,6 +2666,9 @@ function syncLabels(){
   $("vRfiPx").textContent = fmtSigned(P.rfiPx, 0) + " px = " + fmtHz(P.rfiPx*P.bw);
   $("vRfiA").textContent = (P.rfiAmp*100).toExponential(0) + " %";
   document.querySelectorAll(".ctl[data-hot]").forEach(el => el.classList.toggle("hot", el.dataset.hot.split(" ").includes(P.mode)));
+  // controls that the current artifact does not model are removed, not just unmarked
+  document.querySelectorAll(".ctl[data-skip]").forEach(el => el.classList.toggle("na", el.dataset.skip.split(" ").includes(P.mode)));
+  $("ecTitle").textContent = P.mode === "ghost" ? "Gradient timing" : "Eddy currents and gradient timing";
   $("phys").innerHTML = physHTML();
   $("note").innerHTML = NOTES[P.mode];
 }
