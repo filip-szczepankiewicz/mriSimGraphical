@@ -27,6 +27,18 @@ bundled code is included inside the simulator files that use it. Those
 components remain subject to their own copyright notices and license terms.
 Existing third-party notices must be retained where required.
 
+THIRD-PARTY DATA
+
+The MR brain image in mriFourierSim.html is one axial slice of the ICBM 2009a
+nonlinear symmetric T1-weighted template (MNI152), downsampled:
+Copyright (C) 1993-2004 Louis Collins, McConnell Brain Imaging Centre, Montreal
+Neurological Institute, McGill University. Permission to use, copy, modify, and
+distribute this software and its documentation for any purpose and without fee
+is hereby granted, provided that the above copyright notice appear in all
+copies. The authors and McGill University make no representations about the
+suitability of this software for any purpose. It is provided "as is" without
+express or implied warranty. The full notice is also in the file header.
+
 This NOTICE is informational only. It does not add restrictions or conditions
 to the MIT License covering the project material released by the copyright
 holder.
