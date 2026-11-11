@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark light">
+<title>{{ page.title | default: "MRI simulators" }}</title>
+<script>
+/* Same light/dark preference as the simulators (localStorage "mrisim.theme");
+   falls back to the operating-system setting. Applied before first paint. */
+(function () {
+  var t = null;
+  try { t = localStorage.getItem("mrisim.theme"); } catch (e) {}
+  if (t !== "light" && t !== "dark")
+    t = window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+  document.documentElement.setAttribute("data-theme", t);
+})();
+</script>
+<style>
+:root{
+  --bg:#0e1219; --panel:#151b24; --panel2:#1b2230; --line:#26303f;
+  --text:#ccd6e4; --muted:#7c8a9d; --dim:#4d5a6b; --ui:#2fb6b0;
+}
+html[data-theme="light"]{
+  --bg:#f2f4f7; --panel:#ffffff; --panel2:#f7f9fb; --line:#d7dde5;
+  --text:#1b2430; --muted:#5f6c7d; --dim:#9aa5b3; --ui:#0f8f8a;
+}
+*{box-sizing:border-box}
+html,body{margin:0; background:var(--bg); color:var(--text);
+  font-family:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace}
+body{font-size:13px; line-height:1.6}
+a{color:var(--ui); text-decoration:none}
+a:hover{text-decoration:underline}
+:focus-visible{outline:2px solid var(--ui); outline-offset:2px}
+
+/* Header bar, matching the simulators' rail header */
+.top{position:sticky; top:0; z-index:2; background:var(--panel); border-bottom:1px solid var(--line)}
+.top-in{max-width:900px; margin:0 auto; padding:11px 16px; display:flex; align-items:center; gap:6px}
+.brand{margin-right:auto; font-size:12px; font-weight:600; letter-spacing:.16em; text-transform:uppercase; color:var(--text)}
+.brand:hover{text-decoration:none}
+.themebtn{appearance:none; background:transparent; border:1px solid var(--line); color:var(--muted);
+  font:inherit; font-size:10px; line-height:1.45; letter-spacing:.1em; text-transform:uppercase;
+  padding:3px 7px; cursor:pointer; border-radius:2px}
+.themebtn:hover{color:var(--text); border-color:var(--muted); text-decoration:none}
+
+/* README content */
+main{max-width:900px; margin:0 auto; padding:8px 16px 40px}
+h1{font-size:18px; font-weight:600; letter-spacing:.02em; margin:26px 0 10px}
+h2{font-size:14px; font-weight:600; margin:36px 0 12px; padding-top:22px; border-top:1px solid var(--line)}
+h3{font-size:13px; font-weight:600; margin:24px 0 8px}
+p,ul,ol{margin:0 0 12px}
+ul,ol{padding-left:22px}
+li{margin:3px 0}
+strong,b{font-weight:600}
+code{font-family:inherit; font-size:.92em; background:var(--panel2); border:1px solid var(--line);
+  border-radius:3px; padding:0 4px}
+h2 code{background:none; border:0; padding:0; font-size:inherit}
+pre{background:var(--panel); border:1px solid var(--line); border-radius:4px; padding:10px 12px; overflow-x:auto}
+pre code{background:none; border:0; padding:0}
+img{max-width:100%; height:auto}
+main > p > img{display:block; border:1px solid var(--line); border-radius:4px}
+hr{border:0; border-top:1px solid var(--line); margin:24px 0}
+
+/* Simulator gallery (the README's table of screenshots) */
+table{border-collapse:separate; border-spacing:8px; margin:0 -8px 12px; width:calc(100% + 16px)}
+td,th{background:var(--panel); border:1px solid var(--line); border-radius:4px; padding:10px;
+  vertical-align:top; font-size:12px; line-height:1.5; color:var(--muted)}
+td img{display:block; width:100%; border:1px solid var(--line); border-radius:3px; margin-bottom:8px}
+td b{color:var(--text)}
+td a:hover b{color:var(--ui)}
+/* The "Open online" badge is for readers on github.com; here the reader is already on the site */
+p:has(> a > img[src*="img.shields.io"]){display:none}
+
+footer{max-width:900px; margin:0 auto; padding:14px 16px 28px; border-top:1px solid var(--line);
+  font-size:11px; color:var(--muted); display:flex; flex-wrap:wrap; gap:4px 16px}
+footer .sp{margin-right:auto}
+
+@media (max-width:700px){
+  table:has(img), table:has(img) tbody, table:has(img) tr, table:has(img) td{display:block; width:auto}
+  table:has(img){margin:0 0 12px; border-spacing:0}
+  table:has(img) td{margin-bottom:8px}
+}
+</style>
+</head>
+<body>
+{% assign repo = site.github.repository_url | default: "https://github.com/filip-szczepankiewicz/mriSimGraphical" %}
+<header class="top">
+  <div class="top-in">
+    <a class="brand" href="{{ '/' | relative_url }}">MRI simulators</a>
+    <a class="themebtn" href="{{ repo }}">GitHub</a>
+    <button class="themebtn" id="theme" type="button" title="Switch colour theme">Light</button>
+  </div>
+</header>
+
+<main>
+{{ content }}
+</main>
+
+<footer>
+  <span class="sp">Designed by Filip Sz (Lund University)</span>
+  <a href="{{ repo }}/blob/HEAD/LICENSE">MIT License</a>
+  <a href="{{ repo }}">Source on GitHub</a>
+</footer>
+
+<script>
+(function () {
+  var KEY = "mrisim.theme", root = document.documentElement, btn = document.getElementById("theme");
+  function cur() { return root.getAttribute("data-theme") === "light" ? "light" : "dark"; }
+  function label() { btn.textContent = cur() === "dark" ? "Light" : "Dark"; }
+  btn.addEventListener("click", function () {
+    var t = cur() === "dark" ? "light" : "dark";
+    root.setAttribute("data-theme", t);
+    try { localStorage.setItem(KEY, t); } catch (e) {}
+    label();
+  });
+  /* Follow live changes of the system setting until the reader picks a theme */
+  if (window.matchMedia) window.matchMedia("(prefers-color-scheme: light)").addEventListener("change", function (e) {
+    var saved = null;
+    try { saved = localStorage.getItem(KEY); } catch (err) {}
+    if (saved !== "light" && saved !== "dark") { root.setAttribute("data-theme", e.matches ? "light" : "dark"); label(); }
+  });
+  label();
+})();
+</script>
+</body>
+</html>
